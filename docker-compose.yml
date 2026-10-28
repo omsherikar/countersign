@@ -58,6 +58,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       mockgov: { condition: service_started }
+      mailpit: { condition: service_started }
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/healthz')\""]
       interval: 10s
@@ -78,6 +79,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      mailpit: { condition: service_started }
 
   mockgov:
     build: ./services/mockgov

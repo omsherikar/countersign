@@ -10,6 +10,7 @@ import asyncio
 import csv
 import json
 import os
+import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -26,6 +27,10 @@ os.environ["AUTO_MIGRATE"] = "false"
 os.environ["RATE_LIMITS_ENABLED"] = "false"
 os.environ["GOV_ADAPTER"] = "inmemory"
 os.environ["MOCKGOV_BASE_URL"] = "http://mockgov.test"
+# never reach a mail server from tests (a refused host sends nothing); tests that read mail
+# use a memory mailer
+os.environ["SMTP_HOST"] = "smtp.test.invalid"
+os.environ.setdefault("CASE_FILES_DIR", tempfile.mkdtemp(prefix="countersign-case-files-"))
 os.environ.setdefault("API_SECRET_KEY", "test-secret-key-test-secret-key-test-secret")
 os.environ.setdefault("PII_HMAC_KEY", "00" * 32)
 os.environ.setdefault("PII_FERNET_KEY", "Zm9yLWRlbW8tb25seS1yZXBsYWNlLW1lLXBsZWFzZS0wMDA=")
