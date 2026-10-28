@@ -13,8 +13,10 @@ FLAG_TYPES = {
 }  # fmt: skip
 NOT_FLAGGED = {
     "CONSENT_REFUSED_NO_APAAR", "WITHDRAWAL", "TRANSFER", "CIWG_ADMISSION",
-    "TFW_INCOME_NOT_REPORTED",
+    "TFW_INCOME_NOT_REPORTED", "ANOMALY",
 }  # fmt: skip
+# Records about a college, not about rows of its upload.
+INSTITUTION_LEVEL = {"ANOMALY", "MISSING_FROM_UPLOAD"}
 FIXED_SEVERITY = {
     "EXCESS_ADMISSION": "HIGH",
     "LATE_REFILL": "MEDIUM",
@@ -54,7 +56,8 @@ def test_record_shape_and_flag_vocabulary(small):
         ):  # fmt: skip
             assert key in rec, key
         assert rec["institution_aicte_id"] == rec["institution_aicte_ids"][0]
-        assert rec["rows"] and len(rec["student_refs"]) == len(rec["rows"])
+        assert len(rec["student_refs"]) == len(rec["rows"])
+        assert bool(rec["rows"]) is (rec["anomaly_type"] not in INSTITUTION_LEVEL)
         if rec["anomaly_type"] in NOT_FLAGGED:
             assert rec["expected_flag"] is None and rec["severity_expected"] is None
         else:

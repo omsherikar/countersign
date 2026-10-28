@@ -256,6 +256,7 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
 
     ground_truth = finalize_ground_truth(world)
     dump_json(out / "ground_truth.json", ground_truth)
+    dump_json(out / "history.json", world.history)
 
     by_type: dict[str, int] = {}
     for rec in ground_truth:
@@ -281,6 +282,7 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "notice_replies_yes": sum(r["reply"] == "YES" for r in replies),
         "notice_replies_no": sum(r["reply"] == "NO" for r in replies),
         "notice_replies_none": sum(r["reply"] == "NONE" for r in replies),
+        "history_institutions": len(world.history.get("institutions", [])),
         "ground_truth": len(ground_truth),
         "ground_truth_by_type": dict(sorted(by_type.items())),
     }

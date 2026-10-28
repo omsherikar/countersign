@@ -16,6 +16,7 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     from .anomalies import Planter
     from .eligibility import EligibilityPlanner
     from .graduates import GraduateBuilder
+    from .signals import SignalPlanner
     from .students import World
     from .updates import UpdatePlanner
     from .writers import write_all
@@ -44,10 +45,13 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     t = time.perf_counter()
     eligibility = EligibilityPlanner(world, planter)
     added = eligibility.add_ciwg_rows()
+    signals = SignalPlanner(world, planter)
+    added += signals.plant()
+    world.history = signals.history
     world.settle(added, random.Random(f"settle:{seed}"))
     eligibility.mark()
-    eligibility.plant()
-    world.timings["eligibility"] = time.perf_counter() - t
+    eligibility.plant(avoid=signals.colleges)
+    world.timings["eligibility_signals"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
     summary = write_all(world, out, xlsx=want_xlsx)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)
