@@ -1360,10 +1360,11 @@ Implements DECISIONS D23 to D33. Everything below is normative in the same way a
   | SMTP refused the address | FAILED after 1 try | `Email address was refused.` |
   | SMTP did not answer or failed temporarily, 3 times | FAILED | `Mail server did not respond.` |
   | DigiLocker 202 `delivered: true` | SENT | null |
-  | DigiLocker `delivered: false` (`APAAR_NOT_LINKED`), or a 404 | FAILED after 1 try | `No DigiLocker account for this APAAR.` |
+  | DigiLocker 404 `APAAR_NOT_LINKED` (the APAAR has no DigiLocker account) | FAILED after 1 try | `No DigiLocker account.` |
   | DigiLocker unavailable (timeout, 5xx), 3 times | FAILED | `DigiLocker did not respond.` |
+  | DigiLocker any other 4xx | FAILED after 1 try | `DigiLocker refused the notice.` |
 
-  The current mockgov answers an unknown APAAR with `200 {"delivered": false, "reason": "APAAR_NOT_LINKED"}` (C.5); a 404 is treated the same way so either form works.
+  mockgov answers an APAAR with no account with `404 {"error": {"code": "APAAR_NOT_LINKED", ...}}` and stores nothing (§A3.28 updates C.5). The api's MockGov DigiLocker adapter raises `AdapterRequestError` with status 404 for it, and the notices code turns exactly that into FAILED with `last_error` "No DigiLocker account."; `InMemoryDigiLocker` raises the same for an unknown APAAR. Any other `AdapterRequestError` is FAILED at once with "DigiLocker refused the notice."; `SourceUnavailable` is the transient row above.
 - After delivery the STUDENT check of each enrolment touched is refreshed (§A3.8).
 
 ### A3.3 `GET /notices/{token}` (public)
@@ -2502,31 +2503,33 @@ export interface AuditListQuery {
 
 Supersedes the matching lines of sections C and E and of A2.24. Everything not mentioned stays as it is.
 
-**mockgov.** New `GET /digilocker/ui`: an HTML page for the demo (no sign-in, like every mockgov route) listing every inbox message, newest first, with an optional `?apaar_id=` filter. Each row shows "APAAR ending 4417", the message, the time received and a "Respond" link to the message's `callback_url`. `POST /digilocker/notify` and `GET /digilocker/inbox/{apaar_id}` are unchanged (an unknown APAAR still answers `200 {"delivered": false, "reason": "APAAR_NOT_LINKED"}`).
+**mockgov C.5 `POST /digilocker/notify`.** `202 {"delivered": true, "inbox_id": "ib_01HZ..."}` when the APAAR has a DigiLocker account (a registry entry); otherwise `404 {"error": {"code": "APAAR_NOT_LINKED", "message": "No DigiLocker account is linked to this APAAR id.", "details": {}}}` and nothing is stored. The Week 1 `200 {"delivered": false, ...}` answer is gone. The route stays behind the chaos gate, so a DigiLocker outage in the demo gives 503.
 
-**`notice_replies.jsonl`** (new, `/data/generated/`). One line per simulated reply:
+**mockgov `GET /digilocker/ui`** (new). An HTML inbox page for the demo, outside the chaos gate (it shows the inbox even while DigiLocker is "down"), no sign-in like every mockgov route: every message, newest first, optional `?apaar_id=` filter, each row showing the APAAR's last four digits, the message, the time received and a "Respond" link to its `callback_url`. `GET /digilocker/inbox/{apaar_id}` is unchanged.
 
-```json
-{"student_ref": "1-ABC-0001_2026-27.csv#57", "institution_aicte_id": "1-ABC-0001", "programme_code": "CSE", "academic_year": "2026-27", "channel": "EMAIL", "response": "YES", "comment": null}
-```
-
-- `student_ref` as in `ground_truth.json` (the APAAR, or `<file>#<row_no>`); with `institution_aicte_id`, `programme_code` and `academic_year` it names exactly one enrolment.
-- `response`: `YES` for about 70 percent of clean ACTIVE enrolments (rows no planted anomaly touches); `NO` for every row planted with `will_deny`, with a short synthetic `comment` ("I have never studied at this college."); no line for everyone else.
-- `channel`: `EMAIL` when the row has an email address, else `DIGILOCKER` (the row then has a linked APAAR). Every `will_deny` row has at least one of the two, so its notice can be sent.
-- Never a line for the demo student or for the students in `manifest.json` `demo.unanswered`.
-
-**`graduates.jsonl`** (new). One line per graduate: final-year students of 2025-26 at institutions affiliated to each university.
+**`notice_replies.jsonl`** (new, `/data/generated/`). One line per accepted row of every initial upload file, in file and row order; rows the api rejects as upload errors and the rows of update files (refills included) have no line.
 
 ```json
-{"student_ref": "MSTU-G-0001", "university_code": "MSTU", "institution_aicte_id": "1-ABC-0001", "programme_code": "CSE", "academic_year": "2025-26", "year_of_study": 4, "year_of_award": 2026, "name": "Asha Patil", "dob": "2004-05-17", "gender": "F", "nationality": "IN", "apaar_id": null, "consent_status": "PENDING", "email": null, "mobile": null, "admission_route": "COUNSELLING", "category": "OBC", "admission_date": "2022-08-01"}
+{"file": "1-ABC-0001_2026-27.csv", "row_no": 57, "reply": "YES", "channel": "EMAIL", "comment": null, "reply_after_days": 3}
 ```
 
-- `year_of_study` is the programme's duration. Most graduates have a 12-digit `apaar_id` with `consent_status` LINKED and a registry entry in `mockgov/apaar_registry.jsonl`; a few have `apaar_id: null` (PENDING or REFUSED) and get a provisional id.
-- `student_ref` is the APAAR when there is one, else `<university_code>-G-<nnnn>`.
-- The api imports them with `python -m app.seed.cli` after the uploads (`app/seed/graduates.py`): the student is resolved with the D14 identity rules, and a GRADUATED enrolment is written for `academic_year` 2025-26 with `cohort_year` from `app/core/cohort.py`, `status_date` 2026-06-30, no batch, no seat, no checks and no flags; audit SEED entries with no actor.
+- `file` and `row_no` name the row exactly as the api stores it (`upload_batches.filename`, `enrolments.source_row_no`; header row 1, first data row 2).
+- `reply`: `YES` for about 70 percent of clean rows (no planted anomaly, not withdrawn or transferred by a later update file); `NO` for every row planted with `will_deny`, three of them with a short `comment`; `NONE` for every other row.
+- `channel`: the channel the student answers on (`DIGILOCKER` or `EMAIL`). A NO goes by DigiLocker when the row's APAAR is in the registry, else by email. A NONE line still names the channel the student would use, with `reply_after_days` 0.
+- `reply_after_days`: how long after the notice the student answered (0 to 12 for YES, 0 to 5 for NO). The api applies every reply at seed time and does not use this value in Week 3.
+- The seed (`python -m app.seed.replies`) applies only YES and NO lines.
 
-**`manifest.json`.** `counts` gains `graduates`, `notice_replies_yes` and `notice_replies_no`. New key `demo.unanswered`: `[{"student_ref", "name", "institution_aicte_id", "programme_code", "email"}]`, Ravi Kumar Sharma first and one more named ABC College of Engineering student, both with an email address, both left without a reply so the demo (and the end-to-end test) can answer live: Ravi says Yes, the other says No.
+**`graduates.jsonl`** (new). One line per graduate: final-year students of 2025-26 at institutions affiliated to each university, fields in this order:
 
-**`ground_truth.json`.** Unchanged: the STUDENT_DENIED records (8 in the small size) are already there, `expected_flag: "STUDENT_DENIED"`, and the quick check must still find every planted case after `make seed`.
+```json
+{"institution_aicte_id": "1-ABC-0001", "programme_code": "CSE", "academic_year": "2025-26", "year_of_study": 4, "name": "Asha Patil", "dob": "2004-05-17", "gender": "F", "apaar_id": "987654320011", "consent_status": "LINKED", "provisional_id": null, "email": null, "mobile": null, "nationality": "IN", "year_of_award": 2026, "admission_route": "COUNSELLING", "category": "OBC", "admission_date": "2022-08-01", "status_date": "2026-06-30"}
+```
 
-**Seed order** (`make seed` and `make demo-reset`): mockgov seed (now with the graduates' registry rows); `python -m app.seed.cli --from /data/generated` (institutions, users, every upload through `run_batch`, the graduates, then `send_notices_for_batch` for every batch in upload order); `python -m app.seed.replies --from /data/generated`.
+- Most graduates have an `apaar_id` with `consent_status` LINKED and a registry entry in `mockgov/apaar_registry.jsonl`; a few have `apaar_id: null` and a `provisional_id`. ABC College of Engineering has B.Tech CSE graduates, all LINKED, for the degree demo.
+- The existing seed CLI imports them right after the institutions (`app/seed/graduates.py`): each line becomes a student stored as an upload stores one, and one GRADUATED enrolment of 2025-26 with its cohort year, no seat, no upload batch, no checks and no flags; a re-run adds nothing; one SEED audit entry per run.
+
+**`manifest.json`.** `counts` gains `graduates`, `notice_replies`, `notice_replies_yes`, `notice_replies_no` and `notice_replies_none`. New key `demo_unanswered_notices`: `[{"role", "file", "row_no", "name", "apaar_id"}]`, the notices left for the live demo and the end-to-end test, with `role` `DEMO_STUDENT` (Ravi Kumar Sharma, row 2 of `1-ABC-0001_2026-27.csv`), `DEMO_STUDENT_DUPLICATE` (his "R. K. Sharma" row) and `SECOND_DEMO_NOTICE` (a clean ABC College CSE first-year with an email and a DigiLocker account; row 9 in the small size), who answers No live.
+
+**`ground_truth.json`.** Unchanged: the STUDENT_DENIED records (8 in the small size) are already there, and the quick check must still find every planted case after `make seed`.
+
+**Seed order** (`make seed` and `make demo-reset`): mockgov seed (with the graduates' registry rows); `python -m app.seed.cli --from /data/generated` (institutions and users, graduates, every upload through `run_batch`, then `send_notices_for_batch` for every batch in upload order); `python -m app.seed.replies --from /data/generated`.
