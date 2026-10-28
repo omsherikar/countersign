@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
@@ -32,6 +32,46 @@ from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
 
 RELEASING = (EnrolmentStatus.WITHDRAWN, EnrolmentStatus.TRANSFERRED)
+# New rows are written with one multi-row INSERT per table; ids are generated here.
+STUDENT_COLUMNS = (
+    "id",
+    "apaar_hmac",
+    "apaar_encrypted",
+    "apaar_last4",
+    "consent_status",
+    "provisional_id",
+    "name",
+    "name_normalized",
+    "name_key",
+    "dob",
+    "gender",
+    "mobile_hmac",
+    "mobile_last4",
+    "email",
+    "address_hmac",
+    "nationality",
+    "passport_hmac",
+    "passport_encrypted",
+)
+ENROLMENT_COLUMNS = (
+    "id",
+    "student_id",
+    "institution_id",
+    "programme_id",
+    "academic_year",
+    "year_of_study",
+    "cohort_year",
+    "admission_route",
+    "counselling_ref",
+    "category",
+    "status",
+    "admission_date",
+    "status_date",
+    "apaar_problem",
+    "upload_batch_id",
+    "source_row_no",
+    "uploaded_at",
+)
 
 
 def provisional_id_for(aicte_id: str, normalised_name: str, dob_iso: str, mobile: str) -> str:
@@ -57,6 +97,14 @@ def _by(rows: Sequence[Student], attr: str) -> dict[Any, Student]:
     for student in rows:  # rows arrive oldest first; keep the first per key
         out.setdefault(getattr(student, attr), student)
     return out
+
+
+async def _insert(
+    session: AsyncSession, model: Any, objects: list[Any], columns: tuple[str, ...]
+) -> None:
+    """ORM bulk INSERT: one cached statement, rows sent in batches."""
+    if objects:
+        await session.execute(insert(model), [{c: getattr(o, c) for c in columns} for o in objects])
 
 
 async def _students(session: AsyncSession, column, keys: list[Any]) -> Sequence[Student]:
@@ -202,6 +250,8 @@ async def upsert_rows(
     )
 
     entries: list[audit.AuditEntry] = []
+    new_students: list[Student] = []  # not added to the session: inserted in bulk below
+    new_enrolments: list[Enrolment] = []
     for plan in plans:
         student: Student | None
         if plan.apaar_hmac:
@@ -217,7 +267,7 @@ async def upsert_rows(
 
         if student is None:
             student = _new_student(plan)
-            session.add(student)
+            new_students.append(student)
             result.students_created += 1
             entries.append(
                 audit.AuditEntry(
@@ -291,7 +341,7 @@ async def upsert_rows(
                 source_row_no=row.row_no,
                 uploaded_at=batch.created_at,
             )
-            session.add(enrolment)
+            new_enrolments.append(enrolment)
             enrolments[(student.id, row.programme_id)] = enrolment
             outcome = "created"
             result.created += 1
@@ -374,6 +424,8 @@ async def upsert_rows(
             )
         )
 
+    await _insert(session, Student, new_students, STUDENT_COLUMNS)
+    await _insert(session, Enrolment, new_enrolments, ENROLMENT_COLUMNS)
     await session.flush()
     await audit.record_many(session, entries)
     return result
