@@ -1,5 +1,6 @@
-"""The section E file contract: names, columns, shapes, demo users."""
+"""The section E file contract (with Addendum 2): names, columns, shapes, demo users."""
 
+import datetime as dt
 import re
 
 from openpyxl import load_workbook
@@ -10,7 +11,7 @@ from datagen.students import UPLOAD_COLUMNS
 CONTRACT_COLUMNS = [
     "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
     "passport_no", "programme_code", "academic_year", "year_of_study", "admission_route",
-    "counselling_ref", "category", "consent_status",
+    "counselling_ref", "category", "consent_status", "status", "status_date", "admission_date",
 ]  # fmt: skip
 
 DEMO_USERS = [
@@ -56,6 +57,22 @@ def test_xlsx_mirrors_csv(small):
     assert first[0] == "123456784417"
     assert first[1] == "Ravi Kumar Sharma"
     assert str(first[11]) == "1"
+    assert first[18] == rows[0]["admission_date"]
+
+
+def admission_window(year_of_study: int) -> tuple[str, str]:
+    start = 2026 - (year_of_study - 1)
+    end = "2026-09-15" if start == 2026 else f"{start}-09-30"
+    return f"{start}-07-01", end
+
+
+def test_initial_files_leave_status_blank_and_date_every_admission(small):
+    for aid, rows in small.all_uploads().items():
+        for row in rows:
+            assert row["status"] == "" and row["status_date"] == "", aid
+            assert dt.date.fromisoformat(row["admission_date"])
+            lo, hi = admission_window(int(row["year_of_study"]))
+            assert lo <= row["admission_date"] <= hi, (aid, row["year_of_study"])
 
 
 def test_institutions_json_shape(small):
@@ -143,6 +160,7 @@ def test_manifest_and_summary(small):
     assert counts["institutions"] == 50
     assert counts["students"] == sum(len(r) for r in small.all_uploads().values())
     assert counts["apaar_registry"] == len(small.jsonl("apaar_registry.jsonl"))
+    assert counts["upload_files"] == len(small.all_uploads())
     summary = small.json("summary.json")
     assert summary["counts"] == counts
     assert summary["xlsx_written"] is True

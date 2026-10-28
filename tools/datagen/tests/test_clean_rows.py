@@ -15,6 +15,7 @@ def planted_rows(small) -> set[tuple[str, int]]:
         (row["institution_aicte_id"], row["row_no"])
         for rec in small.json("ground_truth.json")
         for row in rec["rows"]
+        if not row["file"].endswith("_update1.csv")
     }
 
 
@@ -37,7 +38,7 @@ def test_clean_rows_match_every_registry(small):
     sii = {s["passport_no"]: s for s in small.jsonl("sii.jsonl")}
     checked = Counter()
     for aid, rows in small.all_uploads().items():
-        for i, row in enumerate(rows, start=1):
+        for i, row in enumerate(rows, start=2):
             if (aid, i) in planted:
                 continue
             assert row["academic_year"] == "2026-27"
@@ -61,6 +62,7 @@ def test_clean_rows_match_every_registry(small):
             # ADMISSION
             if row["admission_route"] in {"COUNSELLING", "TFW", "LATERAL"}:
                 c = counselling[row["counselling_ref"]]
+                assert c["allotment_ref"] == row["counselling_ref"]
                 assert c["name"] == row["name"] and c["dob"] == row["dob"]
                 assert c["institution_aicte_id"] == aid
                 assert c["programme"] == row["programme_code"]

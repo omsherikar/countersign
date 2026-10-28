@@ -1,6 +1,6 @@
 """Student rows (what a college uploads) and the generation world they live in.
 
-Every row is a dict with the sixteen upload columns plus internal keys prefixed `_`
+Every row is a dict with the nineteen upload columns plus internal keys prefixed `_`
 that drive registry emission and anomaly bookkeeping. Internal keys never reach a file.
 """
 
@@ -21,7 +21,7 @@ from .names import NameGenerator
 UPLOAD_COLUMNS = [
     "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
     "passport_no", "programme_code", "academic_year", "year_of_study", "admission_route",
-    "counselling_ref", "category", "consent_status",
+    "counselling_ref", "category", "consent_status", "status", "status_date", "admission_date",
 ]  # fmt: skip
 
 DEMO_APAAR = "123456784417"
@@ -36,6 +36,9 @@ COUNSELLED_ROUTES = {"COUNSELLING", "TFW", "LATERAL"}
 EMAIL_DOMAINS = ["example.com", "example.net", "example.org", "mail.example"]
 CATEGORIES = (["GENERAL", "OBC", "SC", "ST", "EWS", "OTHER"], [40, 30, 12, 5, 10, 3])
 YEAR3_SHARE = 0.35
+# Admissions inside the window are dated up to LATE_DAYS before its last day; the final
+# LATE_DAYS are kept for the planted overflow rows, so they are always the last admitted.
+LATE_DAYS = 10
 
 
 def round_half_up(x: float) -> int:
@@ -48,6 +51,13 @@ def academic_year_label(start: int) -> str:
 
 def academic_year_start(label: str) -> int:
     return int(label[:4])
+
+
+def admission_window(rules: dict, cohort_start: int) -> tuple[dt.date, dt.date]:
+    """1 July of the cohort's start year up to its cutoff in rules.yaml, else 30 September."""
+    cutoff = rules.get("cutoff_dates", {}).get(academic_year_label(cohort_start))
+    end = dt.date.fromisoformat(cutoff) if cutoff else dt.date(cohort_start, 9, 30)
+    return dt.date(cohort_start, 7, 1), end
 
 
 class Pools:
@@ -201,9 +211,14 @@ class World:
             "counselling_ref": "",
             "category": "",
             "consent_status": "",
+            "status": "",
+            "status_date": "",
+            "admission_date": "",
             "_inst": inst["aicte_permanent_id"],
             "_prog": prog,
             "_adm_year": admission_year,
+            "_cohort_start": academic_year_start(self.cfg.academic_year) - (year_of_study - 1),
+            "_late": False,
             "_group": group,
             "_roll_no": "",
             "_round": 0,
@@ -403,6 +418,27 @@ class World:
             if year_of_study == 2:
                 for _ in range(8):
                     self.new_student(inst, prog, 2, "LATERAL", lateral=True)
+
+    # ---------------------------------------------------------------- dates
+
+    def random_date(self, lo: dt.date, hi: dt.date) -> dt.date:
+        return lo + dt.timedelta(days=self.rng.randint(0, (hi - lo).days))
+
+    def assign_admission_dates(self) -> None:
+        """Every initial row gets a date in its cohort's admission window. Planted overflow
+        rows (`_late`) take the window's last days so the ledger seats everyone else first."""
+        rules = self.cfg.rules
+        for row in self.all_rows:
+            start, end = admission_window(rules, row["_cohort_start"])
+            last_normal = end - dt.timedelta(days=LATE_DAYS)
+            if row["_late"]:
+                day = self.random_date(last_normal + dt.timedelta(days=1), end)
+            else:
+                day = self.random_date(start, last_normal)
+            row["admission_date"] = day.isoformat()
+
+    def finalise(self) -> None:
+        self.assign_admission_dates()
 
     # --------------------------------------------------------------- driver
 

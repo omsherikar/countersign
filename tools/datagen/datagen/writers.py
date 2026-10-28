@@ -34,8 +34,14 @@ def row_sort_key(inst: dict):
     return key
 
 
+APAAR_RE = re.compile(r"[0-9]{12}")
+
+
 def student_ref(row: dict, file: str) -> str:
-    return row["apaar_id"] if row["apaar_id"] else f"{file}#{row['row_no']}"
+    """The APAAR when the api will key the student on it, else `<file>#<row_no>`."""
+    if APAAR_RE.fullmatch(row["apaar_id"]) and row["consent_status"] == "LINKED":
+        return row["apaar_id"]
+    return f"{file}#{row['row_no']}"
 
 
 def dump_json(path: Path, payload: Any) -> None:
@@ -184,7 +190,8 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     for inst in world.institutions:
         rows = world.rows_by_inst[inst["aicte_permanent_id"]]
         rows.sort(key=row_sort_key(inst))
-        for i, row in enumerate(rows, start=1):
+        # Spreadsheet numbering, as the api reports it: the header is row 1.
+        for i, row in enumerate(rows, start=2):
             row["row_no"] = i
         write_csv(out / upload_filename(inst["aicte_permanent_id"], year), rows)
     world.timings["write_csv"] = time.perf_counter() - t
@@ -254,7 +261,8 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
             if world.xlsx_written
             else "XLSX uploads skipped for this run; CSV files carry the same rows.",
             "upload_columns": UPLOAD_COLUMNS,
-            "row_numbering": "row_no counts data rows from 1; the CSV header is not a row.",
+            "row_numbering": "row_no is the spreadsheet row: the header is row 1, the first "
+            "data row is row 2.",
             "timings_seconds": {k: round(v, 3) for k, v in world.timings.items()},
         }
     )

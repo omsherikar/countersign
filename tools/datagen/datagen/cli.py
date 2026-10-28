@@ -26,6 +26,9 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     t = time.perf_counter()
     Planter(world).plant_all()
     world.timings["plant_anomalies"] = time.perf_counter() - t
+    t = time.perf_counter()
+    world.finalise()
+    world.timings["finalise_rows"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
     summary = write_all(world, out, xlsx=want_xlsx)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)

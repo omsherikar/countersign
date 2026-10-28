@@ -1,14 +1,18 @@
 """Ground truth: counts match datagen.yaml, every reference resolves, scenarios are exact."""
 
+import re
 from collections import Counter
 
 from datagen.config import load_datagen_config
 
+# API_CONTRACT A2.24: the only values expected_flag may take.
 FLAG_TYPES = {
     "EXCESS_ADMISSION", "QUOTA_BREACH", "LATE_REFILL", "INVALID_APAAR", "NAME_MISMATCH",
-    "DUPLICATE_CROSS_INSTITUTION", "DUPLICATE_WITHIN_UPLOAD", "DUAL_ENROLMENT_ALLOWED",
-    "NO_ACADEMIC_ACTIVITY", "STUDENT_DENIED", "GHOST_RING", "ANOMALY",
+    "DUPLICATE_WITHIN_UPLOAD", "DUPLICATE_CROSS_INSTITUTION", "DUAL_ENROLMENT_ALLOWED",
+    "NO_ACADEMIC_ACTIVITY", "STUDENT_DENIED", "GHOST_RING",
 }  # fmt: skip
+NOT_FLAGGED = {"CONSENT_REFUSED_NO_APAAR", "WITHDRAWAL", "TRANSFER"}
+APAAR = re.compile(r"[0-9]{12}")
 
 
 def by_type(records):
@@ -38,29 +42,32 @@ def test_record_shape_and_flag_vocabulary(small):
             assert key in rec, key
         assert rec["institution_aicte_id"] == rec["institution_aicte_ids"][0]
         assert rec["rows"] and len(rec["student_refs"]) == len(rec["rows"])
-        if rec["anomaly_type"] == "CONSENT_REFUSED_NO_APAAR":
+        if rec["anomaly_type"] in NOT_FLAGGED:
             assert rec["expected_flag"] is None and rec["severity_expected"] is None
         else:
             assert rec["expected_flag"] in FLAG_TYPES
+            assert rec["expected_flag"] == rec["anomaly_type"]
             assert rec["severity_expected"] in {"LOW", "MEDIUM", "HIGH"}
 
 
 def test_every_reference_resolves_to_an_upload_row(small):
-    uploads = small.all_uploads()
     for rec in small.json("ground_truth.json"):
         for ref, row in zip(rec["student_refs"], rec["rows"], strict=True):
             file = row["file"]
             aid = row["institution_aicte_id"]
-            assert file == f"uploads/{aid}_2026-27.csv"
+            assert file in {
+                f"uploads/{aid}_2026-27.csv", f"uploads/{aid}_2026-27_update1.csv"
+            }  # fmt: skip
             assert (small.path / file).is_file()
             assert aid in rec["institution_aicte_ids"]
-            csv_row = uploads[aid][row["row_no"] - 1]
+            csv_row = small.row(file, row["row_no"])
             assert csv_row["name"] == row["name"]
             assert csv_row["programme_code"] == row["programme_code"]
             assert int(csv_row["year_of_study"]) == row["year_of_study"]
             assert (csv_row["apaar_id"] or None) == row["apaar_id"]
-            if row["apaar_id"]:
-                assert ref == row["apaar_id"]
+            usable = APAAR.fullmatch(csv_row["apaar_id"]) and csv_row["consent_status"] == "LINKED"
+            if usable:
+                assert ref == csv_row["apaar_id"]
             else:
                 assert ref == f"{file}#{row['row_no']}"
 
@@ -107,7 +114,7 @@ def test_ghost_ring_40_students_3_colleges_4_mobiles(small):
     assert len(rec["shared_mobiles"]) == 4
     uploads = small.all_uploads()
     mobiles = Counter(
-        uploads[r["institution_aicte_id"]][r["row_no"] - 1]["mobile"] for r in rec["rows"]
+        uploads[r["institution_aicte_id"]][r["row_no"] - 2]["mobile"] for r in rec["rows"]
     )
     assert set(mobiles) == set(rec["shared_mobiles"])
     assert all(n == 10 for n in mobiles.values())
