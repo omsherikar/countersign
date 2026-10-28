@@ -51,11 +51,13 @@ function DeniedNotice({ user }: { user: User }) {
   const denied = params.get("denied") as Role | null;
   React.useEffect(() => {
     if (!denied || !(denied in ROLE_PLURAL)) return;
+    // A fixed id: the effect can run twice (strict mode, the replace below), and sonner keeps one toast per id.
     toast(
       t("err.FORBIDDEN_redirect", {
         required_roles_words: ROLE_PLURAL[denied],
         role_word: ROLE_SINGULAR[user.role],
       }),
+      { id: "denied-redirect" },
     );
     const rest = new URLSearchParams(params.toString());
     rest.delete("denied");
