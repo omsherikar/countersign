@@ -1,0 +1,9 @@
+[
+  {"email": "admin@aicte.demo", "password": "Countersign!2026", "role": "AICTE_ADMIN", "name": "AICTE Administrator"},
+  {"email": "ro.west@aicte.demo", "password": "Countersign!2026", "role": "RO_OFFICER", "name": "Regional Officer, Western", "region": "WEST"},
+  {"email": "ro.south@aicte.demo", "password": "Countersign!2026", "role": "RO_OFFICER", "name": "Regional Officer, Southern", "region": "SOUTH"},
+  {"email": "registrar@abc.edu.demo", "password": "Countersign!2026", "role": "INSTITUTION", "name": "Registrar, ABC College of Engineering", "institution_aicte_id": "1-ABC-0001"},
+  {"email": "registrar@xyz.edu.demo", "password": "Countersign!2026", "role": "INSTITUTION", "name": "Registrar, XYZ Institute of Technology", "institution_aicte_id": "1-XYZ-0002"},
+  {"email": "student@demo", "password": "Countersign!2026", "role": "STUDENT", "name": "Ravi Kumar Sharma", "student_ref": "123456784417"},
+  {"email": "coe@univ.demo", "password": "Countersign!2026", "role": "UNIVERSITY", "name": "Controller of Examinations, MSTU", "university_code": "MSTU"}
+]
