@@ -4,6 +4,7 @@
  * sections A and B and Addendum 2 (A2.4 to A2.22).
  */
 import { ApiError, type Query } from "@/lib/api";
+import { casesDownload, casesUpload, withCases } from "@/lib/mock/cases";
 import { ACADEMIC_YEAR, HEALTH, INSTITUTIONS, MOCK_PASSWORD, REGIONS, SEEDS, STATES, USERS, adapterPing, auditVerify, institutionBase, regionName, zeroChaos } from "@/lib/mock/fixtures";
 import { SEVERITY_RANK, UNRESOLVED, allFlags, openFlagCount, type StoredFlag } from "@/lib/mock/flags";
 import { enrolmentDetail, entryById, programmesFor, recheck, rollFor, seatsFor, studentMe, type RollEntry } from "@/lib/mock/roll";
@@ -438,7 +439,12 @@ function uploadInScope(user: User, id: string) {
 
 /* ---- Router ------------------------------------------------------------- */
 
+/** Week 3 case, notice, audit and data request routes sit in front of the Week 2 routes (lib/mock/cases.ts). */
 export async function mockRequest(method: string, path: string, query?: Query, body?: unknown): Promise<unknown> {
+  return withCases(method, path, query, body, weekTwoRequest);
+}
+
+async function weekTwoRequest(method: string, path: string, query?: Query, body?: unknown): Promise<unknown> {
   await wait(120 + Math.round(Math.random() * 180));
   const [pathname] = path.split("?");
   const parts = pathname.split("/").filter(Boolean);
@@ -568,6 +574,7 @@ export async function mockRequest(method: string, path: string, query?: Query, b
 /** POST /uploads (multipart) in mock mode. */
 export async function mockUpload(path: string, form: FormData): Promise<unknown> {
   await wait(150);
+  if (path.startsWith("/flags/")) return casesUpload(path, form, mockRequest);
   if (path !== "/uploads") throw new ApiError(404, "NOT_FOUND", "We could not find that.");
   return createUpload(currentUser(), form);
 }
@@ -575,6 +582,7 @@ export async function mockUpload(path: string, form: FormData): Promise<unknown>
 /** File downloads in mock mode: errors.csv and the templates. */
 export async function mockDownload(path: string): Promise<{ blob: Blob; filename: string }> {
   await wait(150);
+  if (path.startsWith("/flags/")) return casesDownload(path, mockRequest);
   const user = currentUser();
   if (path === "/uploads/template.csv" || path === "/uploads/template.xlsx") {
     requireRole(user, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION"]);
