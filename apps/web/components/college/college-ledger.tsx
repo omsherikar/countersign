@@ -2,8 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Flag } from "lucide-react";
-import { EmptyState } from "@/components/brand/EmptyState";
 import { t } from "@/lib/copy";
 import { institutionAdmitted, seatedOf } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
@@ -14,6 +12,8 @@ import { ErrorBlock } from "@/components/common/query-state";
 import { PageHeader, SectionHeader } from "@/components/common/page-header";
 import { KpiStrip } from "@/components/overview/kpi-strip";
 import { ProgrammesTable } from "@/components/institution/programmes-table";
+import { CollegeFlagsPanel } from "@/components/college/college-flags-panel";
+import { LastUploadLine } from "@/components/uploads/last-upload-line";
 
 /** "What are pools?": a disclosure, so it works on touch and with a keyboard. */
 function PoolsHelp() {
@@ -99,17 +99,12 @@ export function CollegeLedger() {
         )}
       </section>
 
-      <section aria-labelledby="flags-heading" className="mb-10">
-        <SectionHeader id="flags-heading" title={t("app.college.flags", { n: 0 })} />
-        <div className="border-l-2 border-rule-margin bg-paper-raised">
-          <EmptyState icon={<Flag className="size-5" />} title={t("empty.flags_college")} />
-        </div>
-      </section>
+      <CollegeFlagsPanel academicYear={academicYear} />
 
-      <p className="text-sm text-ink-muted">
-        {t("college.no_upload_yet")}{" "}
-        <Link href="/college/upload">{t("app.upload.see_columns")}</Link>
-      </p>
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-ink-muted">
+        {d ? <LastUploadLine last={d.last_upload} href={(id) => `/college/uploads/${id}`} /> : <span> </span>}
+        <Link href="/college/upload">{t("upload.upload_again")}</Link>
+      </div>
     </>
   );
 }
