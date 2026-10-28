@@ -87,6 +87,7 @@ class SeatRow(BaseModel):
     id: str
     seat_code: str
     programme_code: str
+    academic_year: str
     seat_type: str
     status: str
     reserved_for: str | None

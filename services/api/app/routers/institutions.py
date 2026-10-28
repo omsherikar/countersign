@@ -284,7 +284,9 @@ async def institution_seats(
     seat_type: SeatType | None = None,
     status: SeatStatus | None = None,
     q: Annotated[str | None, Query(max_length=120)] = None,
+    academic_year: Annotated[str | None, Query(pattern=r"^\d{4}-\d{2}$")] = None,
 ) -> Page[SeatRow]:
+    year = academic_year or get_settings().academic_year
     institution = await scoped_institution(session, user, institution_id)
     holder = aliased(Enrolment)
     holder_student = aliased(Student)
@@ -293,14 +295,22 @@ async def institution_seats(
         .where(SeatEvent.seat_id == Seat.id, SeatEvent.kind == SeatEventKind.ASSIGN)
         .scalar_subquery()
     )
+    # Each approval year has its own pools, and seat codes repeat across years.
     stmt = (
-        select(Seat, SeatPool, Programme.code, holder_student, assigned_at.label("assigned_at"))
+        select(
+            Seat,
+            SeatPool,
+            Programme.code,
+            Approval.academic_year,
+            holder_student,
+            assigned_at.label("assigned_at"),
+        )
         .join(SeatPool, SeatPool.id == Seat.pool_id)
         .join(Approval, Approval.id == SeatPool.approval_id)
         .join(Programme, Programme.id == Approval.programme_id)
         .outerjoin(holder, holder.id == Seat.enrolment_id)
         .outerjoin(holder_student, holder_student.id == holder.student_id)
-        .where(Programme.institution_id == institution.id)
+        .where(Programme.institution_id == institution.id, Approval.academic_year == year)
     )
     if programme_id:
         stmt = stmt.where(Programme.id == programme_id)
@@ -322,6 +332,7 @@ async def institution_seats(
             id=str(seat.id),
             seat_code=seat.seat_code,
             programme_code=programme_code,
+            academic_year=seat_year,
             seat_type=pool.seat_type.value,
             status=seat.status.value,
             reserved_for=seat.reserved_for,
@@ -329,13 +340,13 @@ async def institution_seats(
             student_name=student.name if student is not None else None,
             assigned_at=_iso(at) if seat.enrolment_id else None,
         )
-        for seat, pool, programme_code, student, at in rows
+        for seat, pool, programme_code, seat_year, student, at in rows
     ]
     await audit.record_read(
         session,
         user.id,
         "student",
-        [student.id for _, _, _, student, _ in rows if student is not None],
+        [student.id for *_, student, _ in rows if student is not None],
         request_id=request_id,
     )
     return Page(items=items, total=total, page=paging.page, page_size=paging.page_size)
