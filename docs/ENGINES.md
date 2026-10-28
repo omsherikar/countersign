@@ -1,0 +1,395 @@
+# Engines (internal Python contract, Week 2)
+
+This file is the only thing the two api branches may assume about each other's Python code. `API_CONTRACT.md` (Addendum 2) is the wire contract, `DATA_MODEL.md` ("Migration 0002") is the schema and `DECISIONS.md` D14 to D22 are the rules being implemented. If a function, field or behaviour another branch needs is not written here, add it here first.
+
+Two branches build in parallel:
+
+- **backend-pipeline** (`api/upload-pipeline`): turns a file or JSON rows into students and enrolments and drives every stage (`run_batch`).
+- **backend-engines** (`api/engines`): the engines `run_batch` calls (Seat Ledger, checks, duplicates, flags, score, matching) and the read endpoints over their output.
+
+## 1. Ownership
+
+| Path under `services/api/` | Owner | Notes |
+|---|---|---|
+| `alembic/versions/0002_week2_engine_columns.py` | pipeline | everything in DATA_MODEL "Migration 0002", nothing else |
+| `app/models/*.py`, `app/models/enums.py` | pipeline | only the 0002 changes; engines never edit models |
+| `app/core/config.py`, `../../.env.example` | pipeline | the settings in §2.3, for both branches |
+| `pyproject.toml`, `uv.lock` | pipeline | every new dependency for both branches (§2.2) |
+| `../../docker-compose.yml`, `../../Makefile` | pipeline | spool volume, worker concurrency 1, seed order |
+| `app/engine/contracts.py` | both, identical bytes | §3; change this doc first |
+| `app/engine/upload/` (`__init__.py`, `parse.py`, `validate.py`, `upsert.py`, helpers) | pipeline | §5 |
+| `app/engine/pipeline.py` | pipeline | `run_batch`, `default_engines` (§4) |
+| `app/routers/uploads.py`, `app/schemas/uploads.py` | pipeline | API_CONTRACT §A2.4 to §A2.9 |
+| `app/worker.py` | pipeline | Celery task `countersign.run_batch` |
+| `app/seed/` | pipeline | seed through `run_batch` (D22) |
+| `tests/fixtures/mini_generated/` | pipeline | add the three optional columns and an update file |
+| `app/engine/matching.py` | engines | §6 |
+| `app/engine/ledger.py` | engines | §7 |
+| `app/engine/checks/` (`__init__.py`, `base.py`, `identity.py`, `admission.py`, `seat.py`, `studying.py`, `student.py`) | engines | §8 |
+| `app/engine/duplicates.py` | engines | §9 |
+| `app/engine/flags.py`, `app/engine/evidence.py` | engines | §10; evidence and check-detail sentences from API_CONTRACT §A2.14 and §A2.17 |
+| `app/engine/score.py` | engines | §11 |
+| `app/routers/flags.py`, `app/routers/enrolments.py`, `app/schemas/flags.py`, `app/schemas/enrolments.py` | engines | new |
+| `app/routers/dashboard.py`, `institutions.py`, `students.py`, `_stats.py`; `app/schemas/common.py`, `dashboard.py`, `institutions.py`, `students.py` | engines | count and countersign changes (API_CONTRACT §A2.10, §A2.18 to §A2.20) |
+| `app/main.py` | both | pipeline: multipart exemption and the uploads router; engines: flags and enrolments routers (§2.4) |
+| `app/engine/seatpools.py`, `app/core/cohort.py`, `app/core/audit.py`, `app/core/crypto.py`, `app/adapters/**` | nobody | read and call them; change only through the lead |
+| `tests/pipeline/`, `tests/engines/` | pipeline, engines | each branch puts new tests (and its own `conftest.py`) in its own package; nobody edits `tests/conftest.py` |
+
+## 2. Merge order and shared files
+
+### 2.1 The schema-and-dependencies commit lands first
+
+The first commit on `api/upload-pipeline` contains, and only contains: migration 0002, the model and enum edits, the new settings and `.env.example` keys, the new dependencies with a refreshed `uv.lock`, and `app/engine/contracts.py`. The lead merges it to `main` as soon as `make test` passes on it. backend-engines then merges `main` into `api/engines`.
+
+Until it lands, backend-engines builds and tests the pure modules (`matching.py`, `evidence.py`, `score.py`, dedupe keys, the check decision tables with fake subjects) and may add `app/engine/contracts.py` itself, byte for byte from §3, so the later merge is clean. Database-backed engine tests start once the merge is in.
+
+### 2.2 Dependencies (added by pipeline for both)
+
+`openpyxl` (XLSX parsing), `python-multipart` (FastAPI form uploads), `jellyfish` (metaphone), `indic-transliteration` (Devanagari to Latin). `rapidfuzz` is already present. backend-engines does not edit `pyproject.toml` or `uv.lock`; a missing dependency is a request to the lead.
+
+### 2.3 Settings (added by pipeline for both)
+
+| Setting (env) | Default | Used by |
+|---|---|---|
+| `checks_concurrency` (`CHECKS_CONCURRENCY`) | `32` | `run_batch` and the recheck endpoints pass it to the checks engine |
+| `upload_max_bytes` (`UPLOAD_MAX_BYTES`) | `20971520` (20 MB) | `POST /uploads` |
+| `upload_max_rows` (`UPLOAD_MAX_ROWS`) | `50000` | parse stage |
+| `upload_rows_api_max` (`UPLOAD_ROWS_API_MAX`) | `5000` | `POST /uploads/rows` |
+| `upload_spool_dir` (`UPLOAD_SPOOL_DIR`) | `/data/spool` | api and worker, compose volume `upload-spool` |
+| `upload_inline` (`UPLOAD_INLINE`) | `false` | `true` runs `run_batch` in the api process after the response (tests); `false` enqueues the Celery task |
+
+### 2.4 `app/main.py`
+
+Both branches add routers, so the `from app.routers import ...` line conflicts once. The lead resolves it to the sorted list `admin, auth, dashboard, enrolments, flags, healthz, institutions, meta, students, uploads` (as `ruff format` lays it out) and the registrations to `healthz, auth, dashboard, institutions, enrolments, flags, uploads, students, meta, admin` in that order. Pipeline also exempts `POST /uploads` (multipart) from the JSON-only 415 check; that is the only exemption.
+
+## 3. `app/engine/contracts.py` (identical on both branches)
+
+Shared dataclasses and the `EngineSuite` protocol `run_batch` calls. It passes `ruff check` and `ruff format --check` with the repo settings and imports cleanly against Week 1 `main`.
+
+```python
+"""Shared engine contract (docs/ENGINES.md section 3).
+
+Both api branches add this file with identical bytes. Change docs/ENGINES.md first,
+then copy the new text into this file on every branch.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Any, Literal, Protocol
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.adapters.base import AdapterSet
+from app.models.enums import CheckStatus, CheckType, FlagStatus, FlagType, SeatType, Severity
+from app.models.verification import Flag
+
+CHUNK_SIZE = 500
+DEFAULT_CHECK_CONCURRENCY = 32
+
+CHECK_ORDER: tuple[CheckType, ...] = (
+    CheckType.IDENTITY,
+    CheckType.ADMISSION,
+    CheckType.SEAT,
+    CheckType.STUDYING,
+    CheckType.STUDENT,
+)
+UNRESOLVED_FLAG_STATUSES: tuple[FlagStatus, ...] = (
+    FlagStatus.OPEN,
+    FlagStatus.DOCS_REQUESTED,
+    FlagStatus.ESCALATED,
+)
+
+NameVerdict = Literal["MATCH", "REVIEW", "NO_MATCH"]
+NameMethod = Literal["EXACT", "INITIALS", "FUZZY"]
+
+
+@dataclass(frozen=True, slots=True)
+class NameMatch:
+    """Result of matching.match_names(a, b). `a` and `b` are the normalised inputs."""
+
+    score: int
+    verdict: NameVerdict
+    method: NameMethod
+    a: str
+    b: str
+
+
+@dataclass(frozen=True, slots=True)
+class PoolRef:
+    """One seat pool: the approval it belongs to and its seat type."""
+
+    approval_id: uuid.UUID
+    seat_type: SeatType
+
+
+@dataclass(frozen=True, slots=True)
+class FlagIntent:
+    """A flag an engine wants raised; flags.raise_flag(**intent fields) writes it."""
+
+    type: FlagType
+    severity: Severity
+    institution_id: uuid.UUID
+    academic_year: str
+    dedupe_key: str
+    evidence: dict[str, Any]
+    programme_id: uuid.UUID | None = None
+    enrolment_id: uuid.UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RaisedFlag:
+    """What flags.raise_flag returns: the row, and whether it was created or changed."""
+
+    flag: Flag
+    created: bool
+    changed: bool
+
+
+@dataclass(slots=True)
+class FlagTally:
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    flag_ids: list[uuid.UUID] = field(default_factory=list)
+
+    def count(self, raised: RaisedFlag) -> None:
+        if raised.created:
+            self.created += 1
+        elif raised.changed:
+            self.updated += 1
+        else:
+            self.unchanged += 1
+        self.flag_ids.append(raised.flag.id)
+
+    def merge(self, other: FlagTally) -> None:
+        self.created += other.created
+        self.updated += other.updated
+        self.unchanged += other.unchanged
+        self.flag_ids.extend(other.flag_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class CheckOutcome:
+    """One check's verdict for one enrolment. `detail` always carries a `summary`."""
+
+    type: CheckType
+    status: CheckStatus
+    source: str
+    detail: dict[str, Any]
+    flags: tuple[FlagIntent, ...] = ()
+    calls: tuple[str, ...] = ()
+    unavailable: tuple[str, ...] = ()
+
+
+@dataclass(slots=True)
+class LedgerResult:
+    seated: list[uuid.UUID] = field(default_factory=list)
+    released: list[uuid.UUID] = field(default_factory=list)
+    unseated: list[uuid.UUID] = field(default_factory=list)
+    late_refills: list[uuid.UUID] = field(default_factory=list)
+    touched_pools: set[PoolRef] = field(default_factory=set)
+    flags: FlagTally = field(default_factory=FlagTally)
+
+    def merge(self, other: LedgerResult) -> None:
+        self.seated.extend(other.seated)
+        self.released.extend(other.released)
+        self.unseated.extend(other.unseated)
+        self.late_refills.extend(other.late_refills)
+        self.touched_pools |= other.touched_pools
+        self.flags.merge(other.flags)
+
+
+@dataclass(slots=True)
+class ChecksResult:
+    enrolments: int = 0
+    changed: int = 0
+    statuses: dict[str, dict[str, int]] = field(default_factory=dict)
+    calls: dict[str, int] = field(default_factory=dict)
+    unavailable: dict[str, int] = field(default_factory=dict)
+    flags: FlagTally = field(default_factory=FlagTally)
+
+    def merge(self, other: ChecksResult) -> None:
+        self.enrolments += other.enrolments
+        self.changed += other.changed
+        for check_type, by_status in other.statuses.items():
+            mine = self.statuses.setdefault(check_type, {})
+            for status, n in by_status.items():
+                mine[status] = mine.get(status, 0) + n
+        for source, n in other.calls.items():
+            self.calls[source] = self.calls.get(source, 0) + n
+        for source, n in other.unavailable.items():
+            self.unavailable[source] = self.unavailable.get(source, 0) + n
+        self.flags.merge(other.flags)
+
+
+@dataclass(slots=True)
+class DuplicatesResult:
+    within: int = 0
+    cross: int = 0
+    dual: int = 0
+    flags: FlagTally = field(default_factory=FlagTally)
+
+    def merge(self, other: DuplicatesResult) -> None:
+        self.within += other.within
+        self.cross += other.cross
+        self.dual += other.dual
+        self.flags.merge(other.flags)
+
+
+@dataclass(slots=True)
+class RecheckResult:
+    enrolments: int = 0
+    rechecked: int = 0
+    now_pass: int = 0
+    now_fail: int = 0
+    now_na: int = 0
+    still_pending: int = 0
+    flags: FlagTally = field(default_factory=FlagTally)
+
+
+class EngineSuite(Protocol):
+    """What run_batch needs from the engine modules. Tests pass a fake."""
+
+    def normalise_name(self, raw: str) -> str: ...
+
+    def name_key(self, name: str, dob: date) -> str: ...
+
+    async def assign_seats(
+        self,
+        session: AsyncSession,
+        enrolment_ids: Sequence[uuid.UUID],
+        *,
+        actor_id: uuid.UUID | None,
+    ) -> LedgerResult: ...
+
+    async def run_checks(
+        self,
+        session: AsyncSession,
+        enrolment_ids: Sequence[uuid.UUID],
+        adapters: AdapterSet,
+        *,
+        concurrency: int = DEFAULT_CHECK_CONCURRENCY,
+        actor_id: uuid.UUID | None = None,
+    ) -> ChecksResult: ...
+
+    async def detect_duplicates(
+        self,
+        session: AsyncSession,
+        institution_id: uuid.UUID,
+        academic_year: str,
+        enrolment_ids: Sequence[uuid.UUID],
+        *,
+        actor_id: uuid.UUID | None = None,
+    ) -> DuplicatesResult: ...
+
+    async def refresh_seat_flags(
+        self,
+        session: AsyncSession,
+        pools: Sequence[PoolRef],
+        *,
+        actor_id: uuid.UUID | None = None,
+    ) -> FlagTally: ...
+```
+
+Field meanings:
+
+- `LedgerResult.seated`: enrolments given a seat by this call, including earlier unseated enrolments of a touched pool (§7). `released`: enrolments whose seat was released. `unseated`: enrolments from the input that are ACTIVE and still without a seat after the call. `late_refills`: enrolments whose assignment raised LATE_REFILL. `touched_pools`: every pool where something was assigned or released or an input enrolment stayed unseated.
+- `ChecksResult.enrolments`: ACTIVE enrolments evaluated. `changed`: check rows whose status changed or that were created. `statuses`: counts of the resulting status per check type, keyed by the enum values. `calls` and `unavailable`: adapter calls and `SourceUnavailable` results per check source (`APAAR`, `COUNSELLING`, `ABC`, `SII`).
+- `DuplicatesResult.within`, `cross`, `dual`: pairs found this call (a pair already flagged still counts; `flags` tells created from updated).
+- `RecheckResult`: `rechecked` checks re-run; `now_pass`, `now_fail`, `now_na` how many of them left PENDING; `still_pending` how many did not.
+- `FlagTally`: `created` new dedupe keys, `updated` existing flags whose evidence or severity changed, `unchanged` the rest.
+
+## 4. `app/engine/pipeline.py` (pipeline)
+
+### 4.1 Signature
+
+```python
+async def run_batch(
+    batch_id: uuid.UUID,
+    *,
+    factory: async_sessionmaker[AsyncSession] | None = None,   # default: app.db.session.session_factory()
+    adapters: AdapterSet | None = None,                        # default: build_adapters(), closed at the end
+    engines: EngineSuite | None = None,                        # default: default_engines()
+    source: Path | list[dict[str, Any]] | None = None,         # default: the batch's spool file
+) -> UploadBatch: ...
+
+def default_engines() -> EngineSuite: ...   # imports app.engine.{matching,ledger,checks,duplicates,flags} lazily
+```
+
+`run_batch` never raises for anything a row or a source does. Any exception inside a stage rolls back that chunk, marks the batch FAILED (below) and returns the batch. Callers: the Celery task `countersign.run_batch(batch_id: str)` (`acks_late=True`; `asyncio.run`), `POST /uploads` and `POST /uploads/rows` when `upload_inline` is true, and `app/seed/cli.py` in-process with `source=<path>` (D22). The worker runs with `--concurrency=1`, so batches never overlap; this keeps cross-institution duplicate detection free of races.
+
+`default_engines()` imports the engine modules inside the function, never at module import time, so the pipeline branch imports and tests cleanly before the engines branch is merged. Pipeline tests always pass a fake `EngineSuite` (§14).
+
+### 4.2 Stages, in order (D15)
+
+| # | `stage` | `status` | work items (`stage_total`) | what happens | engine call |
+|---|---|---|---|---|---|
+| 1 | `PARSE` | VALIDATING | rows | read the spool file, path or rows; CSV (UTF-8, BOM allowed) or XLSX (first sheet); normalise and check the header; build raw rows with `row_no`; set `total_rows` | none |
+| 2 | `VALIDATE` | VALIDATING | rows | field rules and row errors (API_CONTRACT §A2.2, §A2.3); one query for the institution's programmes and approvals | none |
+| 3 | `FILE_DUPLICATES` | VALIDATING | rows | identity collisions inside the file give DUPLICATE_IN_FILE on the later row | `engines.normalise_name` (provisional key) |
+| 4 | `UPSERT` | PROCESSING | accepted rows | resolve identity, upsert students and enrolments (§5) | `engines.normalise_name`, `engines.name_key` |
+| 5 | `LEDGER` | PROCESSING | accepted enrolments | releases and assignments | `engines.assign_seats(session, chunk, actor_id=...)` |
+| 6 | `CHECKS` | PROCESSING | the check set (§4.4) | five checks | `engines.run_checks(session, chunk, adapters, concurrency=settings.checks_concurrency, actor_id=...)` |
+| 7 | `DUPLICATES` | PROCESSING | created and updated ACTIVE enrolments | within and across institutions | `engines.detect_duplicates(session, batch.institution_id, batch.academic_year, chunk, actor_id=...)` |
+| 8 | `FLAGS` | PROCESSING | touched pools | refresh EXCESS_ADMISSION and QUOTA_BREACH evidence with the final numbers | `engines.refresh_seat_flags(session, pools, actor_id=...)` once |
+| 9 | `DONE` | DONE | | finalise `counts`, `finished_at`, delete the spool file, audit the batch | none |
+
+A file-level failure in PARSE (unreadable, not CSV or XLSX, no data rows, a required header missing, more than `upload_max_rows` rows) sets FAILED with `error` from API_CONTRACT §A2.7 and stops. Nothing after PARSE fails the batch for data reasons.
+
+LEDGER chunk order: enrolments whose status this batch changed to WITHDRAWN or TRANSFERRED come first, then the rest in row order, so every release in a batch happens before any assignment.
+
+### 4.3 Transactions, chunks and progress
+
+- `run_batch` owns every session and every commit. Each chunk of at most `CHUNK_SIZE` (500) work items runs in its own `async with factory() as session:` block, and the chunk's work, its `upload_row_errors`, its audit entries and the batch's `stage`, `stage_total` and `processed_rows` are committed together in that one transaction. Progress is therefore saved at least every 500 rows (D15) and is never ahead of the data.
+- Engine functions never call `commit()`, `rollback()` or `close()` and never open their own session. They may `flush()`.
+- On an exception: roll back the chunk, open a new session, set `status = FAILED`, keep `stage`, set `error = "Processing stopped while <stage words>. Upload the file again; rows already saved are kept."` (no exception text that could carry PII; log the traceback), set `finished_at`, delete the spool file, commit. Committed chunks stay: re-uploading the file is the retry, and it is idempotent (§13).
+- `actor_id` passed to engines and to audit entries: `batch.uploaded_by` for FILE and API batches, `None` (system) for SEED batches.
+- `timings_ms[stage]` is wall time per stage, stored in `counts` at the end of each stage.
+
+### 4.4 Which enrolments each engine receives
+
+- LEDGER: every accepted enrolment of the batch (created, updated and unchanged). The ledger is idempotent, so unchanged ones cost a read.
+- CHECKS, the check set: created and updated enrolments that are ACTIVE, plus `LedgerResult.seated` (backlog enrolments that just got a seat need SEAT and ADMISSION re-evaluated), plus accepted enrolments that have no check rows yet (a batch that failed earlier), plus accepted enrolments with any PENDING check other than STUDENT (retry). De-duplicated, row order.
+- DUPLICATES: created and updated enrolments that are ACTIVE.
+- FLAGS: the union of `touched_pools` from every LEDGER chunk, sorted by `(approval_id, seat_type)`.
+
+### 4.5 Counts
+
+`counts.rows = total_rows`; `accepted` and `errors` from VALIDATE and FILE_DUPLICATES (a row with any ERROR entry is rejected; `errors` counts rejected rows, not entries); `warnings` accepted rows with at least one WARNING; `created`, `updated`, `unchanged`, `withdrawn`, `transferred` from UPSERT; `seated = len(seated)` and `released = len(released)` summed over LEDGER chunks; `unseated` = batch enrolments that are ACTIVE and without a seat after LEDGER; `flags_raised` and `flags_updated` = the summed `FlagTally.created` and `.updated` of LEDGER, CHECKS, DUPLICATES and FLAGS; `sources` from `ChecksResult.calls` and `.unavailable`.
+
+### 4.6 `progress_pct` (computed by the uploads router, never stored)
+
+Stage weights: PARSE 5, VALIDATE 10, FILE_DUPLICATES 5, UPSERT 15, LEDGER 10, CHECKS 45, DUPLICATES 5, FLAGS 5 (sum 100). `progress_pct = floor(sum of the weights of finished stages + weight(stage) * processed_rows / max(stage_total, 1))`, 0 while QUEUED, 100 when DONE; a FAILED batch reports the value it had.
+
+## 5. Upload modules (pipeline)
+
+Internal to the pipeline branch; listed so the engines branch knows what the database will hold.
+
+```python
+# app/engine/upload/parse.py
+def parse_upload(data: bytes | Path, filename: str) -> ParsedUpload: ...        # raises UploadFileError(code, message)
+def parse_rows(rows: list[dict[str, Any]]) -> ParsedUpload: ...
+# app/engine/upload/validate.py
+def validate_rows(parsed: ParsedUpload, ctx: ValidationContext) -> ValidationResult: ...   # pure
+def file_duplicates(rows: list[CleanRow], normalise_name: Callable[[str], str]) -> ValidationResult: ...
+# app/engine/upload/upsert.py
+async def upsert_rows(session, batch: UploadBatch, rows: Sequence[CleanRow], *, engines: EngineSuite,
+                      actor_id: uuid.UUID | None) -> UpsertResult: ...
+```
+
+Rules the engines rely on:
+
+1. **Identity** (D14), in this order. (a) A usable APAAR (12 digits after removing spaces, and consent LINKED or blank) resolves by `students.apaar_hmac`. If no student has it but this institution's provisional student for the row exists (same provisional id as rule c), that student is upgraded in place (APAAR fields set, `consent_status = LINKED`), so a later consent does not create a duplicate. (b) Else a passport number resolves by `students.passport_hmac` (oldest match). (c) Else the provisional id `"PRV-" + base32(hmac_bytes(f"{aicte_id}|{normalise_name(name)}|{dob ISO}|{normalise(mobile, 'mobile')}", "generic"))[:8]` (the Week 1 `provisional_id_for` with the new normaliser) resolves by `students.provisional_id`; `normalise_name` is `engines.normalise_name`. Every student without an APAAR gets a provisional id; international students too.
+2. **Students**: `name` as uploaded, `name_normalized = engines.normalise_name(name)`, `name_key = engines.name_key(name, dob)`, HMAC, Fernet and last-4 columns as in Week 1 plus `passport_encrypted`. An APAAR student's fields are last-writer-wins; every change is audited with masked values only.
+3. **APAAR problems**: an APAAR that would be used but is malformed is dropped, the student is resolved by rule (b) or (c), `enrolments.apaar_problem` gets the reason ("has 11 digits, expected 12" or "contains characters other than digits") and the row carries an APAAR_FORMAT WARNING. The engines read `apaar_problem` (IDENTITY fails with INVALID_APAAR).
+4. **Consent**: APAAR is used only when consent is LINKED (given or derived from a blank with an APAAR present). REFUSED, PENDING or INTERNATIONAL with an APAAR present: the APAAR is not stored and the row gets a CONSENT_CONFLICT WARNING. LINKED with no APAAR is stored as PENDING with the same warning.
+5. **CIWG**: an INTERNATIONAL-route row with nationality `IN` is a CIWG student (children of Indian workers in the Gulf are Indian nationals). Nothing is stored for it; the ledger derives it from route and nationality.
+6. **Enrolments** upsert on `(student_id, institution_id, programme_id, academic_year)`. Compared fields: `year_of_study`, `admission_route`, `counselling_ref`, `category`, `status`, `admission_date`, `apaar_problem`. Blank `status`: ACTIVE for a new enrolment, unchanged for an existing one. Blank `admission_date`: the upload date for a new enrolment, unchanged otherwise. `status_date`: the given date, else the upload date when the status changes, else unchanged. `cohort_year` is recomputed on every write. `upload_batch_id` and `source_row_no` are set on create and on update and left alone when unchanged. A WITHDRAWN or TRANSFERRED row with no earlier enrolment creates one in that status (no seat, no checks) and carries a NOT_PREVIOUSLY_ENROLLED WARNING. `GRADUATED` is never set by an upload.
+7. **Programme code** resolves within the institution; when a code exists in both shifts the FIRST shift is used (as in Week 1).
+8. `kind` is INITIAL when the institution has no earlier DONE batch for the academic year, else UPDATE. The declaration is stored on the batch (`declared_at`, `declaration_text`).
+9. The spool file is the upload Fernet-encrypted with `PII_FERNET_KEY` at `<upload_spool_dir>/<batch_id>.<csv|xlsx|json>.enc`, written by the api before the batch is committed as QUEUED and deleted when the batch is DONE or FAILED.
+
