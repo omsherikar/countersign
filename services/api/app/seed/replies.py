@@ -3,10 +3,11 @@
 Reads DIR/notice_replies.jsonl (API_CONTRACT §A3.28). Each YES or NO line names a row of an
 initial upload file; the enrolment is the one that row created (the SEED batch with that
 file name, `enrolments.source_row_no` = `row_no`). The reply goes through
-`notices.service.respond_for_enrolment`, the same code path as the public reply, with no
+`notices.service.reply_for_enrolment`, the same `apply_reply` as the public reply, with no
 actor and `via` "demo-seed" in the audit entry. NONE lines are skipped and
-`reply_after_days` is not used. One transaction per 500 lines; a line that names nothing,
-or that the service refuses, is reported and skipped.
+`reply_after_days` is not used. One transaction per 500 lines, whose replies are finished
+together (one STUDENT refresh, then the proofs); a line that names nothing, or that the
+service refuses, is reported and skipped.
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core import audit
+from app.core.audit import AuditEntry
 from app.core.config import get_settings
 from app.core.errors import ApiError
 from app.core.logging import configure_logging
@@ -32,7 +35,7 @@ from app.db.session import dispose_engine, session_factory
 from app.models.enums import NoticeChannel, NoticeResponse, UploadSource
 from app.models.student import Enrolment
 from app.models.upload import UploadBatch
-from app.notices.service import VIA_SEED, respond_for_enrolment
+from app.notices.service import VIA_SEED, ReplyOutcome, finish_replies, reply_for_enrolment
 
 log = logging.getLogger("countersign.seed")
 
@@ -134,22 +137,34 @@ async def apply_replies(
 
     for start in range(0, len(work), LINES_PER_TRANSACTION):
         async with factory() as session:
+            sink: list[AuditEntry] = []
+            outcomes: list[ReplyOutcome] = []
             for enrolment_id, response, channel, comment, where in work[
                 start : start + LINES_PER_TRANSACTION
             ]:
                 try:
-                    async with session.begin_nested():
-                        await respond_for_enrolment(
-                            session, enrolment_id, channel, response, comment, via=via
-                        )
+                    # a refusal is raised before anything is written, so the chunk goes on
+                    outcome = await reply_for_enrolment(
+                        session,
+                        enrolment_id,
+                        channel,
+                        response,
+                        comment,
+                        via=via,
+                        finish=False,
+                        audit_sink=sink,
+                    )
                 except ApiError as exc:
                     counts.refused += 1
                     counts.problem(f"{where}: {exc.code} {exc.message}")
                     continue
+                outcomes.append(outcome)
                 if response is NoticeResponse.YES:
                     counts.yes += 1
                 else:
                     counts.no += 1
+            await audit.record_many(session, sink)
+            await finish_replies(session, outcomes)
             await session.commit()
     return counts
 

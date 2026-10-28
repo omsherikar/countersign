@@ -9,10 +9,12 @@ flag's history, and asks for the enrolment proof. Services raise ApiError with t
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import re
 import uuid
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import credentials
 from app.cases.service import add_system_note
 from app.core import audit
+from app.core.audit import AuditEntry
 from app.core.crypto import mask_apaar
 from app.core.errors import ApiError
 from app.core.rules import get_rules
@@ -214,8 +217,24 @@ async def respond_for_enrolment(
     *,
     via: str = VIA_SEED,
 ) -> Notification:
-    """A reply without a token (the demo seed, D31): the latest delivered notice of the
-    channel, else the latest notice of that channel, else of the other channel."""
+    """A reply without a token (the demo seed, D31); see `reply_for_enrolment`."""
+    outcome = await reply_for_enrolment(session, enrolment_id, channel, response, comment, via=via)
+    return outcome.notice
+
+
+async def reply_for_enrolment(
+    session: AsyncSession,
+    enrolment_id: uuid.UUID,
+    channel: NoticeChannel,
+    response: NoticeResponse,
+    comment: str | None,
+    *,
+    via: str = VIA_SEED,
+    finish: bool = True,
+    audit_sink: list[AuditEntry] | None = None,
+) -> ReplyOutcome:
+    """`apply_reply` on the latest delivered notice of the channel, else the latest notice
+    of that channel, else of the other channel; 404 NOTICE_NOT_FOUND when there is none."""
     notices = (
         (
             await session.execute(
@@ -235,8 +254,9 @@ async def respond_for_enrolment(
     chosen = pick([n for n in notices if n.channel is channel]) or pick(list(notices))
     if chosen is None:
         raise _not_found()
-    outcome = await apply_reply(session, chosen, response, comment, via=via)
-    return outcome.notice
+    return await apply_reply(
+        session, chosen, response, comment, via=via, finish=finish, audit_sink=audit_sink
+    )
 
 
 async def _denied_flag(session: AsyncSession, enrolment_id: uuid.UUID) -> Flag | None:
@@ -261,8 +281,16 @@ async def apply_reply(
     *,
     via: str,
     now: datetime | None = None,
+    finish: bool = True,
+    audit_sink: list[AuditEntry] | None = None,
 ) -> ReplyOutcome:
-    """Rules 2 to 5 of §A3.4 and their effects, in the caller's transaction."""
+    """Rules 2 to 5 of §A3.4 and their effects, in the caller's transaction.
+
+    Every refusal is raised before anything is written. With `finish` False the reply and
+    its consent are recorded and the caller passes the outcomes of a whole chunk to
+    `finish_replies` (the seed does, so the STUDENT check is re-derived once per chunk);
+    with `audit_sink` the reply's audit entry is appended there for one `record_many`.
+    """
     now = now or datetime.now(UTC)
     notice = (
         await session.execute(
@@ -305,12 +333,10 @@ async def apply_reply(
             notice.comment = _clean_comment(response, comment)
         changed = True
     await session.flush()
-    await audit.record(
-        session,
-        None,
-        AuditAction.UPDATE,
-        "notification",
-        notice.id,
+    entry = AuditEntry(
+        action=AuditAction.UPDATE,
+        entity_type="notification",
+        entity_id=notice.id,
         before={"response": _value(first)},
         after={
             "response": response.value,
@@ -318,30 +344,59 @@ async def apply_reply(
             "via": via,
         },
     )
-    enrolment = await session.get(Enrolment, notice.enrolment_id)
-    assert enrolment is not None
+    if audit_sink is not None:
+        audit_sink.append(entry)
+    else:
+        await audit.record_many(session, [entry])
     if response is NoticeResponse.YES:
-        institution = await session.get(Institution, enrolment.institution_id)
-        assert institution is not None
+        institution_name = (
+            await session.execute(
+                select(Institution.name)
+                .join(Enrolment, Enrolment.institution_id == Institution.id)
+                .where(Enrolment.id == notice.enrolment_id)
+            )
+        ).scalar_one()
         await record_consent(
             session,
             student_id=notice.student_id,
             purpose=ConsentPurpose.NOTICE,
             status=ConsentState.GIVEN,
             channel=CONSENT_CHANNELS[notice.channel],
-            notice_text=notice_consent(institution.name),
-            enrolment_id=enrolment.id,
+            notice_text=notice_consent(institution_name),
+            enrolment_id=notice.enrolment_id,
         )
-    await refresh_student(session, [enrolment.id])
-    if changed and response is NoticeResponse.YES:
-        flag = await _denied_flag(session, enrolment.id)
-        if flag is not None:
-            assert notice.changed_at is not None
-            await add_system_note(
-                session, flag, REPLY_CHANGED_NOTE.format(changed_date=fmt_day(notice.changed_at))
-            )
-    credential = await credentials.issue_if_eligible(session, enrolment.id)
-    return ReplyOutcome(notice=notice, recorded=True, changed=changed, credential=credential)
+    outcome = ReplyOutcome(notice=notice, recorded=True, changed=changed)
+    if finish:
+        [outcome] = await finish_replies(session, [outcome])
+    return outcome
+
+
+async def finish_replies(
+    session: AsyncSession, outcomes: Sequence[ReplyOutcome]
+) -> list[ReplyOutcome]:
+    """The effects that follow recorded replies: re-derive the STUDENT check (raising or
+    refreshing STUDENT_DENIED), note a No changed to Yes on the flag's history, then ask
+    for each enrolment's proof. Returns the outcomes with any credential issued."""
+    recorded = [o for o in outcomes if o.recorded]
+    enrolment_ids = list(dict.fromkeys(o.notice.enrolment_id for o in recorded))
+    if not enrolment_ids:
+        return list(outcomes)
+    await refresh_student(session, enrolment_ids)
+    for outcome in recorded:
+        notice = outcome.notice
+        if outcome.changed and notice.response is NoticeResponse.YES:
+            flag = await _denied_flag(session, notice.enrolment_id)
+            if flag is not None:
+                assert notice.changed_at is not None
+                note = REPLY_CHANGED_NOTE.format(changed_date=fmt_day(notice.changed_at))
+                await add_system_note(session, flag, note)
+    issued = {}
+    for enrolment_id in enrolment_ids:
+        issued[enrolment_id] = await credentials.issue_if_eligible(session, enrolment_id)
+    return [
+        dataclasses.replace(o, credential=issued.get(o.notice.enrolment_id)) if o.recorded else o
+        for o in outcomes
+    ]
 
 
 # ------------------------------------------------------------------------- resends
