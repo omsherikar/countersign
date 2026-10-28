@@ -6,6 +6,33 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 
 Counts: when a number is 1, use the singular noun ("1 flag opened", "1 row"). Sentences the api writes (flag `summary`, evidence facts, check `detail.summary`, row problem `message`, a failed batch's `error`) are printed verbatim; the deck mirrors them for review and the browser never rebuilds them.
 
+## Changes 2026-10-28: notices, cases, proofs and privacy
+
+Reconciled with DECISIONS D23 to D33 (student notices, the Student check, case actions, student-held proofs, the verifier, the degree QR, the audit page, consent and data requests, error codes). Update `apps/web/lib/copy.ts` and every caller.
+
+Renamed ids
+
+| old id | new id |
+|---|---|
+| case.history.response | case.history.COLLEGE_RESPONSE |
+| consent.withdraw | consent.withdraw.NOTICE, consent.withdraw.CREDENTIAL_SHARE and consent.unlink_apaar |
+
+Retired ids: `verify.coming` (the verifier is live), `university.degree_teaser` (Degree print is live), `flag.readonly_officer` (officers act from flag detail).
+
+Same id, new placeholders
+
+| id | change |
+|---|---|
+| verify.revoked_sub | `{revoked_date}` removed; the verifier result carries no revocation date |
+
+Same id, new text: `check.pending.student` (No reply yet; "Notice not sent yet" moves to `check.pending.student_not_sent`), `kpi.countersigned_tip`, `student.check_student_pending`, `notice.expired`, `notice.expired.hi`, `notice.invalid`, `wallet.kind.DEGREE` (Degree proof), `consent.apaar_link`, `consent.notice`, `consent.credential_share`, `verify.lead`, `verify.placeholder` (6 groups of 4), `verify.what`, `verify.revocation` (Revocation checked just now), `verify.expired_sub`, `verify.invalid`, `verify.invalid_sub`, `degree.issue_note`, `college.respond_files` (up to 3 files, 5 MB each, PDF, PNG or JPEG), `flag.readonly_college`, `flag.STUDENT_DENIED.summary` (now raised, High; its facts gain Channel, Reply changed and the officers-only comment), `audit.col.seq` (Entry), `empty.notices_student`, `empty.credentials_student`, `empty.graduates`.
+
+New ids, by prefix: `check.pending.student_not_sent`, `check.pending.student_expired`, `check.detail.STUDENT.*` (§15); `notice_channel.*`, `notice_delivery.*`, `consent_purpose.*`, `consent_state.*`, `data_request_kind.*`, `data_request_status.*`, `audit_action.*` (§4); `flag.STUDENT_DENIED.summary_changed`; the new `notice.*` rows and their `.hi` rows, `provisional.label.hi`, `consent.notice.hi`, `err.NETWORK.hi`, `err.INTERNAL.hi`, `err.retry.hi`; `notices.*`; `student.check_student_sent`, `student.check_student_expired`, `student.check_student_denied`, `student.consent_change`; the new `wallet.*` rows; `verify.*` for the entry page, the result states, the degree QR and the field labels; `degree.*` for the graduates table, the issue sheet and the print view; `case.*` for Reopen, Assign, the status lines and the history rows (`case.history.*`, `case.system_note.*`); the new `college.respond_*` rows; `email.docs_request.*`; `enrolment.section.notice`, `enrolment.notice.*`, `resend.*`; `flags.filter.assignee*`, `flags.filter.response*`; `audit.*` for filters and chain results; `admin.requests.*`; `privacy.*` (§20); `nav.data_requests`; `empty.graduates_search`, `empty.audit_filtered`; `err.NOTICE_NOT_FOUND`, `err.NOTICE_EXPIRED`, `err.NOTICE_ALREADY_CHANGED`, `err.FLAG_TRANSITION_INVALID`, `err.ATTACHMENT_TOO_LARGE`, `err.ATTACHMENT_TYPE`, `err.CREDENTIAL_NOT_ELIGIBLE`, `err.CREDENTIAL_REVOKED`, `err.PRESENTATION_NOT_FOUND`, `err.RESEND_LIMIT`, `err.NOTICE_LIVE`.
+
+Strings the web kept outside the deck and now has ids for: `app.student.consent_change` becomes `student.consent_change`; `app.verify.what_is` becomes `verify.about`; `app.verify.bar` becomes `verify.bar`.
+
+Fields the deck reads that the contract must carry: `detail.notice_state` (`NOT_SENT`, `SENT`, `EXPIRED`) on the Student check, `revoked_reason` codes on a proof (`ENROLMENT_WITHDRAWN`, `ENROLMENT_TRANSFERRED`, `FLAG_CONFIRMED`, else the admin's text), and the student's own data requests with their replies.
+
 ## Changes 2026-10-28
 
 Reconciled with API_CONTRACT Addendum 2, ENGINES.md and DECISIONS D14 to D22. Update `apps/web/lib/copy.ts` and every caller.
@@ -72,6 +99,7 @@ New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.cle
 | nav.privacy | Privacy |
 | nav.affiliated | Affiliated institutions |
 | nav.degree_print | Degree print |
+| nav.data_requests | Data requests |
 
 ## 2. Login
 
@@ -111,7 +139,7 @@ New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.cle
 | kpi.flags_open_tip | Flags that are open, waiting for documents or escalated, for {academic_year}. |
 | kpi.countersigned | Countersigned |
 | kpi.countersigned_value | {pct}% of enrolments fully countersigned |
-| kpi.countersigned_tip | Share of checked enrolments where every check that applies is countersigned. The last check is the student's own reply, which starts in Week 3, so this reads 0% until then. |
+| kpi.countersigned_tip | Share of checked enrolments where every check that applies is countersigned, the student's own reply included. Waiting for a reply keeps an enrolment out of this share; it never counts against the college. |
 | kpi.clear | No source disagrees |
 | kpi.clear_value | {pct}% of enrolments |
 | kpi.clear_tip | Share of checked enrolments where no source disagrees with the college's upload. A check that is still pending does not count against an enrolment. |
@@ -205,7 +233,9 @@ New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.cle
 | check.status.FAIL | Not countersigned |
 | check.status.PENDING | Pending |
 | check.status.NA | n/a |
-| check.pending.student | Notice not sent yet |
+| check.pending.student | No reply yet |
+| check.pending.student_not_sent | Notice not sent yet |
+| check.pending.student_expired | No reply (expired) |
 | check.pending.unavailable | Awaiting source |
 | check.pending.review | Needs review |
 | check.pending.results | Awaiting next results |
@@ -232,9 +262,9 @@ Seats against admissions (API_CONTRACT §A2.18). Approved seats are one year's i
 
 Percentages. `countersigned_pct` and `clear_pct` arrive rounded to one decimal; print them as sent, dropping a trailing ".0" (0.0 prints "0%", 91.4 prints "91.4%"). Null prints [kpi.not_computed]. The two tiles always appear together, Countersigned first.
 
-Pending words. A PENDING check shows the first word that applies: [check.pending.student] for the Student check, in every view; [check.pending.unavailable] when `detail.source_unavailable`; [check.pending.review] when `detail.needs_review`; [check.pending.results] when `detail.awaiting_semester`; otherwise [check.status.PENDING]. Enrolment lists and `/students/me` carry no `detail` (API_CONTRACT §A2.10), so there any pending check other than Student reads "Pending". PENDING is hollow and never red, whatever its word.
+Pending words. A PENDING check shows the first word that applies. Student check: on enrolment detail the word follows `detail.notice_state`: [check.pending.student_not_sent] for `NOT_SENT`, [check.pending.student] for `SENT`, [check.pending.student_expired] for `EXPIRED`; wherever there is no `detail`, [check.pending.student]. Other checks: [check.pending.unavailable] when `detail.source_unavailable`; [check.pending.review] when `detail.needs_review`; [check.pending.results] when `detail.awaiting_semester`; otherwise [check.status.PENDING]. Enrolment lists and `/students/me` carry no `detail` (API_CONTRACT §A2.10), so there a pending Student check reads "No reply yet" and any other pending check reads "Pending". PENDING is hollow and never red, whatever its word. The Student check is never n/a, and silence never fails it: with no reply it stays pending (D24).
 
-In `strip.score_pending`, `{pending}` counts pending checks other than Student; when that is 0 the strip shows `strip.score` alone. (Every active enrolment's Student check stays pending until student notices start in Week 3; counting it would print the same words on every row.) `strip.aria`, `strip.segment_tip` and `strip.segment_tip_full` use the same status words. `strip.segment_tip` is for lists (type and status only); `strip.segment_tip_full` is for enrolment detail. `check.na_reason.*` is the n/a tooltip in lists; on enrolment detail the check's `detail.summary` replaces it.
+In `strip.score_pending`, `{pending}` counts pending checks other than Student; when that is 0 the strip shows `strip.score` alone. (A pending Student check waits on the student, not on a source, and is neutral; counting it would print the same words on most rows.) `strip.aria`, `strip.segment_tip` and `strip.segment_tip_full` use the same status words. `strip.segment_tip` is for lists (type and status only); `strip.segment_tip_full` is for enrolment detail. `check.na_reason.*` is the n/a tooltip in lists; on enrolment detail the check's `detail.summary` replaces it.
 
 ## 4. Enum words
 
@@ -316,6 +346,30 @@ In `strip.score_pending`, `{pending}` counts pending checks other than Student; 
 | notice_reply.NO | Denied |
 | notice_reply.NONE | No reply yet |
 | notice_reply.EXPIRED | No reply (expired) |
+| notice_channel.EMAIL | Email |
+| notice_channel.DIGILOCKER | DigiLocker |
+| notice_delivery.QUEUED | Waiting to send |
+| notice_delivery.SENT | Sent |
+| notice_delivery.FAILED | Not delivered |
+| consent_purpose.APAAR_LINK | Using your APAAR to check your enrolment |
+| consent_purpose.NOTICE | Notices asking you to confirm an enrolment |
+| consent_purpose.CREDENTIAL_SHARE | Sharing your proofs with verifiers |
+| consent_state.GIVEN | Given |
+| consent_state.WITHDRAWN | Withdrawn |
+| consent_state.REFUSED | Refused |
+| data_request_kind.ACCESS | Copy of my data |
+| data_request_kind.CORRECTION | Correction |
+| data_request_kind.ERASURE | Erasure |
+| data_request_status.OPEN | Open |
+| data_request_status.DONE | Done |
+| data_request_status.REJECTED | Declined |
+| audit_action.CREATE | Created |
+| audit_action.UPDATE | Updated |
+| audit_action.DELETE | Deleted |
+| audit_action.READ | Viewed |
+| audit_action.LOGIN | Signed in |
+| audit_action.LOGOUT | Signed out |
+| audit_action.SEED | Seeded |
 | provisional.label | Provisional id |
 | gender.M | Male |
 | gender.F | Female |
@@ -362,7 +416,8 @@ Summaries (`evidence.summary`, one sentence, never a student name or a full id)
 | flag.DUPLICATE_WITHIN_UPLOAD.summary_two_files | Medium | the rows are in two files | Row {row_b} of {filename_b} describes the same student as row {row_a} of {filename_a}. |
 | flag.DUAL_ENROLMENT_ALLOWED.summary | Low | one physical programme plus one open and distance learning or online programme | The student holds two enrolments; one is distance or online, which is permitted. |
 | flag.NO_ACADEMIC_ACTIVITY.summary | Medium | two or more expected semesters have no credits | No credits recorded in ABC for {missing} semesters while enrolled in year {year_of_study}. |
-| flag.STUDENT_DENIED.summary | not raised before Week 3 | | Student replied "not me" to the notice sent on {sent_date}. |
+| flag.STUDENT_DENIED.summary | High | the student replies No on any channel; a No beats a Yes | Student replied "not me" to the notice sent on {sent_date}. |
+| flag.STUDENT_DENIED.summary_changed | High; the flag keeps its status | the student changed the reply from No to Yes within 7 days | Student replied "not me" to the notice sent on {sent_date}, then changed the reply to Yes on {changed_date}. |
 | flag.GHOST_RING.summary | not raised before Week 3 | | {students} students across {institutions} institutions share {contacts} contact details. |
 | flag.ANOMALY.summary | not raised before Week 4 | | {metric} for {programme_code} is {value}, outside the usual range ({low} to {high}) for similar programmes. |
 
@@ -410,9 +465,15 @@ Facts (`evidence.facts`, label: value, source, in this order)
 | NO_ACADEMIC_ACTIVITY | Semesters checked | {expected} ({first_academic_year} to {last_academic_year}) | ABC |
 | | Credits found | Sem 1: 0, Sem 2: 0 (one entry per semester) | ABC |
 | | Last ABC entry | {last_entry_date}, or None | ABC |
-| STUDENT_DENIED | Notice sent; Replied on; Student comment | | Student reply |
+| STUDENT_DENIED | Channel | {channel_name} | Student reply |
+| | Notice sent | {sent_date} | Student reply |
+| | Replied on | {reply_date} | Student reply |
+| | Reply changed (only after a change) | Yes on {changed_date} | Student reply |
+| | Comment from the student (officers only) | {comment}, or None | Student reply |
 | GHOST_RING | Shared mobiles; Shared emails; Shared addresses; Institutions | | Contact graph analysis |
 | ANOMALY | Metric; Value; Usual range; Compared with | | Anomaly model |
+
+STUDENT_DENIED: `{channel_name}` is the `notice_channel.*` word of the channel that carried the No. The comment fact carries `audience: "OFFICER"`, so a registrar never receives it (D24). When the student changes a No to a Yes, the flag keeps its status (only an officer resolves it), its evidence is refreshed with `summary_changed` and the Reply changed fact, and the case history gains a System row (§6).
 
 Words: `{match_words}` is "Same APAAR", "Same passport" or "Name ({name_score} of 100), date of birth and mobile", joined with "and" when more than one matched. `{mode_a_word}` and `{mode_b_word}` are "physical", "open and distance learning" or "online". `{route_words}` lists the routes that map to the pool (NRI; TFW; Lateral; International). Institution A is always the flag's own institution and B the other one. The registrar never sees B's name: the api drops the officer facts and keeps the registrar ones.
 
@@ -439,32 +500,129 @@ Rules for every template: no verdict words (never "fraud", "fake", "illegal"); c
 
 ## 6. Case actions
 
+Officer flag detail (`/aicte/cases/[flagId]`, `/ro/cases/[flagId]`) and the registrar's flag detail (`/college/flags/[flagId]`), from `POST /flags/{id}/actions {action, note, due_date?, assignee_id?}`, `POST /flags/{id}/response` and the `history` of `GET /flags/{id}` (D25).
+
+Actions and sheets
+
 | id | text |
 |---|---|
 | case.clear | Clear flag |
 | case.request_docs | Request documents |
 | case.escalate | Escalate |
 | case.confirm | Confirm |
+| case.reopen | Reopen |
 | case.note | Add note |
+| case.assign | Assign |
+| case.cancel | Cancel |
 | case.note_label | Note (shown to the college) |
 | case.note_required | Add a note before you continue. |
 | case.clear_confirm | Clear this flag? Your note is shown to the college and kept in the case history. |
 | case.request_docs_prompt | What should the college send? Be specific, e.g. "Admission register extract for CSE, 2026-27". |
+| case.request_docs_email | Every registrar account of {institution_name} gets an email with your request. |
+| case.request_docs_send | Send request |
 | case.due_date | Reply by (optional) |
+| case.due_date_hint | Shown to the college with your request. |
 | case.escalate_prompt | Why does this need a senior officer? |
+| case.escalate_note | After escalation only an AICTE officer can clear it, confirm it or request documents. Regional officers can still add notes. |
 | case.confirm_confirm | Confirming records this flag as a confirmed irregularity against {institution_name}. Nothing is deleted; the enrolment keeps its status. Your note becomes part of the formal record. |
+| case.confirm_revokes | Any enrolment proof AICTE issued for this enrolment is revoked now. A verifier who checks it will see Revoked. |
+| case.reopen_prompt | Why reopen this case? It goes back to Open, and the earlier decision stays in the history. |
+| case.assign_label | Assign to |
+| case.assign_search | Search officers by name |
+| case.assign_me | Assign to me |
+| case.assign_none | Remove assignee |
+| case.assign_option | {name}, {role_word} |
+| case.assign_empty | No officer matches "{q}". |
+| case.assignee_none | Unassigned |
 | case.cleared_toast | Flag cleared. {institution_name} can see your note. |
 | case.docs_toast | Request sent to the registrar. |
 | case.escalated_toast | Escalated. |
 | case.confirmed_toast | Recorded as confirmed. |
+| case.reopened_toast | Reopened. The flag is Open again. |
+| case.note_toast | Note added. |
+| case.assigned_toast | Assigned to {name}. |
+| case.unassigned_toast | Assignee removed. |
 | case.back | Back to queue |
+
+Case status lines
+
+| id | text |
+|---|---|
+| case.response_badge | Response received |
+| case.response_badge_tip | The college responded on {date}. The flag stays at Documents requested until an officer decides. |
+| case.due_line | Reply due by {due_date} |
+| case.due_passed | Reply date {due_date} has passed |
+| case.escalated_ro | Only AICTE can act on an escalated flag. You can still add a note. |
+| case.closed_line | This case is closed. Only an AICTE officer can reopen it. |
+| case.closed_admin | This case is closed. Reopen it to act on it again. |
+| case.attachment | {filename}, {size} |
+| case.attachment_download | Download {filename} |
+| case.attachments_logged | Each download is logged. |
+
+History (one row per `history[]` entry, oldest first, after [case.history.opened])
+
+| id | text |
+|---|---|
 | case.history.opened | Flag opened |
-| case.history.response | Response from the college |
+| case.history.col.when | When |
+| case.history.col.who | Who |
+| case.history.col.what | What |
+| case.history.who | {actor_name}, {role_word} |
+| case.history.system | System |
+| case.history.REQUEST_DOCS | Requested documents |
+| case.history.COLLEGE_RESPONSE | Responded |
+| case.history.ESCALATE | Escalated |
+| case.history.CLEAR | Cleared the flag |
+| case.history.CONFIRM | Confirmed the flag |
+| case.history.NOTE | Added a note |
+| case.history.ASSIGN | Assigned to {assignee_name} |
+| case.history.ASSIGN_none | Removed the assignee |
+| case.history.REOPEN | Reopened the flag |
+| case.history.SYSTEM_NOTE | Evidence updated after the decision |
+| case.history.status_change | {from_word} to {to_word} |
+| case.history.due | Reply by {due_date} |
+| case.system_note.reply_changed | The student changed the reply from No to Yes on {changed_date}. The flag keeps its status until an officer decides. |
+
+A history row reads When (`at`, `14 Jul 2026, 09:31 IST`), Who (`case.history.who` with `{role_word}` from `shell.role.*`, or `case.history.system` when the actor is null), What (the `case.history.<ACTION>` words, then `case.history.status_change` in small text when `from_status` and `to_status` differ, then `case.history.due` when `due_date` is set), and under it the note in quotes and one `case.attachment` link per file. A SYSTEM_NOTE row prints its `note` verbatim when the api sends one other than `case.history.SYSTEM_NOTE`; the deck mirrors the one other note the engines write, `case.system_note.reply_changed`. Status words come from `flag_status.*`.
+
+Which actions show (D25). AICTE officer: on Open and Documents requested, Clear flag, Request documents, Escalate, Confirm, Add note, Assign; on Escalated, the same without Escalate; on Cleared and Confirmed, Reopen, Add note, Assign, with `case.closed_admin`. Regional officer, for its region: on Open and Documents requested, the same as the AICTE officer; on Escalated, only Add note, with `case.escalated_ro`; on Cleared and Confirmed, Add note and Assign, with `case.closed_line`. Registrar: only Respond, and only while the flag is Documents requested. University: none. Every sheet needs a note except Assign; `case.note_required` shows under the empty field. The Confirm sheet shows `case.confirm_confirm`, then `case.confirm_revokes` when the flag names an enrolment (D25: confirming revokes any active proof for that enrolment and changes nothing else). A 409 `FLAG_TRANSITION_INVALID` shows [err.FLAG_TRANSITION_INVALID] in the sheet and refetches the flag.
+
+College response
+
+| id | text |
+|---|---|
 | college.respond | Respond |
+| college.respond_heading | Respond to the document request |
+| college.request_line | {role_word} asked on {requested_date}: |
+| college.due_line | Reply by {due_date} |
 | college.respond_note | Your reply to the officer |
-| college.respond_files | Attach documents (PDF, JPG, PNG, up to 10 MB each) |
+| college.respond_note_hint | Required. Say what you are sending and how it answers the request. |
+| college.respond_note_required | Write a reply before you send. |
+| college.respond_files | Attach documents (PDF, PNG or JPEG, up to 3 files, 5 MB each) |
+| college.respond_add_file | Add file |
+| college.respond_remove_file | Remove {filename} |
+| college.respond_file_count | {n} of 3 files |
+| college.respond_too_many | You can attach up to 3 files. Remove one to add another. |
+| college.respond_file_type | {filename} is not a PDF, PNG or JPEG file. |
+| college.respond_file_size | {filename} is larger than 5 MB. Attach a smaller copy. |
+| college.respond_submit | Send to the officer |
+| college.respond_sending | Sending |
 | college.respond_sent | Sent to the officer. You will see their decision here. |
+| college.respond_waiting | You responded on {date}. The flag stays at Documents requested until the officer decides. |
+| college.respond_more | Send more documents |
 | college.other_institution | another institution in {state_name} |
+
+`college.respond_file_type` and `college.respond_file_size` are checked in the browser before anything is sent; the server answers the same cases with 415 [err.ATTACHMENT_TYPE] and 413 [err.ATTACHMENT_TOO_LARGE]. `{size}` in `case.attachment` reads like `412 KB` or `1.8 MB`.
+
+Email to the registrar when documents are requested (sent to every registrar account of the college, D25)
+
+| id | text |
+|---|---|
+| email.docs_request.subject | Documents requested by AICTE: {flag_name}, {where} |
+| email.docs_request.body | {role_word} has asked {institution_name} for documents about a flag. Flag: {flag_name}, {where}. Evidence: {summary} Request: "{note}" {due_sentence}Sign in to Countersign and open the flag to respond: {link}. Attach PDF, PNG or JPEG files, up to 3, 5 MB each. Nothing about your college or its students has changed; an officer decides after reading your response. This email went to every registrar account of your college. |
+| email.docs_request.due | Please reply by {due_date}. |
+
+`{where}` is `{programme_code}, {academic_year}`, or `{academic_year}` alone for a flag without a programme. `{summary}` is the summary the registrar sees (the redacted one for a cross-institution duplicate). `{due_sentence}` is `email.docs_request.due` followed by a space, or nothing when no date was set. `{link}` is `{WEB_ORIGIN}/college/flags/{flag_id}`. The email names no student and no officer.
 
 ## 7. Upload
 
@@ -651,10 +809,30 @@ English
 | notice.no_done | Thank you. An AICTE officer will look into this. Nothing changes for you until they do. |
 | notice.answered | You replied "{reply}" on {responded_date}. |
 | notice.change | Change my answer |
-| notice.expired | This link has expired. Ask your college to resend the notice. |
-| notice.invalid | This link is not valid. Check the link in your message or ask your college to resend it. |
+| notice.expired | This link has expired. No reply was recorded, and that does not count against you. To reply now, ask your college or AICTE to send a new notice. |
+| notice.invalid | This link is not valid. Check that you opened the whole link from your message, or ask your college to send a new notice. |
+| notice.page_title | Notice from {institution_name} |
+| notice.lang_label | Language |
+| notice.sending | Sending |
+| notice.no_comment_hint | Only AICTE officers read this. Your college does not see it. |
+| notice.no_cancel | Go back |
+| notice.yes_next | If the other checks agree too, an enrolment proof you can share appears in My proofs. |
+| notice.see_proofs | See my proofs |
+| notice.reply.YES | Yes |
+| notice.reply.NO | No |
+| notice.change_window | You can change your answer once, until {change_until_date}. |
+| notice.change_heading | Change your answer |
+| notice.change_once | You can change your answer only once. After that it is final. |
+| notice.current_answer | Your answer now |
+| notice.change_submit | Save my new answer |
+| notice.changed_done | Your answer is now "{reply}". It cannot be changed again. |
+| notice.change_used | You changed your answer on {changed_date}. Your answer "{reply}" is final. |
+| notice.change_closed | The 7 days to change your answer are over. If it needs correcting, ask from your Privacy page. |
+| notice.rate_limited | Too many tries from this network. Try again in {seconds} s. |
 | notice.lang_hi | हिन्दी |
 | notice.lang_en | English |
+
+`{reply}` takes `notice.reply.*`. `{id_label}` is "APAAR" or [provisional.label]. `{change_until_date}` is 7 days after the first reply. Page states and the error codes behind them: 404 `NOTICE_NOT_FOUND` (same body for an invalid and an unknown token) shows `notice.invalid`; 410 `NOTICE_EXPIRED` shows `notice.expired`; 409 `NOTICE_ALREADY_CHANGED` shows `notice.change_used`; 429 shows `notice.rate_limited`.
 
 Hindi (for review by a native speaker before the panel)
 
@@ -670,22 +848,111 @@ Hindi (for review by a native speaker before the panel)
 | notice.next_step.hi | अगर आप "नहीं" चुनते हैं, तो AICTE का एक अधिकारी इसकी जाँच करेगा। तब तक आपके लिए कुछ नहीं बदलता। |
 | notice.yes_done.hi | धन्यवाद। {institution_name} में आपका नामांकन अब आपके द्वारा प्रमाणित है। |
 | notice.no_done.hi | धन्यवाद। AICTE का एक अधिकारी इसकी जाँच करेगा। तब तक आपके लिए कुछ नहीं बदलता। |
-| notice.expired.hi | यह लिंक समाप्त हो गया है। अपने कॉलेज से सूचना दोबारा भेजने को कहें। |
+| notice.expired.hi | यह लिंक समाप्त हो गया है। कोई उत्तर दर्ज नहीं हुआ, और इसे आपके विरुद्ध नहीं गिना जाता। अभी उत्तर देने के लिए अपने कॉलेज या AICTE से नई सूचना भेजने को कहें। |
+| notice.page_title.hi | {institution_name} की सूचना |
+| notice.lang_label.hi | भाषा |
+| notice.uploaded_line.hi | कॉलेज ने यह जानकारी {uploaded_date} को {id_label} {id_masked} के साथ अपलोड की। |
+| provisional.label.hi | अस्थायी आईडी |
+| notice.what_is_this_link.hi | यह क्या है? |
+| notice.what_is_this.hi | Countersign से AICTE यह जाँचता है कि कॉलेज केवल उन्हीं विद्यार्थियों की जानकारी भेजें जिन्होंने सच में प्रवेश लिया है। आपके कॉलेज ने आपका नामांकन अपलोड किया है, और हम आपसे इसकी पुष्टि करने को कह रहे हैं। आपका उत्तर तारीख के साथ दर्ज होता है। उसके साथ केवल वही छिपी हुई आईडी रखी जाती है जो आप यहाँ देख रहे हैं। |
+| notice.sending.hi | भेजा जा रहा है |
+| notice.no_confirm.hi | आप AICTE को बता रहे हैं कि आपने {institution_name} में प्रवेश नहीं लिया। एक अधिकारी इसकी जाँच करेगा। क्या आप कुछ और बताना चाहेंगे? (वैकल्पिक) |
+| notice.no_comment_label.hi | क्या आप कुछ और बताना चाहेंगे? |
+| notice.no_comment_hint.hi | इसे केवल AICTE के अधिकारी पढ़ते हैं। आपका कॉलेज इसे नहीं देखता। |
+| notice.no_submit.hi | भेजें |
+| notice.no_cancel.hi | वापस जाएँ |
+| notice.yes_next.hi | अगर बाकी जाँचें भी सहमत हैं, तो एक नामांकन प्रमाण, जिसे आप साझा कर सकते हैं, "मेरे प्रमाण" (My proofs) में दिखेगा। |
+| notice.see_proofs.hi | मेरे प्रमाण देखें |
+| notice.answered.hi | आपने {responded_date} को "{reply}" उत्तर दिया। |
+| notice.reply.YES.hi | हाँ |
+| notice.reply.NO.hi | नहीं |
+| notice.change.hi | मेरा उत्तर बदलें |
+| notice.change_window.hi | आप अपना उत्तर केवल एक बार, {change_until_date} तक, बदल सकते हैं। |
+| notice.change_heading.hi | अपना उत्तर बदलें |
+| notice.change_once.hi | आप अपना उत्तर केवल एक बार बदल सकते हैं। उसके बाद वह अंतिम होगा। |
+| notice.current_answer.hi | आपका अभी का उत्तर |
+| notice.change_submit.hi | नया उत्तर सहेजें |
+| notice.changed_done.hi | आपका उत्तर अब "{reply}" है। इसे फिर से नहीं बदला जा सकता। |
+| notice.change_used.hi | आपने {changed_date} को अपना उत्तर बदला था। आपका उत्तर "{reply}" अंतिम है। |
+| notice.change_closed.hi | उत्तर बदलने के 7 दिन पूरे हो चुके हैं। अगर इसमें सुधार चाहिए, तो अपने Privacy पेज से अनुरोध करें। |
+| notice.invalid.hi | यह लिंक मान्य नहीं है। जाँचें कि आपने संदेश का पूरा लिंक खोला है, या अपने कॉलेज से नई सूचना भेजने को कहें। |
+| notice.rate_limited.hi | इस नेटवर्क से बहुत अधिक प्रयास हुए हैं। {seconds} सेकंड बाद फिर कोशिश करें। |
+| consent.notice.hi | उत्तर देकर आप AICTE को इस नामांकन के साथ आज की तारीख में अपना उत्तर दर्ज करने की अनुमति देते हैं। आपका उत्तर AICTE के अधिकारियों और {institution_name} को केवल "पुष्टि की" या "अस्वीकार किया" के रूप में दिखता है, किसी और व्यक्तिगत जानकारी के बिना। अगर आप टिप्पणी लिखते हैं, तो उसे केवल AICTE के अधिकारी देखते हैं। |
+| err.NETWORK.hi | Countersign से संपर्क नहीं हो सका। अपना इंटरनेट कनेक्शन जाँचें और फिर कोशिश करें। |
+| err.INTERNAL.hi | हमारी ओर से कुछ गड़बड़ हुई। फिर कोशिश करें। |
+| err.retry.hi | फिर कोशिश करें |
+
+With Hindi on, every string on the notice page uses its `.hi` row, states and errors included; a string without one falls back to English. Institution and programme names print as sent. `{reply}` takes `notice.reply.*.hi`; `{id_label}` is "APAAR" or [provisional.label.hi]. Dates keep the `14 Jul 2026` form. "Privacy" and "My proofs" stay in English inside the Hindi strings because the student portal shows them in English.
+
+Notices list (`/student/notices`)
+
+| id | text |
+|---|---|
+| notices.heading | Notices |
+| notices.lead | Messages asking you to confirm what a college told AICTE about you. |
+| notices.col.sent | Sent |
+| notices.col.from | From |
+| notices.col.claim | What they said |
+| notices.col.reply | Your reply |
+| notices.claim | You joined {programme_short} ({academic_year}) |
+| notices.channels | By {channel_words} |
+| notices.reply.YES | Yes, on {responded_date} |
+| notices.reply.NO | No, on {responded_date} |
+| notices.reply.NONE | No reply yet |
+| notices.reply.EXPIRED | No reply (expired) |
+| notices.changed | Changed once, on {changed_date} |
+| notices.reply_hint | To reply, open the link we sent you by email or in DigiLocker. It works until {expires_date}. |
+| notices.denied_line | An AICTE officer is looking into this. Nothing changes for you until they decide. |
+| notices.consent_off | You turned off new notices on {withdrawn_date}. Notices already sent can still be answered. |
+
+`{channel_words}` is "email", "DigiLocker" or "email and DigiLocker". The list cannot open a notice: only a hash of each link is stored (D23), so an unanswered notice shows `notices.reply_hint` instead of a link. `notices.denied_line` sits under a No reply and is the only place a student learns that a case exists.
+
+Student home (`/student`)
+
+| id | text |
+|---|---|
+| student.check_student_sent | The last check is your own reply. We sent you a notice on {sent_date}. Open it from your email or DigiLocker to reply. |
+| student.check_student_expired | Your notice expired without a reply. That does not count against you. |
+| student.check_student_denied | You told us this is not you. An AICTE officer is looking into it. Nothing changes for you until they decide. |
+| student.consent_change | {tip}. To change it, go to your Privacy page. |
+
+Under the strip the home page shows one line by the enrolment's newest notice: none sent, [student.check_student_pending]; sent and unanswered, `student.check_student_sent`; expired, `student.check_student_expired`; answered No, `student.check_student_denied`; answered Yes, nothing. `student.consent_change` replaces the consent tooltip line the web kept outside the deck.
 
 Wallet
 
 | id | text |
 |---|---|
 | wallet.heading | My proofs |
+| wallet.lead | Proofs you can show an employer or anyone else who needs to check your enrolment. You choose what they see. |
 | wallet.kind.ENROLMENT | Enrolment proof |
-| wallet.kind.DEGREE | Degree |
+| wallet.kind.DEGREE | Degree proof |
 | wallet.issued_by | Issued by Countersign for {institution_name} |
+| wallet.issued_by_degree | Issued by Countersign for {university_name} |
 | wallet.issued_on | Issued {issued_date} |
+| wallet.valid_until | Valid until {expires_date} |
 | wallet.status.active | Active |
 | wallet.status.revoked | Revoked |
+| wallet.status.expired | Expired |
 | wallet.share | Share proof |
 | wallet.details | Show details |
+| wallet.hide_details | Hide details |
+| wallet.details_heading | What this proof holds |
+| wallet.proof_id | Proof id {short_id} |
+| wallet.not_issued_heading | No enrolment proof yet |
+| wallet.not_issued.reply | Your proof is issued after you reply Yes to the notice we sent you and the other checks agree. |
+| wallet.not_issued.checks | You confirmed your enrolment. Your proof is issued once no source disagrees and any review of this enrolment is finished. You do not need to do anything. |
+| wallet.not_issued.denied | You told us you did not join {institution_name}, so no proof is issued for this enrolment. |
+| wallet.revoked_line | Withdrawn on {revoked_date}. Anyone who checks this proof now sees Revoked. |
+| wallet.revoked_reason.ENROLMENT_WITHDRAWN | Your college reported that you left this programme. |
+| wallet.revoked_reason.ENROLMENT_TRANSFERRED | Your college reported that you moved to another institution. |
+| wallet.revoked_reason.FLAG_CONFIRMED | AICTE reviewed this enrolment and withdrew the proof. |
+| wallet.revoked_reason.ADMIN | AICTE withdrew this proof. |
+| wallet.revoked_help | If you think this is wrong, ask for a correction from your Privacy page. |
+| wallet.expired_line | This proof ended on {expires_date}. If you are still enrolled, a proof for your next academic year is issued once its checks agree. |
+| wallet.share_heading | Share this proof |
 | wallet.fields_heading | Choose what to share |
+| wallet.fields_hint | Institution and programme are always shared. Tick anything else the verifier needs. |
+| wallet.always_shared | Always shared |
 | wallet.field.name | Name |
 | wallet.field.institution | Institution (always shared) |
 | wallet.field.programme | Programme (always shared) |
@@ -693,18 +960,51 @@ Wallet
 | wallet.field.year_of_study | Year of study |
 | wallet.field.dob | Date of birth |
 | wallet.field.apaar_masked | APAAR (masked) |
+| wallet.field.countersigned | Checks that agree (countersigned) |
+| wallet.field.countersigned_hint | Which of the five checks agree with your college's record, and the date. |
+| wallet.field.university | University |
+| wallet.field.year_of_award | Year of award |
+| wallet.countersigned_value | {checks}, as of {date} |
+| wallet.consent_label | I agree |
+| wallet.consent_required | Tick "I agree" to create the QR. |
 | wallet.create_qr | Create QR |
+| wallet.creating | Creating |
 | wallet.shares | Shares {n} of {m} fields |
+| wallet.shared_fields | Shared: {fields} |
 | wallet.valid_for | Valid for 10 minutes |
+| wallet.expires_in | Expires in {mm}:{ss} |
+| wallet.expires_in_sr | The QR expires in {minutes} minutes. |
+| wallet.expired_share | This QR has expired. Create a new one if you still need to share. |
+| wallet.new_qr | Create a new QR |
+| wallet.qr_alt | QR code for your proof. The same code is written under it. |
+| wallet.code_label | Code |
+| wallet.code_hint | The verifier can type this code at {verify_url} instead of scanning. |
+| wallet.copy_code | Copy code |
+| wallet.code_copied | Code copied |
 | wallet.copy_link | Copy link |
 | wallet.copied | Link copied |
+| wallet.done | Done |
+| wallet.history_heading | Sharing history |
+| wallet.history.created | {date}, {time}: QR created, shares {n} of {m} fields |
 | wallet.history_item | Shared with a verifier at {time} |
+| wallet.history_item_date | Shared with a verifier on {date} at {time} |
+| wallet.history_item_more | Checked {n} times, last at {time} |
+| wallet.history.unused | Not checked by anyone before it expired |
+| wallet.history.stopped | Stopped on {date}, when you withdrew consent to share |
+| wallet.history_empty | You have not shared this proof yet. |
+| wallet.history_note | AICTE records when your proof is checked, but not who checked it. |
 | student.heading | My enrolment |
 | student.card_lead | {institution_name} says you joined {programme_name} |
 | student.strip_caption | {passes} of {applicable} sources agree |
-| student.check_student_pending | The last check is your own reply. You will be asked to confirm this enrolment when student notices start in Week 3. |
+| student.check_student_pending | The last check is your own reply. AICTE sends you a notice by email or DigiLocker to confirm this enrolment. |
 | privacy.student_line | Only you can see your email and mobile here. Officers see masked ids only. |
 | privacy.how_link | How my data is used |
+
+Share sheet fields (D26): an enrolment proof lists 8 fields. Institution and programme come first, ticked and locked; then name, academic year, year of study, date of birth, APAAR (masked) and countersigned, all unticked to start. `{m}` in `wallet.shares` is the response's `total` (8 for an enrolment proof) and `{n}` counts the ticked fields, locked ones included, so the fewest a share can show is "Shares 2 of 8 fields". A degree proof lists the fields its `disclosable` claims name, using the `wallet.field.*` words. Each row shows the value that would be shared; the countersigned value is `wallet.countersigned_value`, with `{checks}` the `check.*` words joined with commas and a final "and" ("Identity, Admission, Seat and Student, as of 28 Oct 2026").
+
+The code under the QR is 6 groups of 4 letters and digits, printed as sent (`K7PQ-3M2X-9ZAB-4TNE-W8RC-6HDF`). `{verify_url}` is the host and path of the verify page without the code ("localhost:3000/verify"). The countdown counts down from `expires_at`; `wallet.expires_in_sr` is announced at 5 minutes and at 1 minute only. In the history, a share's first row is `wallet.history.created`; each check of it prints `wallet.history_item` (D27), with `wallet.history_item_date` when it was not today, or `wallet.history_item_more` once `verify_count` is above 1; a share that expired unchecked prints `wallet.history.unused`.
+
+No proof yet: for an active enrolment with no enrolment proof, the card reads `wallet.not_issued_heading` and one line by the Student check: pending, `wallet.not_issued.reply`; countersigned, `wallet.not_issued.checks`; not countersigned, `wallet.not_issued.denied`. It never names a flag or a failed check. A revoked proof prints `wallet.revoked_line`, then the `wallet.revoked_reason.*` sentence for its `revoked_reason` (a reason the deck does not list prints `wallet.revoked_reason.ADMIN`), then `wallet.revoked_help`; it has no Share button.
 
 ## 9. Consent texts (DPDP)
 
@@ -712,47 +1012,152 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 
 | id | purpose | text |
 |---|---|---|
-| consent.apaar_link | APAAR_LINK | I allow AICTE to use my APAAR id to check that my enrolment at {institution_name} is genuine. AICTE will look up my id with the APAAR registry, the counselling allotment list and the Academic Bank of Credits. Only the last four digits of my id are shown to officers. I can withdraw this consent from my Privacy page; checks already made stay on record. |
-| consent.notice | NOTICE | By replying, you let AICTE record your answer with today's date against this enrolment. Your answer is shown to AICTE officers and to {institution_name} as "Confirmed" or "Denied", with no other personal detail. |
-| consent.credential_share | CREDENTIAL_SHARE | I am creating a proof that shows only the fields I ticked. Whoever scans it sees those fields, the issuer and the date, and nothing else. The proof expires in 10 minutes. AICTE records that a proof was created, not who scanned it. |
-| consent.withdraw | any | Withdraw this consent? Checks already made stay on record. New checks will use your provisional id instead of your APAAR. |
+| consent.apaar_link | APAAR_LINK | I allow AICTE to use my APAAR id to check that my enrolment at {institution_name} is genuine. AICTE will look up my id with the APAAR registry, the counselling allotment list and the Academic Bank of Credits. Only the last four digits of my id are shown to officers. To unlink my APAAR later, I can ask from my Privacy page; my college then uploads my enrolment again without it. Checks already made stay on record, and my admission is not affected. |
+| consent.notice | NOTICE | By replying, you let AICTE record your answer with today's date against this enrolment. Your answer is shown to AICTE officers and to {institution_name} as "Confirmed" or "Denied", with no other personal detail. If you add a comment, only AICTE officers see it. |
+| consent.credential_share | CREDENTIAL_SHARE | I am creating a proof that shows only the fields I ticked. Whoever scans it sees those fields, who issued the proof and when, and nothing else. The proof works for 10 minutes. AICTE records when it is created and when it is checked, but not who checks it. |
+| consent.withdraw.NOTICE | NOTICE | Stop new notices? You will get no new notices about your enrolments. Notices already sent can still be answered, and replies you gave stay on record. |
+| consent.withdraw.CREDENTIAL_SHARE | CREDENTIAL_SHARE | Stop sharing? Every QR or link you created that still works stops working now. Your proofs stay in your wallet, and sharing again asks for your consent again. |
+| consent.unlink_apaar | APAAR_LINK | Unlinking your APAAR is a correction request, because your college must upload your enrolment again without it. Your admission is not affected, and checks already made stay on record. |
 | consent.upload_declaration | APAAR_LINK via college | (identical to upload.declaration) |
+
+`consent.withdraw.*` and `consent.unlink_apaar` are confirmations on the Privacy page, not stored texts. Only NOTICE and CREDENTIAL_SHARE can be withdrawn there (`POST /students/me/consents/{purpose}/withdraw`, D30). APAAR_LINK has no Withdraw button: `consent.unlink_apaar` explains why and offers [privacy.unlink_apaar], which opens a Correction request with [privacy.request.unlink_prefill]. Each stored text is kept with its `notice_version`; the Privacy page shows the exact text the student agreed to, not today's version.
 
 ## 10. Verifier
 
+Public pages, no sign-in, rate limited (D27, D32). They never offer search and never show a field the student did not share.
+
+Entry page (`/verify`)
+
 | id | text |
 |---|---|
+| verify.bar | Verify a proof |
 | verify.heading | Verify an enrolment or degree proof |
-| verify.lead | Scan the QR on the document, or paste the code printed under it. |
+| verify.lead | Scan the QR on the document, or type the code printed under it. |
 | verify.scan | Scan with camera |
+| verify.scan_stop | Stop camera |
+| verify.scan_hint | Hold the QR inside the frame. |
+| verify.scan_unsupported | This browser cannot scan QR codes. Type the code instead. |
+| verify.camera_denied | The camera is not allowed for this page. Type the code instead, or allow the camera in your browser settings. |
 | verify.code_label | Code |
-| verify.placeholder | e.g. K7PQ-3M2X-9ZAB |
+| verify.placeholder | e.g. K7PQ-3M2X-9ZAB-4TNE-W8RC-6HDF |
+| verify.code_hint | 24 letters and digits. Dashes and spaces are optional. |
+| verify.code_format | A code has 24 letters and digits, in 6 groups of 4. Check it and try again. |
 | verify.check | Check |
-| verify.coming | Verification opens in Week 3. Until then no code can be checked here. |
-| verify.what | What you will see: whether the proof is valid, who issued it, and only the fields the student chose to share. Never a full APAAR number. |
+| verify.checking | Checking |
+| verify.paste_link | Have the proof text instead of a code? |
+| verify.paste_label | Proof text |
+| verify.paste_hint | Paste the full text you were given. It is long and starts with eyJ. |
+| verify.paste_check | Check proof text |
+| verify.what | What you will see: whether the proof is valid, who issued it, and only the fields the student chose to share. Never a full APAAR number, and no search: only a proof a student shares can be checked. |
+| verify.about_link | What is Countersign? |
+| verify.about | Countersign is AICTE's way of checking that every enrolment a college reports is backed by independent sources: the APAAR registry, the counselling allotment list, the seat ledger, the Academic Bank of Credits and the student's own reply. A proof shows that check, and only the fields the student chose to share. |
+| verify.rate_limited | Too many checks from this network in a minute. Try again in {seconds} s. |
+
+Result page (`/verify/[code]`, and pasted proof text)
+
+| id | text |
+|---|---|
+| verify.result_title | Proof check |
+| verify.state.VALID | Valid |
+| verify.state.REVOKED | Revoked |
+| verify.state.EXPIRED | Expired |
+| verify.state.INVALID | Not valid |
+| verify.kind.ENROLMENT | Enrolment proof |
+| verify.kind.DEGREE | Degree proof |
 | verify.valid | Valid proof |
 | verify.valid_sub | Issued by Countersign for {institution_name} on {issued_date}. |
-| verify.revocation | Revocation list checked just now. |
+| verify.signature | Signature checked against Countersign's published keys. |
+| verify.revocation | Revocation checked just now. |
+| verify.revocation_at | Revocation checked at {time}. |
+| verify.holder_bound | The student shared this proof for this check, from their own wallet. |
+| verify.pasted_note | Checked from pasted text, so Countersign cannot tell whether it was made for you. Ask the student for a fresh code if that matters. |
+| verify.shared_heading | Shared by the student |
+| verify.not_shared | Nothing else is shown. The student chose what to share. |
 | verify.revoked | This proof has been revoked. |
-| verify.revoked_sub | The student or the issuer withdrew it on {revoked_date}. Ask for a fresh proof. |
+| verify.revoked_sub | AICTE withdrew it, for example because the student left the programme. It no longer confirms anything. Ask the student about it. |
 | verify.expired | This proof has expired. |
-| verify.expired_sub | Proofs are valid for 10 minutes after they are created. Ask for a fresh one. |
-| verify.invalid | This code is not a Countersign proof. |
-| verify.invalid_sub | Check the code and try again. |
-| verify.about_link | What is Countersign? |
+| verify.expired_sub | A shared code works for 10 minutes, and every proof has an end date. Ask the student for a new one. |
+| verify.invalid | This is not a valid Countersign proof. |
+| verify.invalid_sub | The code may be mistyped, or the proof was changed after it was issued. Check the code and try again; if it still fails, do not rely on it. |
+| verify.check_another | Check another proof |
+
+Degree QR result (`/verify/d/[jws]`)
+
+| id | text |
+|---|---|
+| verify.degree_valid | Valid degree proof |
+| verify.degree_sub | Signed by Countersign for {university_name}. |
+| verify.degree_heading | On the degree |
+| verify.degree_printed | Printed proofs are not tied to a phone. Compare the name with the person's photo ID. |
+| verify.degree_wallet | This QR carries a short signed summary of the degree. The graduate's wallet holds the full proof. |
+| verify.degree_revoked_sub | AICTE withdrew this degree proof. It no longer confirms anything. Ask the graduate about it. |
+
+Field labels (the api sends `label` with every disclosed field; these rows mirror them)
+
+| id | text |
+|---|---|
+| verify.field.name | Name |
+| verify.field.institution | Institution |
+| verify.field.programme | Programme |
+| verify.field.academic_year | Academic year |
+| verify.field.year_of_study | Year of study |
+| verify.field.dob | Date of birth |
+| verify.field.apaar_masked | APAAR (masked) |
+| verify.field.countersigned | Checks that agree |
+| verify.field.university | University |
+| verify.field.year_of_award | Year of award |
+| verify.field.proof_id | Proof id |
+
+Result states (D27): the heading, a badge with icon and `verify.state.*` word, and the sub line. VALID shows `verify.kind.*`, `verify.valid_sub`, `verify.signature`, `verify.revocation` (or `verify.revocation_at` when `status_checked_at` is more than a minute old), `verify.holder_bound` when `holder_bound` is true, then `verify.shared_heading` with the `disclosed` fields as label and value pairs in the order sent, then `verify.not_shared`. REVOKED, EXPIRED and INVALID show the heading, the sub line and `verify.check_another`, and no fields. A pasted proof (`POST /verify`) adds `verify.pasted_note` to a VALID result, because its share code is reported, not enforced. A degree QR shows `verify.degree_valid`, `verify.degree_sub`, `verify.signature`, `verify.revocation`, `verify.degree_heading` with its fields, `verify.degree_printed` and `verify.degree_wallet`; revoked uses `verify.revoked` with `verify.degree_revoked_sub`. A 404 `PRESENTATION_NOT_FOUND` shows [err.PRESENTATION_NOT_FOUND]; a 429 shows `verify.rate_limited` with a countdown. Values print as sent: the APAAR is always `XXXX XXXX 4417`, never more.
 
 ## 11. University
 
 | id | text |
 |---|---|
 | university.heading | Affiliated institutions |
-| university.degree_teaser | Degree print opens in Week 3. You will pick a graduating student and print a degree insert with masked APAAR and a QR. |
 | degree.heading | Degree print |
-| degree.print | Print |
+| degree.lead | Graduates of your affiliated institutions. Issue a degree proof, then print the insert with the masked APAAR and a QR anyone can scan. |
+| degree.search | Search by name or the last four digits of APAAR |
+| degree.count | {total} graduates |
+| degree.col.student | Graduate |
+| degree.col.year_of_award | Year of award |
+| degree.col.proof | Degree proof |
+| degree.status.none | Not issued |
+| degree.status.active | Issued {issued_date} |
+| degree.status.revoked | Revoked |
 | degree.issue | Issue degree proof |
-| degree.issue_note | The student can see this proof in their wallet and control what they share from it. |
-| degree.scan_line | Scan to verify at {verify_url} |
+| degree.issue_heading | Issue a degree proof for {student_name}? |
+| degree.issue_body | Countersign signs a degree proof for {programme_name} ({year_of_award}) and puts it in the graduate's wallet. You can then print the insert. |
+| degree.issue_note | The graduate can see this proof in their wallet and choose what they share from it. |
+| degree.issue_revocation_note | If the degree is withdrawn later, AICTE revokes the proof and anyone who scans the printed QR sees Revoked. |
+| degree.issue_confirm | Issue proof |
+| degree.issue_cancel | Cancel |
+| degree.issuing | Issuing |
+| degree.issued_toast | Degree proof issued. It is in {student_name}'s wallet. |
+| degree.print_insert | Print degree insert |
+| degree.pdf | Download PDF |
+| degree.pdf_note | A sample A4 insert with the same QR, for filing or sending. |
+| degree.provisional_note | This graduate has no APAAR, so the insert prints the provisional id. |
+| degree.print_title | Degree insert, {student_name} |
+| degree.print_hint | Print on A4, portrait. Navigation and colours are left out of the printout. |
+| degree.print | Print |
+| degree.print_back | Back to graduates |
+| degree.print.accompanies | This insert accompanies the degree awarded to |
+| degree.print.name | Name |
+| degree.print.programme | Programme |
+| degree.print.institution | Institution |
+| degree.print.year | Year of award |
+| degree.print.apaar | APAAR |
+| degree.print.provisional | Provisional id |
 | degree.apaar_line | APAAR {apaar_masked} |
+| degree.scan_line | Scan to verify at {verify_url} |
+| degree.print.proof_id | Proof id {short_id} |
+| degree.print.issued | Proof issued {issued_date} |
+| degree.print.signed | Signed by Countersign for {university_name}. A changed insert does not verify. |
+
+`/university/degrees` lists `GET /university/graduates?q&page` (D28): Graduate (name, linked to nothing), [col.apaar] (masked APAAR or provisional id), [col.institution], [col.programme], `degree.col.year_of_award`, `degree.col.proof` (`degree.status.*` word with an icon). Row action: `degree.issue` when there is no active degree proof (also after a revoked one), else `degree.print_insert` and `degree.pdf`. The issue sheet shows `degree.issue_heading`, `degree.issue_body`, `degree.issue_note`, `degree.issue_revocation_note` (and `degree.provisional_note` for a graduate without APAAR), then `degree.issue_confirm` and `degree.issue_cancel`. 409 `CREDENTIAL_NOT_ELIGIBLE` shows [err.CREDENTIAL_NOT_ELIGIBLE]; 409 `CREDENTIAL_REVOKED` on print shows [err.CREDENTIAL_REVOKED].
+
+Print view text under the QR: `degree.print.proof_id` and `degree.scan_line`, with `{verify_url}` the verify page's host and path ("localhost:3000/verify"). The QR's own link (`/verify/d/{jws}`, about 350 characters) is never printed as text.
 
 ## 12. Admin and system
 
@@ -788,12 +1193,40 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | admin.reset_done | Demo data reset. Audit chain starts fresh. |
 | admin.reset_cli | Reset is not available from the browser yet. Run make demo-reset. |
 | audit.heading | Audit |
-| audit.col.seq | Seq |
+| audit.lead | Every change, and every view of student records, in order. Each entry carries the hash of the one before, so a changed entry shows up when the chain is verified. |
+| audit.col.seq | Entry |
 | audit.col.at | Time |
 | audit.col.actor | Actor |
 | audit.col.action | Action |
 | audit.col.entity | Entity |
+| audit.col.entity_id | Entity id |
 | audit.col.hash | Hash |
+| audit.filter.entity_type | Entity |
+| audit.filter.action | Action |
+| audit.filter.actor | Actor |
+| audit.filter.entity_id | Entity id |
+| audit.filter.seq_from | From entry |
+| audit.filter.all | All |
+| audit.count | {total} entries |
+| audit.actor_system | System |
+| audit.via.notice_link | Public, notice link |
+| audit.via.verifier | Public, verifier |
+| audit.via.demo_seed | Demo seed |
+| audit.hash_tip | Full hash {hash} |
+| audit.verify | Verify chain |
+| audit.verifying | Verifying |
+| audit.chain_ok | Chain intact, {n} entries |
+| audit.chain_broken | Chain broken at entry {seq} |
+| audit.chain_broken_detail | Entry {seq} no longer matches its recorded hash, so it was changed after it was written. Entries before it are intact. |
+| audit.chain_checked | Checked {time} |
+| audit.show_entry | Show entry {seq} |
+| audit.break_marker | Chain breaks here |
+| audit.read_note | Views of student records are logged as Viewed entries. |
+
+`/admin/audit` (D29) reads `GET /admin/audit` with `entity_type`, `action`, `actor_id`, `entity_id`, `seq_from` and `page`, and `GET /admin/audit/verify`. Actor prints `actor_email`; a null actor prints `audit.actor_system`, or the `audit.via.*` words when the entry records how a public page reached it. Action prints `audit_action.*`. Entity id and Hash print their first 8 characters in monospace, the full value on focus and hover (`audit.hash_tip`). `{n}` in `audit.chain_ok` is `length` in `en-IN` grouping ("Chain intact, 1,842 entries"); `{seq}` in `audit.chain_broken` is `first_broken_seq`. `admin.chain_ok` and `admin.chain_broken` stay on `/admin/system`.
+
+| id | text |
+|---|---|
 | score.heading | Integrity Index |
 | score.value | {index} of 100 |
 | score.rank | Rank {rank} of {of} nationally · computed {computed_date} |
@@ -803,6 +1236,42 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | psi.compute | Compute overlap |
 | psi.result | Overlap: {n} records. Neither side learned the other's members. |
 | psi.explain | Both sides encrypt their lists, swap the encrypted versions and count the matches. The lists themselves never leave their owner. |
+
+Data requests queue (`/admin/data-requests`, `GET /data-requests` and `POST /data-requests/{id}/resolve {status, response}`, AICTE officer only, D30)
+
+| id | text |
+|---|---|
+| admin.requests.heading | Data requests |
+| admin.requests.lead | Students' requests to correct or erase their data. Each one gets a written reply the student reads on their Privacy page. |
+| admin.requests.count | {total} open requests |
+| admin.requests.filter.status | Status |
+| admin.requests.filter.kind | Request |
+| admin.requests.col.received | Received |
+| admin.requests.col.kind | Request |
+| admin.requests.col.student | Student |
+| admin.requests.col.details | Details |
+| admin.requests.col.status | Status |
+| admin.requests.col.resolved | Resolved |
+| admin.requests.resolve | Resolve |
+| admin.requests.resolve_heading | Resolve this request |
+| admin.requests.request_line | {student_name} asked for {kind_word} on {date}: |
+| admin.requests.outcome | Outcome |
+| admin.requests.outcome.DONE | Done |
+| admin.requests.outcome.REJECTED | Decline |
+| admin.requests.response_label | Reply to the student |
+| admin.requests.response_hint | The student reads this on their Privacy page. Say what was done, or why not. |
+| admin.requests.response_required | Write a reply before you resolve the request. |
+| admin.requests.correction_hint | A correction usually needs the college to upload the student's row again. Tell the student what will change and who does it. |
+| admin.requests.unlink_hint | To unlink an APAAR, the college uploads the row again with consent Refused. Admission is not affected. |
+| admin.requests.erasure_retention | Enrolment records, their checks, flags and the audit log are kept for the period the law requires, so they cannot be erased on request. Contact details and anything not needed for that record can be removed. |
+| admin.requests.erasure_reply | We cannot erase your enrolment record, its checks or its history, because AICTE must keep them for the period the law requires. Everything shown to officers stays masked, and you can see who views your record on your Privacy page. We have removed: |
+| admin.requests.submit | Send reply |
+| admin.requests.sending | Sending |
+| admin.requests.resolved_toast | Request resolved. The student can see your reply. |
+| admin.requests.empty | No open data requests. |
+| admin.requests.empty_filtered | No requests match these filters. |
+
+The queue lists Correction and Erasure requests (an Access request is fulfilled at once and never waits here), Open first, oldest first. The Student cell is the name with the masked APAAR or provisional id under it; Details prints the student's text verbatim, wrapped. `{kind_word}` is `data_request_kind.*` in lower case. The resolve sheet shows `admin.requests.correction_hint` for a correction (plus `admin.requests.unlink_hint` when the text asks to unlink an APAAR), and for an erasure shows `admin.requests.erasure_retention` and prefills the reply with `admin.requests.erasure_reply`, which the officer completes. Outcome words map to `status`: Done is `DONE`, Decline is `REJECTED`; the student then sees `data_request_status.*`.
 
 ## 13. Errors (by API error code)
 
@@ -827,6 +1296,17 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.UPLOAD_HEADER_DUPLICATE | The column {column} appears more than once. |
 | err.UPLOAD_EMPTY | The file has a header but no rows. |
 | err.UPLOAD_IN_PROGRESS | An upload for this college and year is still being processed. |
+| err.NOTICE_NOT_FOUND | This link is not valid. Check that you opened the whole link from your message, or ask your college to send a new notice. |
+| err.NOTICE_EXPIRED | This link has expired. No reply was recorded, and that does not count against you. To reply now, ask your college or AICTE to send a new notice. |
+| err.NOTICE_ALREADY_CHANGED | You have already changed your answer once, so it cannot be changed again. |
+| err.RESEND_LIMIT | This enrolment has already had 3 notices resent in this academic year, which is the limit. |
+| err.NOTICE_LIVE | The student still has a notice they can answer. You can resend once it expires or is not delivered. |
+| err.CREDENTIAL_NOT_ELIGIBLE | A proof cannot be issued for this record yet. Refresh the page to see its current status. |
+| err.CREDENTIAL_REVOKED | This proof has been withdrawn, so it cannot be shared or printed. |
+| err.PRESENTATION_NOT_FOUND | No proof matches this code. Check each group of four and try again. |
+| err.FLAG_TRANSITION_INVALID | This action is not possible from the flag's current status. The page now shows the latest status. |
+| err.ATTACHMENT_TOO_LARGE | A file is larger than 5 MB. Attach a smaller copy, for example a scan at a lower resolution. |
+| err.ATTACHMENT_TYPE | Only PDF, PNG and JPEG files can be attached. |
 | err.INTERNAL | Something went wrong on our side. Try again. |
 | err.NETWORK | Could not reach Countersign. Check your connection and try again. |
 | err.ref | Ref: {code} |
@@ -863,12 +1343,14 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | empty.enrolments_filtered | No enrolments match these filters. |
 | empty.seats | No seats in this pool. |
 | empty.uploads | No uploads yet. |
-| empty.notices_student | You have no notices yet. |
-| empty.credentials_student | Proofs you can share arrive in Week 3. |
+| empty.notices_student | You have no notices yet. When a college reports your enrolment, AICTE sends you a notice by email or DigiLocker. |
+| empty.credentials_student | No proofs yet. An enrolment proof appears here after you confirm your enrolment and the other checks agree. |
 | empty.enrolments_student | No college has reported an enrolment for you. |
 | empty.affiliates | No institutions are affiliated to your university in this academic year. |
 | empty.audit | No audit entries. |
-| empty.graduates | No graduating students found. |
+| empty.audit_filtered | No entries match these filters. |
+| empty.graduates | No graduates found for your affiliated institutions. |
+| empty.graduates_search | No graduate matches "{q}". Search by name or the last four digits of APAAR. |
 
 ## 15. Check detail sentences
 
@@ -901,9 +1383,15 @@ Reference copy of API_CONTRACT §A2.14. The engines write one of these into each
 | check.detail.STUDYING.pass | Studying | Countersigned | credits in every expected semester | Credits recorded in ABC for all {expected} semesters since admission. |
 | check.detail.STUDYING.pending_one_missing | Studying | Awaiting next results | one semester missing | No credits recorded in ABC for semester {sem} ({academic_year}); waiting for the next upload. |
 | check.detail.STUDYING.fail | Studying | Not countersigned | two or more semesters missing | No credits recorded in ABC for {missing} of {expected} semesters since admission. |
-| check.detail.STUDENT.pending | Student | Notice not sent yet | until student notices start | Notice not sent yet. |
+| check.detail.STUDENT.pending | Student | Notice not sent yet | no notice for this enrolment yet | Notice not sent yet. |
+| check.detail.STUDENT.pending_sent | Student | No reply yet | a notice was sent and has no reply | Notice sent on {sent_date}; no reply yet. |
+| check.detail.STUDENT.pending_expired | Student | No reply (expired) | every notice expired without a reply | No reply (expired). |
+| check.detail.STUDENT.pass | Student | Countersigned | a Yes on any channel and no No | Confirmed by the student on {reply_date} ({channel_word}). |
+| check.detail.STUDENT.fail | Student | Not countersigned | a No on any channel; a No beats a Yes | Denied by the student on {reply_date} ({channel_word}). |
 
 `{problem}` is, for example, "has 11 digits, expected 12" or "contains characters other than digits". The result column gives the word the web shows beside the sentence (`check.status.*` or `check.pending.*`).
+
+Student check (D24): the source is `STUDENT_NOTICE` ([source.STUDENT_NOTICE]) and the result comes only from the enrolment's notices, never from an adapter. A No beats a Yes, because the college supplies the email address while DigiLocker reaches the APAAR holder. `{channel_word}` is "email" or "DigiLocker". After the one allowed change of answer, the sentence follows the new answer and its date. The FAIL sentence is the deck's wording; D24 names the result but not the sentence.
 
 ## 16. Enrolment detail
 
@@ -948,6 +1436,32 @@ Routes `/aicte/enrolments/[id]`, `/ro/enrolments/[id]`, `/college/enrolments/[id
 | col.checked_at | Checked |
 | col.detail | Detail |
 
+Student notice block and Resend notice (`POST /enrolments/{id}/notices/resend`, D23)
+
+| id | text |
+|---|---|
+| enrolment.section.notice | Student notice |
+| enrolment.notice.none | No notice sent yet. |
+| enrolment.notice.channel_line | {channel_name}: {delivery_word}, {sent_date} |
+| enrolment.notice.failed_reason | ({last_error}) |
+| enrolment.notice.expires | The link works until {expires_date}. |
+| enrolment.notice.expired | Expired on {expires_date} without a reply. |
+| enrolment.notice.reply | Reply: {reply_word}, {responded_date} ({channel_word}) |
+| enrolment.notice.changed | Reply changed once, on {changed_date}. |
+| enrolment.notice.comment | Comment from the student |
+| enrolment.notice.consent_off | The student turned off new notices on {withdrawn_date}, so no new notice can be sent. |
+| resend.button | Resend notice |
+| resend.tip | Sends a new notice when the last one expired or was not delivered. Up to 3 times for this enrolment in an academic year. |
+| resend.live_tip | The student can still answer the notice sent on {sent_date}, until {expires_date}. |
+| resend.confirm_heading | Send a new notice? |
+| resend.confirm | {student_name} gets a new link by email, and in DigiLocker when they have an APAAR. Notices can be resent up to 3 times for this enrolment in {academic_year}. |
+| resend.send | Send notice |
+| resend.cancel | Cancel |
+| resend.sending | Sending |
+| resend.sent | Notice sent. The new link works until {expires_date}. |
+
+One `enrolment.notice.channel_line` per notification, newest notice first, with `{channel_name}` from `notice_channel.*` and `{delivery_word}` from `notice_delivery.*`; a FAILED line adds `enrolment.notice.failed_reason` with the api's `last_error` verbatim (for a missing DigiLocker account the api writes "no DigiLocker account"). `{reply_word}` is `notice_reply.*` (Confirmed, Denied). `enrolment.notice.comment` and the comment under it appear for officers only; the api never sends the comment to a registrar or a university (D24). Resend notice shows for an AICTE officer, a regional officer and the registrar of the student's own college, never for the university: enabled when every notice is expired or not delivered; disabled with `resend.live_tip` while a notice is live; replaced by `enrolment.notice.consent_off` when the student withdrew notice consent. A 429 `RESEND_LIMIT` shows [err.RESEND_LIMIT] and disables the button; a 409 `NOTICE_LIVE` shows [err.NOTICE_LIVE] and refetches.
+
 The Result cell uses `check.status.*`, or for PENDING the pending word from §3. The Detail cell prints `detail.summary` verbatim; when `attempts` is above 0, [check.attempts] follows in small text. A null `checked_at` prints [check.never]. Mobile prints `mobile_masked` exactly as sent; a null value leaves the line out. `enrolment.unseated_flag` takes the SEAT check's `detail.flag_type` and links to that flag in `flags` when it is there. The footer carries [privacy.read_logged].
 
 ## 17. Recheck
@@ -972,7 +1486,7 @@ The enrolment button shows only when a check other than Student is PENDING. Each
 
 ## 18. Flag list and detail
 
-Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/flags`, and flag detail, from `GET /flags` and `GET /flags/{id}` (API_CONTRACT §A2.15, §A2.16). Read only until officer actions arrive in Week 3.
+Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/flags`, and flag detail, from `GET /flags` and `GET /flags/{id}` (API_CONTRACT §A2.15, §A2.16). Officers act from flag detail and the registrar responds there (§6).
 
 | id | text |
 |---|---|
@@ -989,6 +1503,11 @@ Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/
 | flags.sort.severity_desc | Most severe first |
 | flags.sort.created_desc | Newest first |
 | flags.sort_tip | Most severe first, then oldest first |
+| flags.filter.assignee | Assignee |
+| flags.filter.assignee_me | Assigned to me |
+| flags.filter.assignee_none | Unassigned |
+| flags.filter.response | Response |
+| flags.filter.response_received | Response received |
 | table.count.flags_any | {total} flags in {institutions} institutions |
 | table.count.flags_one | {total} open flags |
 | table.count.flags_one_any | {total} flags |
@@ -1022,10 +1541,9 @@ Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/
 | flag.enrolment_heading | Enrolment this flag is about |
 | flag.related_heading | Related enrolments ({n}) |
 | flag.related_hidden | {n} related enrolments at another institution are not shown to your college. |
-| flag.readonly_officer | Read only for now. Clearing, requesting documents, escalating and confirming open in Week 3. |
-| flag.readonly_college | Read only. An officer reviews every flag. If they ask for documents, you will be able to respond here from Week 3. |
+| flag.readonly_college | An officer reviews every flag. If they ask for documents, you can respond here. |
 
-Count line: with the status filter on Open use [table.count.flags]; with any other status filter use `table.count.flags_any`; on one institution's Flags tab and on `/college/flags` use `table.count.flags_one`, or `table.count.flags_one_any` when the status filter is not Open. `{institutions}` is the response's `institutions`. The Evidence cell prints `summary` verbatim on one line, truncated, with the full sentence on focus and hover. Opened prints the `created_at` date. The Assignee column is hidden while every `assignee` is null. History shows one line, [case.history.opened] with the `created_at` time. `flag.related_hidden` shows when `related_hidden` is above 0. `flag.chip` is the accessible name of a flag chip in an enrolment row; after two chips the rest collapse into `flags.more`. The enrolments table's Result filter uses `check.status.*` words and its Check filter `check.*` words.
+Count line: with the status filter on Open use [table.count.flags]; with any other status filter use `table.count.flags_any`; on one institution's Flags tab and on `/college/flags` use `table.count.flags_one`, or `table.count.flags_one_any` when the status filter is not Open. `{institutions}` is the response's `institutions`. The Evidence cell prints `summary` verbatim on one line, truncated, with the full sentence on focus and hover. Opened prints the `created_at` date. The Assignee column shows on the officers' case queue; a null assignee reads [case.assignee_none]. The Assignee filter sends `assignee=me`, `none` or an officer's id; the Response filter sends `response_received=true`. A row with `response_received` carries the [case.response_badge] chip beside its status. History starts with [case.history.opened] at the `created_at` time, then the rows of §6. `flag.readonly_college` shows to the registrar when the flag is not Documents requested. `flag.related_hidden` shows when `related_hidden` is above 0. `flag.chip` is the accessible name of a flag chip in an enrolment row; after two chips the rest collapse into `flags.more`. The enrolments table's Result filter uses `check.status.*` words and its Check filter `check.*` words.
 
 ## 19. Dashboard flags
 
@@ -1036,3 +1554,77 @@ Count line: with the status filter on Open use [table.count.flags]; with any oth
 | flags_by_type.total | {total} open flags |
 
 `flags_by_type` rows with `open: 0` are hidden; when every row is 0 the panel shows [empty.flags_by_type]. Each row names the type with `flag.<TYPE>.name` and links to the case queue filtered by that type with status Open. Counts are ink with weight; severity colour appears only on severity chips, never on a count.
+
+## 20. Student privacy page
+
+`/student/privacy`, from `GET /privacy/notice`, `GET /students/me/consents`, `POST /students/me/consents/{purpose}/withdraw`, `GET /students/me/access-log`, `POST /students/me/data-requests {kind, details}` and `GET /students/me/export.json` (D30).
+
+| id | text |
+|---|---|
+| privacy.heading | Privacy |
+| privacy.lead | What you agreed to, who has viewed your record, and requests about your data. |
+| privacy.notice_link | Read the privacy notice |
+| privacy.notice_heading | Privacy notice |
+| privacy.notice_version | Version {version}, {date} |
+| privacy.consents_heading | What you agreed to |
+| privacy.consent_status | {state_word} on {date} |
+| privacy.consent_last | Last given on {date} |
+| privacy.consent_via.APAAR_LINK | Recorded by your college when it uploaded your enrolment |
+| privacy.consent_via.NOTICE | Given when you replied Yes to a notice |
+| privacy.consent_via.CREDENTIAL_SHARE | Given each time you share a proof |
+| privacy.consent_text_show | Show the exact text |
+| privacy.consent_text_hide | Hide the text |
+| privacy.consent_version | Text version {version} |
+| privacy.withdraw | Withdraw |
+| privacy.withdraw_confirm | Yes, withdraw |
+| privacy.withdraw_cancel | Keep it |
+| privacy.withdrawn_on | Withdrawn on {date} |
+| privacy.withdraw_done.NOTICE | New notices are off. You can still answer notices already sent. |
+| privacy.withdraw_done.CREDENTIAL_SHARE | Sharing stopped. QR codes and links you created no longer work. |
+| privacy.unlink_apaar | Ask to unlink my APAAR |
+| privacy.consent_none | No consents recorded yet. |
+| privacy.access_heading | Who viewed your record |
+| privacy.access_lead | Every time someone opens your record it is logged. You see their role and the date, never their name. |
+| privacy.access.col.date | Date |
+| privacy.access.col.who | Who |
+| privacy.access.AICTE_ADMIN | An AICTE officer |
+| privacy.access.RO_OFFICER | A regional officer |
+| privacy.access.INSTITUTION | Your college |
+| privacy.access.UNIVERSITY | Your university |
+| privacy.access.STUDENT | You |
+| privacy.access.notice_link | Someone who opened your notice link |
+| privacy.access.verifier | A verifier you shared a proof with |
+| privacy.access.more | Show older |
+| privacy.access_empty | Nobody has viewed your record yet. When someone does, the role and the date appear here. |
+| privacy.requests_heading | Requests about your data |
+| privacy.requests_lead | Ask for a copy of what Countersign holds about you, a correction, or an erasure. |
+| privacy.request.new | Make a request |
+| privacy.request.kind_label | What do you want? |
+| privacy.request.kind.ACCESS | A copy of my data |
+| privacy.request.kind_hint.ACCESS | A file with everything Countersign holds about you, ready at once. Your APAAR stays masked in it. |
+| privacy.request.kind.CORRECTION | Correct something |
+| privacy.request.kind_hint.CORRECTION | Tell us what is wrong. An AICTE officer replies here; your college may need to upload your record again. |
+| privacy.request.kind.ERASURE | Erase my data |
+| privacy.request.kind_hint.ERASURE | Tell us what to erase. Some records must be kept by law; the reply says what can be removed. |
+| privacy.request.details.ACCESS | Anything to add? (optional) |
+| privacy.request.details.CORRECTION | What is wrong, and what should it say? |
+| privacy.request.details.ERASURE | What should be erased, and why? |
+| privacy.request.details_required | Write a few words so an officer knows what to do. |
+| privacy.request.unlink_prefill | Please unlink my APAAR from my enrolment at {institution_name}. |
+| privacy.request.submit | Send request |
+| privacy.request.sending | Sending |
+| privacy.request.sent | Request sent. An AICTE officer replies here. |
+| privacy.request.row | {kind_word}, sent {date} |
+| privacy.request.waiting | Waiting for a reply from AICTE |
+| privacy.request.reply | Reply from AICTE, {date} |
+| privacy.request.none | You have not made any requests. |
+| privacy.export_ready | Your copy is ready. |
+| privacy.export_download | Download my data (JSON file) |
+| privacy.export_note | The file lists everything Countersign holds about you. Your APAAR is masked in it too. Keep the file somewhere safe. |
+| privacy.export_preparing | Preparing your file |
+
+Consents: one row per purpose in the order APAAR_LINK, NOTICE, CREDENTIAL_SHARE, each with the `consent_purpose.*` words, the `consent_state.*` word in `privacy.consent_status`, the `privacy.consent_via.*` line and the exact stored text behind `privacy.consent_text_show`. CREDENTIAL_SHARE is recorded once per share; its row shows the newest with `privacy.consent_last`. Withdraw shows on NOTICE and CREDENTIAL_SHARE while they are Given and opens `consent.withdraw.<PURPOSE>` with `privacy.withdraw_confirm` and `privacy.withdraw_cancel`; the APAAR_LINK row shows `consent.unlink_apaar` and `privacy.unlink_apaar` instead.
+
+Access log (D30): READ entries about the student and their enrolments, newest first, Date and Who only. Who is `privacy.access.<ROLE>` by the reader's role; an entry with no actor reads `privacy.access.notice_link` when it came from a notice link and `privacy.access.verifier` when it came from a verifier check. Never a name, an email, a college other than the student's own, or an IP.
+
+Requests: Access is fulfilled at once: after sending, the form is replaced by `privacy.export_ready` and `privacy.export_download` (a link to `/api/students/me/export.json`) with `privacy.export_note`. Correction and Erasure need details (`privacy.request.details_required` under an empty field) and appear in the list with `privacy.request.row`, the `data_request_status.*` word with an icon, `privacy.request.waiting` while Open, and the officer's reply under `privacy.request.reply` once resolved.
