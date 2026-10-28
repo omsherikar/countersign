@@ -15,6 +15,7 @@ from app.models.enums import UserRole
 from app.models.institution import Institution, Programme
 from app.models.student import Enrolment, Student
 from app.models.user import User
+from app.routers._enrolment_rows import countersigns
 from app.schemas.students import StudentEnrolment, StudentMe
 
 router = APIRouter(prefix="/students", tags=["students"])
@@ -38,6 +39,7 @@ async def students_me(
             .order_by(Enrolment.academic_year.desc(), Institution.name)
         )
     ).all()
+    signs = await countersigns(session, [enrolment.id for enrolment, _, _ in rows])
     await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
     return StudentMe(
         id=str(student.id),
@@ -58,6 +60,7 @@ async def students_me(
                 academic_year=enrolment.academic_year,
                 year_of_study=enrolment.year_of_study,
                 status=enrolment.status.value,
+                countersign=signs[enrolment.id],
             )
             for enrolment, institution, programme in rows
         ],

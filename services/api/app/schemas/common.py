@@ -39,17 +39,27 @@ class Score(BaseModel):
     applicable: int
 
 
+class CheckBrief(BaseModel):
+    type: str
+    status: str
+
+
 class CheckOut(BaseModel):
+    """A full check row (only in GET /enrolments/{id})."""
+
     type: str
     status: str
     source: str
     checked_at: str | None
+    attempts: int = 0
     detail: dict[str, Any] = Field(default_factory=dict)
 
 
 class Countersign(BaseModel):
+    """The compact block in lists: score and [{type, status}] in check order."""
+
     score: Score | None = None
-    checks: list[CheckOut] = Field(default_factory=list)
+    checks: list[CheckBrief] = Field(default_factory=list)
 
 
 class FlagRef(BaseModel):
@@ -59,3 +69,28 @@ class FlagRef(BaseModel):
     type: str
     severity: str
     status: str
+
+
+class FlagSummary(FlagRef):
+    summary: str
+    created_at: str
+
+
+class InstitutionRef(BaseModel):
+    id: str
+    name: str
+    aicte_permanent_id: str
+    state_code: str
+    state_name: str
+    region: str
+
+
+class ProgrammeRef(BaseModel):
+    id: str
+    code: str
+    name: str
+
+
+class IdName(BaseModel):
+    id: str
+    name: str

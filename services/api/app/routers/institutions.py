@@ -1,24 +1,28 @@
-"""GET /institutions, /institutions/{id}, /{id}/seats, /{id}/enrolments (A.6 to A.9, addendum 1)."""
+"""GET /institutions, /institutions/{id}, /{id}/seats, /{id}/enrolments (A.6 to A.9,
+Addendum 1, A2.10, A2.18, A2.20) and POST /institutions/{id}/recheck (A2.13)."""
 
 from __future__ import annotations
 
+import time
 import uuid
 from collections import defaultdict
-from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from slowapi.util import get_remote_address
 from sqlalchemy import Select, String, cast, func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core import audit
-from app.core.cohort import cohort_year_sql
 from app.core.config import get_settings
-from app.core.crypto import mask_apaar
-from app.core.deps import RequestId, SessionDep, require_roles, scoped_institution
+from app.core.deps import Adapters, RequestId, SessionDep, require_roles, scoped_institution
+from app.core.ratelimit import limiter
+from app.engine.checks import recheck_pending
 from app.engine.seatpools import INTERNATIONAL_RESERVED_LABEL
 from app.models.enums import (
     AdmissionRoute,
+    CheckStatus,
+    CheckType,
     EnrolmentStatus,
     InstitutionType,
     SeatEventKind,
@@ -30,18 +34,29 @@ from app.models.geo import Region, State, University
 from app.models.institution import Approval, Institution, Programme
 from app.models.seat import Seat, SeatEvent, SeatPool
 from app.models.student import Enrolment, Student
+from app.models.upload import UploadBatch
 from app.models.user import User
+from app.routers._enrolment_rows import (
+    build_rows,
+    check_filter,
+    iso,
+    plain_row,
+    row_stmt,
+    unresolved_flag_exists,
+)
 from app.routers._stats import institution_stats_stmt, region_label
 from app.schemas.common import Page, PageParams, page_params
 from app.schemas.institutions import (
     ApprovalOut,
     EnrolmentRow,
     InstitutionDetail,
+    InstitutionRecheck,
+    InstitutionRecheckBody,
     InstitutionRow,
+    LastUpload,
     ProgrammeDetail,
     SeatPoolOut,
     SeatRow,
-    StudentRef,
 )
 
 router = APIRouter(prefix="/institutions", tags=["institutions"])
@@ -53,23 +68,25 @@ INSTITUTION_ROLES = (
     UserRole.UNIVERSITY,
 )
 InstitutionUser = Annotated[User, Depends(require_roles(*INSTITUTION_ROLES))]
+OfficerUser = Annotated[User, Depends(require_roles(UserRole.AICTE_ADMIN, UserRole.RO_OFFICER))]
 Paging = Annotated[PageParams, Depends(page_params)]
 
 ListSort = Literal[
+    "flags_open_desc",
     "enrolments_desc",
     "name_asc",
-    "flags_open_desc",
     "name",
     "enrolments",
     "approved_seats",
 ]
 EnrolmentSort = Literal["name_asc", "year_desc", "route_asc"]
+INSTITUTION_RECHECK_LIMIT = "6/minute"
 
 
-def _iso(value: datetime | None) -> str | None:
-    if value is None:
-        return None
-    return value.isoformat().replace("+00:00", "Z")
+def user_key(request: Request) -> str:
+    """Rate-limit key: the signed-in user, else the client address."""
+    user_id = getattr(request.state, "user_id", None)
+    return f"user:{user_id}" if user_id else get_remote_address(request)
 
 
 async def _count(session, stmt: Select) -> int:
@@ -90,7 +107,7 @@ async def list_institutions(
     region: Annotated[str | None, Query(max_length=20)] = None,
     type: InstitutionType | None = None,
     q: Annotated[str | None, Query(max_length=120)] = None,
-    sort: ListSort = "enrolments_desc",
+    sort: ListSort = "flags_open_desc",
     order: Literal["asc", "desc"] | None = None,
 ) -> Page[InstitutionRow]:
     year = get_settings().academic_year
@@ -108,16 +125,18 @@ async def list_institutions(
         )
 
     enrolments_col = stmt.selected_columns["enrolments"]
-    seats_col = stmt.selected_columns["approved_seats"]
-    if sort in ("enrolments_desc", "flags_open_desc", "enrolments"):
-        key, default_order = enrolments_col, "desc"
+    flags_col = stmt.selected_columns["flags_open"]
+    name_key = func.lower(Institution.name)
+    if sort == "flags_open_desc":
+        keys = [flags_col.asc() if order == "asc" else flags_col.desc(), enrolments_col.desc()]
+    elif sort in ("enrolments_desc", "enrolments"):
+        keys = [enrolments_col.asc() if order == "asc" else enrolments_col.desc()]
     elif sort == "approved_seats":
-        key, default_order = seats_col, "desc"
+        seats_col = stmt.selected_columns["approved_seats"]
+        keys = [seats_col.asc() if order == "asc" else seats_col.desc()]
     else:
-        key, default_order = func.lower(Institution.name), "asc"
-    direction = order or default_order
-    ordered = key.desc() if direction == "desc" else key.asc()
-    stmt = stmt.order_by(ordered, Institution.name.asc(), Institution.id.asc())
+        keys = [name_key.desc() if order == "desc" else name_key.asc()]
+    stmt = stmt.order_by(*keys, Institution.name.asc(), Institution.id.asc())
 
     total = await _count(session, stmt)
     rows = (await session.execute(stmt.offset(paging.offset).limit(paging.page_size))).all()
@@ -135,9 +154,21 @@ async def list_institutions(
             university_name=uni.name if uni else None,
             programmes=programmes,
             approved_seats=approved_seats,
+            admitted=admitted,
             enrolments=enrolments,
+            flags_open=flags_open,
         )
-        for inst, st, rg, uni, programmes, approved_seats, enrolments in rows
+        for (
+            inst,
+            st,
+            rg,
+            uni,
+            programmes,
+            approved_seats,
+            enrolments,
+            admitted,
+            flags_open,
+        ) in rows
     ]
     return Page(items=items, total=total, page=paging.page, page_size=paging.page_size)
 
@@ -204,7 +235,7 @@ async def institution_detail(
                 Enrolment.institution_id == institution.id,
                 Enrolment.academic_year == get_settings().academic_year,
                 Enrolment.status == EnrolmentStatus.ACTIVE,
-                cohort_year_sql(Enrolment.academic_year, Enrolment.year_of_study) == year,
+                Enrolment.cohort_year == year,
             )
             .group_by(Enrolment.programme_id)
         )
@@ -242,26 +273,51 @@ async def institution_detail(
                 level=programme.level.value,
                 discipline=programme.discipline.value,
                 shift=programme.shift.value,
+                mode=programme.mode.value,
                 approval=ApprovalOut(
                     academic_year=approval.academic_year,
                     approved_intake=approval.approved_intake,
                     cutoff_date=approval.cutoff_date.isoformat() if approval.cutoff_date else None,
                 ),
                 enrolments=total,
-                pools=pools_out,
+                seated=sum(p.assigned for p in pools_out),
                 unseated=unseated,
+                pools=pools_out,
             )
         )
 
-    enrolments_total = (
+    [stats] = (
         await session.execute(
-            select(func.count()).where(
-                Enrolment.institution_id == institution.id,
-                Enrolment.academic_year == get_settings().academic_year,
-                Enrolment.status == EnrolmentStatus.ACTIVE,
+            institution_stats_stmt(user, year).where(Institution.id == institution.id)
+        )
+    ).all()
+    *_, approved_seats, enrolments_total, admitted, flags_open = stats
+
+    batch = (
+        (
+            await session.execute(
+                select(UploadBatch)
+                .where(
+                    UploadBatch.institution_id == institution.id,
+                    UploadBatch.academic_year == year,
+                )
+                .order_by(UploadBatch.created_at.desc(), UploadBatch.id.desc())
+                .limit(1)
             )
         )
-    ).scalar_one()
+        .scalars()
+        .first()
+    )
+    last_upload = None
+    if batch is not None:
+        counts = batch.counts or {}
+        last_upload = LastUpload(
+            batch_id=str(batch.id),
+            uploaded_at=iso(batch.created_at) or "",
+            rows=int(counts.get("rows", batch.total_rows or 0)),
+            errors=int(counts.get("errors", 0)),
+            status=batch.status.value,
+        )
 
     return InstitutionDetail(
         id=str(institution.id),
@@ -276,8 +332,11 @@ async def institution_detail(
         university_name=university.name if university else None,
         address_city=institution.address_city,
         established_year=institution.established_year,
-        approved_seats=sum(a.approved_intake for _, a in prog_rows),
+        approved_seats=approved_seats,
+        admitted=admitted,
         enrolments=enrolments_total,
+        flags_open=flags_open,
+        last_upload=last_upload,
         programmes=programmes,
     )
 
@@ -350,7 +409,7 @@ async def institution_seats(
             reserved_for=seat.reserved_for,
             enrolment_id=str(seat.enrolment_id) if seat.enrolment_id else None,
             student_name=student.name if student is not None else None,
-            assigned_at=_iso(at) if seat.enrolment_id else None,
+            assigned_at=iso(at) if seat.enrolment_id else None,
         )
         for seat, pool, programme_code, seat_year, student, at in rows
     ]
@@ -380,16 +439,14 @@ async def institution_enrolments(
     q: Annotated[str | None, Query(max_length=120)] = None,
     admission_route: AdmissionRoute | None = None,
     year_of_study: Annotated[int | None, Query(ge=1, le=6)] = None,
+    check_status: CheckStatus | None = None,
+    check_type: CheckType | None = None,
+    flagged: bool | None = None,
+    seated: bool | None = None,
     sort: EnrolmentSort = "name_asc",
 ) -> Page[EnrolmentRow]:
     institution = await scoped_institution(session, user, institution_id)
-    stmt = (
-        select(Enrolment, Student, Programme.code, Seat.seat_code)
-        .join(Student, Student.id == Enrolment.student_id)
-        .join(Programme, Programme.id == Enrolment.programme_id)
-        .outerjoin(Seat, Seat.id == Enrolment.seat_id)
-        .where(Enrolment.institution_id == institution.id)
-    )
+    stmt = row_stmt().where(Enrolment.institution_id == institution.id)
     if programme_id:
         stmt = stmt.where(Enrolment.programme_id == programme_id)
     if status:
@@ -400,6 +457,12 @@ async def institution_enrolments(
         stmt = stmt.where(Enrolment.admission_route == admission_route)
     if year_of_study:
         stmt = stmt.where(Enrolment.year_of_study == year_of_study)
+    if check_status is not None:  # check_type alone is ignored (A2.10)
+        stmt = stmt.where(check_filter(check_status, check_type))
+    if flagged is not None:
+        stmt = stmt.where(unresolved_flag_exists() if flagged else ~unresolved_flag_exists())
+    if seated is not None:
+        stmt = stmt.where(Enrolment.seat_id.is_not(None) if seated else Enrolment.seat_id.is_(None))
     if q:
         needle = q.strip()
         stmt = stmt.where(or_(Student.name.ilike(f"%{needle}%"), Student.apaar_last4 == needle))
@@ -414,37 +477,61 @@ async def institution_enrolments(
 
     total = await _count(session, stmt)
     rows = (await session.execute(stmt.offset(paging.offset).limit(paging.page_size))).all()
-    items = [
-        EnrolmentRow(
-            id=str(enrolment.id),
-            student=StudentRef(
-                id=str(student.id),
-                name=student.name,
-                apaar_masked=mask_apaar(student.apaar_last4),
-                consent_status=student.consent_status.value,
-                provisional_id=student.provisional_id,
-                nationality=student.nationality,
-            ),
-            programme_id=str(enrolment.programme_id),
-            programme_code=programme_code,
-            academic_year=enrolment.academic_year,
-            year_of_study=enrolment.year_of_study,
-            admission_route=enrolment.admission_route.value,
-            counselling_ref=enrolment.counselling_ref,
-            category=enrolment.category.value,
-            seat_code=seat_code,
-            status=enrolment.status.value,
-            uploaded_at=_iso(enrolment.uploaded_at) or "",
-            upload_batch_id=str(enrolment.upload_batch_id) if enrolment.upload_batch_id else None,
-            source_row_no=enrolment.source_row_no,
-        )
-        for enrolment, student, programme_code, seat_code in rows
-    ]
+    items = [plain_row(r) for r in await build_rows(session, rows)]
     await audit.record_read(
-        session,
-        user.id,
-        "student",
-        [student.id for _, student, _, _ in rows],
-        request_id=request_id,
+        session, user.id, "student", [r[1].id for r in rows], request_id=request_id
     )
     return Page(items=items, total=total, page=paging.page, page_size=paging.page_size)
+
+
+# ------------------------------------------------------------------------- recheck
+
+
+@router.post("/{institution_id}/recheck", response_model=InstitutionRecheck)
+@limiter.limit(INSTITUTION_RECHECK_LIMIT, key_func=user_key)
+async def institution_recheck(
+    request: Request,
+    institution_id: uuid.UUID,
+    session: SessionDep,
+    user: OfficerUser,
+    adapters: Adapters,
+    body: InstitutionRecheckBody | None = None,
+) -> InstitutionRecheck:
+    """Re-run every PENDING check except STUDENT of the institution's ACTIVE enrolments."""
+    started = time.perf_counter()
+    year = (body.academic_year if body else None) or get_settings().academic_year
+    institution = await scoped_institution(session, user, institution_id)
+    ids = (
+        (
+            await session.execute(
+                select(Enrolment.id)
+                .where(
+                    Enrolment.institution_id == institution.id,
+                    Enrolment.academic_year == year,
+                    Enrolment.status == EnrolmentStatus.ACTIVE,
+                )
+                .order_by(Enrolment.source_row_no.nulls_last(), Enrolment.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    result = await recheck_pending(
+        session,
+        ids,
+        adapters,
+        concurrency=get_settings().checks_concurrency,
+        actor_id=user.id,
+    )
+    return InstitutionRecheck(
+        institution_id=str(institution.id),
+        academic_year=year,
+        enrolments=result.enrolments,
+        rechecked=result.rechecked,
+        now_pass=result.now_pass,
+        now_fail=result.now_fail,
+        now_na=result.now_na,
+        still_pending=result.still_pending,
+        flags_raised=result.flags.created,
+        duration_ms=int((time.perf_counter() - started) * 1000),
+    )
