@@ -1,58 +1,109 @@
 # Later pages (Weeks 2 to 4)
 
-Lower fidelity than `03-pages-week1.md`: purpose, sketch, elements with their expected data, states and the key copy. Endpoints marked (proposed) are not in `API_CONTRACT.md` yet; the shapes below are what the pages need and are listed as contract gaps in the final report. Shared rules from `03-pages-week1.md` §0 apply.
+Lower fidelity than `03-pages-week1.md`: purpose, sketch, elements with their expected data, states and the key copy. Shared rules from `03-pages-week1.md` §0 apply. Week 2 pages read the endpoints and fields of `API_CONTRACT.md` Addendum 2 (§A2.x below); where an earlier proposal here differed, the contract replaced it. Endpoints marked (proposed) in Weeks 3 and 4 are not in the contract yet.
 
 ## Week 2
 
-### W2-1. `/college/upload`
+Nav from Week 2: the registrar's Upload and Flags items and the officers' Cases item become live. Every Week 2 page is read only for flags (officer actions arrive in Week 3). Copy ids refer to `05-copy-deck.md`; its §3 rule "Seats against admissions" applies to every page below.
 
-Purpose: the registrar uploads the admission file and takes responsibility for it.
+### W2-1. `/college/upload` (the form)
+
+Purpose: the registrar uploads one academic year's admissions file and signs the declaration.
 
 ```
-Upload admissions file                       Academic year [2026-27 ▾]
-+----------------------------------------------------------------+
-|  Drop a CSV or XLSX here, or [Choose file]                      |
-|  Template: [CSV] [XLSX]   Max 20 MB                             |
-+----------------------------------------------------------------+
-Columns expected: apaar_id, name, dob, gender, mobile, email, address,
-nationality, passport_no, programme_code, academic_year, year_of_study,
-admission_route, counselling_ref, category, consent_status
-Kind  (•) Initial upload for this year  ( ) Update to an earlier upload
-[ ] I declare that every student in this file has consented to their
-    APAAR being used to verify this enrolment, and that the file is true
-    to the college's admission register.                 [upload.declaration]
+Upload admissions file                               Academic year [2026-27 ▾]
+One file covers one academic year of your college. It changes only the
+students in it; students you leave out stay as they are.       [upload.lead]
++--------------------------------------------------------------------+
+|  Drop a CSV or XLSX here, or [Choose file]                         |
+|  [Download CSV template]  [Download XLSX template]                 |
+|  Up to 20 MB and 50,000 rows                                       |
++--------------------------------------------------------------------+
+Columns expected
+  Required  name, dob, programme_code, year_of_study, admission_route, category
+  Optional  apaar_id, gender, mobile, email, address, nationality, passport_no,
+            academic_year, counselling_ref, consent_status, status,
+            status_date, admission_date
+To report a withdrawal or a transfer, upload that student's row again with
+status Withdrawn or Transferred and the status date.     [upload.changes_note]
+[ ] I declare that this file is true to the college's admission register,
+    and that each APAAR in it is shared with that student's consent as
+    recorded in the consent column.                      [upload.declaration]
 [ Upload ]
+
 Previous uploads
-File                 Uploaded          Kind    Status  Rows  OK   Errors
-abc_2026-27.csv      14 Jul 2026 09:30 Initial Done    571   569  2
+File                            Uploaded                By         Kind     Source       Status  Rows  Accepted  With errors  With warnings
+1-ABC-0001_2026-27_update1.csv  28 Oct 2026, 11:40 IST  Registrar  Update   File upload  Done      14        12            2              1
+1-ABC-0001_2026-27.csv          28 Oct 2026, 09:30 IST  Registrar  Initial  Demo seed    Done     605       605            0              0
 ```
 
-Elements: drop zone; kind radio (`INITIAL`, `UPDATE`); declaration checkbox (records a `consents` row with channel `UPLOAD_DECLARATION`); `POST /uploads` (proposed, multipart `file`, `academic_year`, `kind`, `declaration: true`) -> `{id, status}`; previous uploads `GET /uploads` (proposed, list of `upload_batches` fields).
-States: idle; file chosen (name, size, row count estimate); uploading (progress); rejected client-side (type, size); server 413/415/422 inline.
-Copy: heading "Upload admissions file"; [upload.drop]; [upload.err_type]; [upload.err_size]; [upload.declaration]; button "Upload"; previous uploads empty [empty.uploads].
+Data:
+- Academic year: default `2026-27`. A year with no approvals comes back as 422 `VALIDATION_ERROR` on `academic_year` ("Your college has no approvals for 2027-28.") shown under the select.
+- Templates: plain links to `/api/uploads/template.csv` and `/api/uploads/template.xlsx`; the proxy keeps `Content-Disposition`, so the files save as `countersign_upload_template.*` (§A2.9).
+- Columns panel: the 19 `UPLOAD_COLUMNS` in §A2.2 order, split into required and optional, names in monospace, [upload.columns_note] under them.
+- Submit: `POST /uploads` as `multipart/form-data` with `file`, `academic_year` and `declaration=true` (§A2.4). No `kind` (the server sets it) and no `institution_id` (a registrar's own college). Sent with XMLHttpRequest so the button can read [upload.sending] while bytes go out. `202 {batch}` navigates to `/college/uploads/{batch.id}`.
+- Previous uploads: `GET /uploads?academic_year=&page=` (§A2.6), newest first. Columns File (`filename`), Uploaded (`uploaded_at`), By (`uploaded_by.name`), Kind (`upload.kind.*`, tooltip [upload.kind_tip]), Source (`upload_source.*`), Status (`upload_status.*`), Rows, Accepted, With errors, With warnings (`counts.rows`, `.accepted`, `.errors`, `.warnings`). Each row links to its batch page. Empty: [empty.uploads].
 
-### W2-2. `/college/uploads/[batchId]` (status and row errors)
+States:
+- Idle; file chosen ([upload.chosen] with "Remove file").
+- Rejected in the browser before any request: wrong extension [upload.err_type]; over 20 MB [upload.err_size].
+- Declaration not ticked: Upload stays enabled; pressing it shows [upload.err_declaration] under the checkbox and moves focus there.
+- Sending: [upload.sending], inputs disabled.
+- Server errors inline above the button, the chosen file kept: 413 [err.FILE_TOO_LARGE] or [err.TOO_MANY_ROWS]; 415 [err.UNSUPPORTED_FILE_TYPE]; 422 [err.UPLOAD_HEADER_INVALID] and [err.UPLOAD_HEADER_DUPLICATE] from `details.missing_columns` and `details.duplicate_columns`, then [upload.header_help]; 422 [err.UPLOAD_EMPTY]; 409 [err.UPLOAD_IN_PROGRESS] with [upload.in_progress_link] to `details.batch_id`.
+
+Replaced by the contract: the Kind radio, the `{id, status}` response, the row count estimate.
+
+### W2-2. `/college/uploads/[batchId]` (status, progress and row problems)
 
 ```
-Seat ledger / Upload / abc_2026-27.csv
-abc_2026-27.csv                     Initial · 14 Jul 2026 09:30 · by Registrar
-[Queued] -> [Validating] -> [Checking] -> [Done]        ████████░░ 80%
-Rows 571 · Accepted 569 · Errors 2
-Checking against sources:  APAAR ✓   Counselling ✓   Seat ledger ✓   ABC awaiting source, will retry
+Seat ledger / Upload / 1-ABC-0001_2026-27_update1.csv
+1-ABC-0001_2026-27_update1.csv    Update · File upload · uploaded 28 Oct 2026, 11:40 IST by Registrar
+(✓) Queued ── (✓) Validating ── (●) Processing ── ( ) Done                 ███████░░░ 74%
+Step 6 of 8: Checking with sources
+Rows 14 · Accepted 12 · With errors 2 · With warnings 1
 
-Row errors (2)                                   [Download errors as CSV]
-Row  Field        Problem                                  Value
-17   apaar_id     APAAR must be 12 digits                  12345678441
-41   apaar_id     Same APAAR appears on row 12             XXXX XXXX 4417
+Checking against sources
+APAAR registry: 9 checked
+Counselling list: 6 checked
+ABC credits did not respond for 3 checks. Those checks stay pending, not failed,
+and run again at the next recheck or the next upload of those rows.
 
-What happens next: fix the rows in your file and upload it again as an
-update. Accepted rows are already in the seat ledger.   [upload.errors_next]
+Upload processed                                      (when status is DONE)
+12 rows accepted · 3 seats assigned · 1 unseated · 2 flags opened
+2 new · 6 updated · 1 unchanged · 2 withdrawn · 1 transferred · 3 seats released
+Flags are for review by an officer. A flag does not remove or change any enrolment.
+[View seat ledger]  [View enrolments]  [View flags]
+
+Row errors and warnings (3)            [All | Errors | Warnings]   [Download errors as CSV]
+Row  Level    Column    Problem                          Value as uploaded
+17   Warning  apaar_id  APAAR must be 12 digits          <11 characters>
+41   Error    apaar_id  Same APAAR appears on row 12     XXXX XXXX 4417
+58   Error    dob       Date of birth must be YYYY-MM-DD 21/03/2007
+Fix the rows marked Error and upload them again, on their own or in the whole
+file. Rows already accepted do not change when you upload them again.
+Viewing student records is logged.
 ```
 
-Elements: `GET /uploads/{id}` (proposed) polled every 2 s until `DONE`/`FAILED`: `status`, `progress_pct`, `rows_total`, `rows_ok`, `rows_error`, `started_at`, `finished_at`, per-source progress (proposed `sources: [{source, done, total, status}]`); `GET /uploads/{id}/errors?page` (proposed): `row_no`, `field`, `code`, `message`, `raw` (masked).
-Error codes to render with the copy deck: `APAAR_FORMAT`, `DUPLICATE_IN_FILE`, `UNKNOWN_PROGRAMME`, `DOB_FORMAT`, `MISSING_REQUIRED`, `ROUTE_INVALID`, `YEAR_INVALID`, `CONSENT_INVALID`, `PASSPORT_REQUIRED`.
-States: each status in the rail; `FAILED` shows [upload.failed] with the reason; errors table empty when `rows_error == 0` ("No row errors"); download produces a CSV with the same columns.
-Done summary card: "569 rows accepted · 557 seats assigned · 12 unseated · 3 flags opened" and [upload.done_note].
+Data, `GET /uploads/{id}` (§A2.7), polled every 2 s while `status` is QUEUED, VALIDATING or PROCESSING; polling stops at DONE or FAILED:
+- Header: `filename`; [upload.batch_meta] from `kind`, `source`, `uploaded_at`, `uploaded_by.name`.
+- Rail: the five `upload_status.*` words. The current one is marked by an icon and the word, not by colour alone. FAILED takes the place of Done.
+- Step line: [upload.step] with the stage's position (PARSE 1 to FLAGS 8) and `upload_stage.*`; QUEUED shows [upload.queued_note] instead.
+- Progress bar: `progress_pct`, `role="progressbar"` with `aria-valuenow`; the api never lowers it and the web keeps the highest value seen.
+- Counts: [upload.rows] from `counts`, shown from PROCESSING on (every key is 0 until its stage finishes).
+- [upload.same_file] when `same_file_as` is set; [upload.ignored_columns] when `ignored_columns` is not empty.
+- Sources, from CHECKS on: one [upload.source_line] per `sources[]` entry with `source.*` names, plus [upload.source_waiting] when `unavailable` is above 0.
+- DONE: card with [upload.done_heading], [upload.done_summary], [upload.done_changes], [upload.done_note] and links to `/college`, `/college/enrolments`, `/college/flags`.
+- FAILED: [upload.failed], then `error` verbatim, then [upload.failed_earlier], and a link [upload.upload_again] to `/college/upload`. The rail keeps the stage that failed.
+
+Row problems, `GET /uploads/{id}/errors?page&page_size&level` (§A2.8), sorted by row then column, shown once VALIDATING is over:
+- Columns: Row (`row_no`; the header is row 1), Level (`upload.level.*` word plus icon, tooltip `upload.level_tip.*`), Column (`field` in monospace, tooltip `field.*`), Problem (`message` verbatim), Value as uploaded (`value_masked` verbatim; null prints [upload.value_blank]).
+- Level filter All, Errors, Warnings sets `level`. Heading count is `total` (entries; a row can have several).
+- [upload.errors_download] is an `<a href="/api/uploads/{id}/errors.csv">`; the server names the file `<file stem>_errors.csv`.
+- Empty: [upload.errors_none]. Footer [privacy.read_logged] (a Value cell can hold a name as uploaded).
+
+Officers read the same component, without the upload links, at `/aicte/uploads/[batchId]` and `/ro/uploads/[batchId]`, linked from an institution's last upload line (optional in Week 2).
+
+Replaced by the contract: `rows_total`, `rows_ok`, `rows_error` (now `counts.rows`, `.accepted`, `.errors`), per-source `{done, total, status}` (now `sources[].calls` and `.unavailable`), the `raw` column (now `value_masked`), the Checking status (now Processing with eight stages), and the error codes ROUTE_INVALID, YEAR_INVALID, CONSENT_INVALID (now BAD_ENUM per column and YEAR_OF_STUDY_INVALID). APAAR_FORMAT is a warning: the row is kept without its APAAR and the Identity check fails with an APAAR not verified flag.
 
 ### W2-3. `/aicte/cases` and `/ro/cases` (case queue)
 
