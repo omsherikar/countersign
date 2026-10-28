@@ -4,6 +4,41 @@ Every user-facing string, keyed by id. Placeholders are `{snake_case}` and map t
 
 Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed by these ids, so the review checklist can grep for them.
 
+Counts: when a number is 1, use the singular noun ("1 flag opened", "1 row"). Sentences the api writes (flag `summary`, evidence facts, check `detail.summary`, row problem `message`, a failed batch's `error`) are printed verbatim; the deck mirrors them for review and the browser never rebuilds them.
+
+## Changes 2026-10-28
+
+Reconciled with API_CONTRACT Addendum 2, ENGINES.md and DECISIONS D14 to D22. Update `apps/web/lib/copy.ts` and every caller.
+
+Renamed ids
+
+| old id | new id |
+|---|---|
+| rowerr.ROUTE_INVALID | rowerr.BAD_ENUM.admission_route |
+| rowerr.CONSENT_INVALID | rowerr.BAD_ENUM.consent_status |
+| rowerr.YEAR_INVALID | rowerr.YEAR_OF_STUDY_INVALID |
+| upload_status.CHECKING | upload_status.PROCESSING |
+
+Retired ids: `check.na_reason.ADMISSION` (the Admission check is never n/a; management, spot and NRI admissions are checked against the seat ledger).
+
+Same id, new placeholders
+
+| id | change |
+|---|---|
+| flag.EXCESS_ADMISSION.summary | `{academic_year}` becomes `{cohort_year}`; ends "; {unseated} without a seat." |
+| flag.QUOTA_BREACH.summary | `{assigned}` becomes `{admitted}`, `{seat_type}` becomes `{seat_type_word}`, `{academic_year}` becomes `{cohort_year}` |
+| flag.NO_ACADEMIC_ACTIVITY.summary | `{semesters}` becomes `{missing}` |
+| flag.EXCESS_ADMISSION.rule, flag.QUOTA_BREACH.rule | the pool's `{rule_source}` |
+| rowerr.MISSING_REQUIRED | `{field}` becomes `{field_word}` |
+| err.SOURCE_UNAVAILABLE | `{source}` becomes `{source_name}` |
+| upload.source_waiting | `{source}` becomes `{source_name}`; adds `{n}` |
+| upload.rows | `{total}`, `{ok}`, `{error}` become `{rows}`, `{accepted}`, `{errors}`, `{warnings}` |
+| upload.failed | `{reason}` removed; the batch `error` sentence follows it verbatim |
+
+Same id, new text: `check.status.PENDING` (Pending), `check.na_reason.STUDYING`, `strip.score_pending` (pending, Student left out of the count), `source.will_retry`, `kpi.enrolments` (Students on roll), `col.enrolments` (On roll), `col.admitted_tip`, `flag.INVALID_APAAR.name` (APAAR not verified), `flag.NAME_MISMATCH.name` (Name or date of birth mismatch), `flag.DUPLICATE_WITHIN_UPLOAD.name` (Duplicate within institution), `flag.LATE_REFILL.rule`, `upload.kind.INITIAL` and `upload.kind.UPDATE` (display words; the server sets the kind), `upload.max`, `upload.declaration`, `upload.errors_heading`, `upload.errors_none`, `upload.errors_next`, `upload.done_note`, `college.no_upload_yet`.
+
+New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.clear`, `kpi.clear_value`, `kpi.clear_tip`, `app.hint.intake`, `app.hint.all_years`, `app.all_years_line`, `col.enrolments_tip`, `col.mode`, `mode.*`, `gender.*`, `strip.segment_tip`, `strip.segment_tip_full`, `check.pending.*`, `check.na_reason.IDENTITY`, `check.attempts`, `check.never`, `check.detail.*` (§15, reference), `upload_stage.*`, `upload_source.*`, the new `upload.*`, `field.*` and `rowerr.*` rows (§7), `last_upload.line`, `col.file`, `col.uploaded_by`, `col.kind`, `col.upload_source`, `col.rows`, `col.accepted`, `col.with_errors`, `col.with_warnings`, `col.row`, `col.row_level`, `col.column`, `col.problem`, `col.value`, the flag summary variants in §5, `err.FILE_TOO_LARGE`, `err.TOO_MANY_ROWS`, `err.UNSUPPORTED_FILE_TYPE`, `err.UPLOAD_HEADER_INVALID`, `err.UPLOAD_HEADER_DUPLICATE`, `err.UPLOAD_EMPTY`, `err.UPLOAD_IN_PROGRESS`, `err.NOT_FOUND_upload`, `err.NOT_FOUND_enrolment`, `err.NOT_FOUND_flag`, `empty.cases_filtered`, `empty.clear_filters`, `empty.flags_by_type`, `empty.flags_enrolment`, `empty.related`, `empty.checks`, `empty.enrolments_filtered`, `student.check_student_pending`, and every id in §16 to §19 (`enrolment.*`, `recheck.*`, `flags.*`, `flag.*`, `flags_by_type.*`, `section.flags_by_type`, `table.count.flags_any`, `table.count.flags_one` and their `col.*`).
+
 ## 1. Brand and shell
 
 | id | text |
@@ -521,7 +556,7 @@ Row errors and warnings
 | upload.level_tip.ERROR | This row was not saved. Fix it and upload the row again. |
 | upload.level_tip.WARNING | This row was saved. The value shown was not used, or was recorded as the message says. |
 | col.row | Row |
-| col.level | Level |
+| col.row_level | Level |
 | col.column | Column |
 | col.problem | Problem |
 | col.value | Value as uploaded |
