@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ from .config import Config
 
 def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: bool | None = None):
     from .anomalies import Planter
+    from .eligibility import EligibilityPlanner
     from .graduates import GraduateBuilder
     from .students import World
     from .updates import UpdatePlanner
@@ -38,6 +40,14 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     t = time.perf_counter()
     GraduateBuilder(world).build()
     world.timings["graduates"] = time.perf_counter() - t
+    # Everything below draws from streams of its own, so the rows above keep their values.
+    t = time.perf_counter()
+    eligibility = EligibilityPlanner(world, planter)
+    added = eligibility.add_ciwg_rows()
+    world.settle(added, random.Random(f"settle:{seed}"))
+    eligibility.mark()
+    eligibility.plant()
+    world.timings["eligibility"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
     summary = write_all(world, out, xlsx=want_xlsx)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)

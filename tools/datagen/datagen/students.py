@@ -1,7 +1,8 @@
 """Student rows (what a college uploads) and the generation world they live in.
 
-Every row is a dict with the nineteen upload columns plus internal keys prefixed `_`
-that drive registry emission and anomaly bookkeeping. Internal keys never reach a file.
+Every row is a dict with the upload columns (the nineteen of the contract, then the three
+optional eligibility markers) plus internal keys prefixed `_` that drive registry emission and
+anomaly bookkeeping. Internal keys never reach a file.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ import math
 import random
 import re
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -22,11 +25,14 @@ from .institutions import InstitutionBuilder, approved_intake, assign_autonomy, 
 from .matching import name_key
 from .names import NameGenerator
 
-UPLOAD_COLUMNS = [
+CONTRACT_COLUMNS = [
     "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
     "passport_no", "programme_code", "academic_year", "year_of_study", "admission_route",
     "counselling_ref", "category", "consent_status", "status", "status_date", "admission_date",
 ]  # fmt: skip
+# Optional category-eligibility markers (eligibility.py), after the contract's columns.
+ELIGIBILITY_COLUMNS = ["tfw_income_certified", "nri_sponsored", "ciwg"]
+UPLOAD_COLUMNS = CONTRACT_COLUMNS + ELIGIBILITY_COLUMNS
 
 DEMO_APAAR = "123456784417"
 DEMO_NAME = "Ravi Kumar Sharma"
@@ -256,6 +262,9 @@ class World:
             "status": "",
             "status_date": "",
             "admission_date": "",
+            "tfw_income_certified": "",
+            "nri_sponsored": "",
+            "ciwg": "",
             "_inst": inst["aicte_permanent_id"],
             "_prog": prog,
             "_adm_year": admission_year,
@@ -563,6 +572,38 @@ class World:
     def finalise(self) -> None:
         self.resolve_identity_conflicts()
         self.assign_admission_dates()
+
+    @contextmanager
+    def using_rng(self, rng: random.Random) -> Iterator[None]:
+        """Draw from `rng` instead of the run's stream, so steps added after the original
+        generation leave every value the run's stream produces unchanged."""
+        saved = self.rng, self.names.rng
+        self.rng = self.names.rng = rng
+        try:
+            yield
+        finally:
+            self.rng, self.names.rng = saved
+
+    def settle(self, rows: list[dict], rng: random.Random) -> None:
+        """Rows added after finalise(): re-draw the date of birth of any that looks like an
+        existing student (only new rows move, they rank last) and date their admissions."""
+        if not rows:
+            return
+        with self.using_rng(rng):
+            self.resolve_identity_conflicts()
+            for row in rows:
+                start, end = admission_window(self.cfg.rules, row["_cohort_start"])
+                last_normal = end - dt.timedelta(days=LATE_DAYS)
+                row["admission_date"] = self.random_date(start, last_normal).isoformat()
+
+    def leaving_rows(self) -> set[int]:
+        """ids of the initial rows an update file withdraws or transfers."""
+        return {
+            id(u["_initial"])
+            for rows in self.update_files.values()
+            for u in rows
+            if u.get("_initial") is not None
+        }
 
     # --------------------------------------------------------------- driver
 

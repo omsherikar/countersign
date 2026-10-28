@@ -8,6 +8,7 @@ from openpyxl import load_workbook
 from datagen.config import load_datagen_config
 from datagen.students import UPLOAD_COLUMNS
 
+ELIGIBILITY_COLUMNS = ["tfw_income_certified", "nri_sponsored", "ciwg"]
 CONTRACT_COLUMNS = [
     "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
     "passport_no", "programme_code", "academic_year", "year_of_study", "admission_route",
@@ -47,9 +48,10 @@ def test_every_contract_file_exists(small):
 
 
 def test_csv_columns_match_contract(small):
-    assert UPLOAD_COLUMNS == CONTRACT_COLUMNS
+    """The contract's nineteen columns in order, then the optional eligibility markers."""
+    assert UPLOAD_COLUMNS == CONTRACT_COLUMNS + ELIGIBILITY_COLUMNS
     for aid in ["1-ABC-0001", "1-XYZ-0002"]:
-        assert small.upload_columns(aid) == CONTRACT_COLUMNS
+        assert small.upload_columns(aid) == UPLOAD_COLUMNS
 
 
 def test_xlsx_mirrors_csv(small):
@@ -57,7 +59,7 @@ def test_xlsx_mirrors_csv(small):
     wb = load_workbook(small.path / "uploads" / "1-ABC-0001_2026-27.xlsx", read_only=True)
     ws = wb["students"]
     values = list(ws.iter_rows(values_only=True))
-    assert list(values[0]) == CONTRACT_COLUMNS
+    assert list(values[0]) == UPLOAD_COLUMNS
     assert len(values) - 1 == len(rows)
     first = values[1]
     assert first[0] == "123456784417"
@@ -68,11 +70,13 @@ def test_xlsx_mirrors_csv(small):
         csv_rows = small.file(name)
         wb = load_workbook(small.path / name.replace(".csv", ".xlsx"), read_only=True)
         values = list(wb["students"].iter_rows(values_only=True))
-        assert list(values[0]) == CONTRACT_COLUMNS
+        assert list(values[0]) == UPLOAD_COLUMNS
         assert len(values) - 1 == len(csv_rows)
         for cells, row in zip(values[1:], csv_rows, strict=True):
+            # A read-only sheet leaves out trailing empty cells, as the api's reader expects.
+            cells = list(cells) + [None] * (len(UPLOAD_COLUMNS) - len(cells))
             assert [("" if c is None else str(c)) for c in cells] == [
-                row[c] for c in CONTRACT_COLUMNS
+                row[c] for c in UPLOAD_COLUMNS
             ]
 
 
