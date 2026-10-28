@@ -278,7 +278,7 @@ Words used by the api and ENGINES §16: a notice is **answered** when `response`
 | revoked | bool | |
 | issued_at / revoked_at | timestamptz | |
 | expires_at | timestamptz nullable | 0003: the SD-JWT `exp` (31 August after the academic year ends, 23:59:59 IST); null for DEGREE |
-| revoked_reason | text nullable | 0003: one plain sentence, e.g. "Enrolment withdrawn on 20 Oct 2026." |
+| revoked_reason | text nullable | 0003: the reason code `ENROLMENT_WITHDRAWN`, `ENROLMENT_TRANSFERRED` or `FLAG_CONFIRMED`, or for an officer's revocation the officer's text (its code is then `ADMIN`); the api derives `revoked_reason_code` from it (API_CONTRACT §A3.18) |
 | revoked_by_id | FK users nullable | 0003: null when the system revoked it (ledger, seed) |
 | issuer_key_id | text | the `kid` of the signing key |
 
@@ -568,7 +568,7 @@ Index: unique partial `uq_credentials_enrolment_id_kind` on `(enrolment_id, kind
 | resolved_by_id | add, uuid NULL, FK users | |
 
 ### Not changed
-`audit_log` keeps its columns (READ details go into `after`, see the table reference). `students`, `enrolments`, `checks` and `users` are unchanged: the STUDENT check keeps using the `checks` row of type STUDENT with source `STUDENT_NOTICE`, graduates are ordinary `enrolments` rows with status GRADUATED, and AICTE_ADMIN, RO_OFFICER and UNIVERSITY users need no new scope column. There is no index on `audit_log.entity_id`; the student access log (API_CONTRACT §A3.21) scans by entity id, which is fine at demo size and is noted as a known limit.
+`audit_log` keeps its columns (READ details go into `after`, see the table reference). `students`, `enrolments`, `checks` and `users` are unchanged: the STUDENT check keeps using the `checks` row of type STUDENT with source `STUDENT_NOTICE`, graduates are ordinary `enrolments` rows with status GRADUATED, and AICTE_ADMIN, RO_OFFICER and UNIVERSITY users need no new scope column. There is no index on `audit_log.entity_id`; the student access log (API_CONTRACT §A3.22) scans by entity id, which is fine at demo size and is noted as a known limit.
 
 ## mockgov database (`mockgov`, separate service)
 
