@@ -35,6 +35,17 @@ anomalies:
   # with expected_flag null so the evaluation can score false positives.
   CONSENT_REFUSED_NO_APAAR:    {enabled: true, small: 20, full: 250}
 
+# Update files, uploads/<aicte_id>_<year>_update1.csv (+ .xlsx): rows that change an
+# earlier enrolment or add a late one. `colleges` per size counts ABC College, which always
+# gets one when --scenarios is on. Each file withdraws and transfers a few students and
+# refills, after the cutoff in rules.yaml, the seats some first-year withdrawals released.
+updates:
+  colleges:     {small: 3, full: 20}
+  withdrawals:  [2, 4]
+  transfers:    [1, 2]
+  refills:      [1, 2]
+  status_dates: ["2026-09-16", "2026-10-20"]
+
 ghost_ring:
   size: [6, 12]
   colleges: [2, 3]

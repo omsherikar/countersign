@@ -35,3 +35,11 @@ def test_rules_path_prefers_env(tmp_path, monkeypatch):
     monkeypatch.delenv("RULES_PATH")
     assert config.rules_path().is_file()
     assert "RULES_PATH" not in os.environ
+
+
+def test_update_files_per_size():
+    small = config.Config.build("small").updates
+    full = config.Config.build("full").updates
+    assert (small.colleges, full.colleges) == (3, 20)
+    assert small.withdrawals == (2, 4) and small.transfers == (1, 2) and small.refills == (1, 2)
+    assert small.status_dates == ("2026-09-16", "2026-10-20")
