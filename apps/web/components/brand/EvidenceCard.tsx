@@ -45,6 +45,8 @@ export interface EvidenceCardProps extends React.HTMLAttributes<HTMLElement> {
   badges?: React.ReactNode;
   /** Rendered below the facts: action buttons (Request documents, Clear, Escalate). */
   actions?: React.ReactNode;
+  /** Replaces the flag name as the card heading, where the page title already names the flag. */
+  heading?: React.ReactNode;
 }
 
 function formatWhen(iso: string): string {
@@ -61,7 +63,7 @@ function formatWhen(iso: string): string {
  * frames the facts the way a ledger page does. Nothing here says "reject":
  * the card presents evidence and the officer decides.
  */
-export function EvidenceCard({ type, severity, evidence, source, checkedAt, badges, actions, className, ...rest }: EvidenceCardProps) {
+export function EvidenceCard({ type, severity, evidence, source, checkedAt, badges, actions, heading, className, ...rest }: EvidenceCardProps) {
   return (
     <article
       className={cn("rounded-md border border-line border-l-[3px] bg-paper-raised pb-3 shadow-hairline", SEVERITY_RULE[severity], className)}
@@ -70,7 +72,7 @@ export function EvidenceCard({ type, severity, evidence, source, checkedAt, badg
     >
       <header className="flex items-start justify-between gap-3 px-4 pt-3">
         <div className="min-w-0">
-          <h3 className="font-display text-md font-semibold leading-snug">{FLAG_TYPE_LABEL[type]}</h3>
+          <h3 className="font-display text-md font-semibold leading-snug">{heading ?? FLAG_TYPE_LABEL[type]}</h3>
           <p className="mt-1 max-w-[60ch] text-sm leading-snug text-ink">{evidence.summary}</p>
         </div>
         {badges && <div className="flex shrink-0 flex-wrap justify-end gap-1">{badges}</div>}
