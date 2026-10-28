@@ -1,6 +1,6 @@
-# Engines (internal Python contract, Week 2)
+# Engines (internal Python contract, Weeks 2 and 3)
 
-This file is the only thing the two api branches may assume about each other's Python code. `API_CONTRACT.md` (Addendum 2) is the wire contract, `DATA_MODEL.md` ("Migration 0002") is the schema and `DECISIONS.md` D14 to D22 are the rules being implemented. If a function, field or behaviour another branch needs is not written here, add it here first.
+This file is the only thing the api's code areas may assume about each other's Python code. Sections 1 to 15 are Week 2; section 16 adds Week 3. `API_CONTRACT.md` (Addendum 2) is the wire contract, `DATA_MODEL.md` ("Migration 0002") is the schema and `DECISIONS.md` D14 to D22 are the rules being implemented. If a function, field or behaviour another branch needs is not written here, add it here first.
 
 Two branches build in parallel:
 
@@ -699,3 +699,500 @@ Tests each branch owes (the demo scenarios plus the edges of this contract):
 - Flags are not resolved automatically when the cause goes away; officers clear them from Week 3.
 - A programme code offered in both shifts resolves to the FIRST shift.
 - mockgov folds the same seven Mohammed spellings and drops the same honorifics (including `km` and `sri`) since 2026-10-28, so registry scores and our matcher agree on these.
+
+## 16. Week 3: notices, the Student check, cases, credentials, verifier, degrees, privacy and audit reads
+
+The wire contract is `API_CONTRACT.md` Addendum 3, the schema `DATA_MODEL.md` "Migration 0003" (already on `main`), the rules DECISIONS D23 to D33. Sections 1 to 15 still hold. This section fixes the Python packages, the function signatures one area calls in another, and who opens and commits transactions, so the four code areas below can be built side by side. If a function another area needs is not written here, add it here first.
+
+Areas: **notices** (notices, the Student check, resends, seed replies), **cases** (flag actions, attachments, history, users, privacy, audit reads and the tamper tool), **credentials** (keys, issuance, wallet, verifier, status list, degrees), **seed data** (datagen, mockgov, the graduates importer), and **web**. Small result and query types named in the signatures below (`ReplyOutcome`, `DeliveryTally`, `NoticeContext`, `ActionResult`, `CredentialFilters`, `GraduateQuery`, `DataRequestQuery`) are internal to their area; only the functions and the dataclasses spelled out here cross areas.
+
+### 16.1 Ownership
+
+| Path (under `services/api/` unless rooted) | Area | Notes |
+|---|---|---|
+| `app/notices/` (`__init__.py`, `mailer.py`, `dispatch.py`, `service.py`, `student_check.py`) | notices | §16.3. `mailer.py` is also used by cases |
+| `app/routers/notices.py`, `app/schemas/notices.py` | notices | `GET` and `POST /notices/{token}`, `POST /enrolments/{id}/notices/resend` |
+| `app/engine/checks/student.py`; in `app/engine/checks/base.py` the new `CheckSubject` fields; in `app/engine/checks/__init__.py` their loading in `load_subjects` and the new `refresh_student` | notices | §16.4 |
+| `app/routers/students.py`, `app/schemas/students.py` (`notices`, `credentials` of `/students/me`); `app/routers/enrolments.py`, `app/schemas/enrolments.py` (`notices`, `resend`, `credentials` of enrolment detail); the `issue_if_eligible` call after `POST /enrolments/{id}/recheck` and `POST /institutions/{id}/recheck` (`app/routers/institutions.py`) | notices | reads credentials through `holder.wallet_summary` and `holder.credential_refs` (§16.6) |
+| `app/worker.py`: the new task `countersign.deliver_notices` and the requeue of QUEUED notices on start (`countersign.send_notices`, `enqueue_notices` and the chaining after DONE are in place) | notices | §16.3 |
+| `app/adapters/inmemory/__init__.py`: `InMemoryDigiLocker.notify` raises `AdapterRequestError("digilocker", 404, ...)` for an APAAR it does not know, as mockgov now answers | notices | API_CONTRACT §A3.2 |
+| the uploads router: `send_notices_for_batch` after `run_batch` when `UPLOAD_INLINE` is true | notices | |
+| `app/seed/replies.py`; the notice step in `app/seed/cli.py`; the `seed` and `demo-reset` lines of the `Makefile` | notices | D31 |
+| `app/cases/` (`__init__.py`, `transitions.py`, `service.py`, `attachments.py`) | cases | §16.5 |
+| `app/routers/flags.py`, `app/schemas/flags.py` (filters, new fields, `history`, `allowed_actions`, `can_respond`); new `app/routers/cases.py` (actions, response, attachment download); new `app/routers/users.py` | cases | |
+| `app/engine/flags.py`: the system note in `raise_flag` | cases | §16.5 |
+| `app/privacy/` (`__init__.py`, `notice.py`, `service.py`); new `app/routers/privacy.py`, `app/schemas/privacy.py` | cases | §16.7 |
+| `app/engine/upload/upsert.py`: one call to `privacy.service.record_apaar_link` | cases | §16.7 |
+| `app/routers/admin.py`, `app/schemas/admin.py` (audit filters, `actor_role`, `via`); new `app/core/audit_tamper.py`; the `audit-tamper` line of the `Makefile` | cases | §16.8 |
+| `app/credentials/` (`__init__.py`, `keys.py`, `issuer.py`, `holder.py`, `verifier.py`, `status_list.py`, `degree.py`) | credentials | §16.6; `revoke_for_enrolment` is already implemented in `__init__.py` |
+| new `app/routers/credentials.py`, `issuer.py`, `verify.py`, `university.py` and their schemas | credentials | |
+| `app/engine/ledger.py`: the call to `credentials.revoke_for_enrolment` | in place | §16.2 |
+| `app/seed/graduates.py` and its call in `app/seed/importer.py` (in place); `tools/datagen/**`; `services/mockgov/**` | seed data | API_CONTRACT §A3.28 |
+| `apps/web/**`; the `e2e` line of the `Makefile` | web | ARCHITECTURE §12 |
+| `app/main.py` | every backend area | §16.9 |
+| `app/models/**`, `alembic/**`, `app/core/config.py`, `.env.example`, `rules.yaml`, `docker-compose.yml`, `pyproject.toml`, `uv.lock` | nobody | in place with Migration 0003; change only by agreement |
+| `app/core/audit.py`, `crypto.py`, `deps.py`, `errors.py`, `ratelimit.py`, `app/adapters/**` | nobody | read and call them |
+| `tests/notices/`, `tests/cases/`, `tests/credentials/` | notices, cases, credentials | each area keeps its tests and its own `conftest.py` in its package |
+
+### 16.2 The three fixed entry points
+
+These are wired into existing code already and keep these names and signatures (extra keyword-only arguments with defaults are allowed).
+
+```python
+# app/credentials/__init__.py
+async def revoke_for_enrolment(
+    session: AsyncSession,
+    enrolment_id: uuid.UUID,
+    reason: str,
+    actor_id: uuid.UUID | None,
+    *,
+    audit_sink: list[AuditEntry] | None = None,
+) -> int: ...
+
+async def issue_if_eligible(session: AsyncSession, enrolment_id: uuid.UUID) -> Credential | None: ...
+    # a stub returning None today; becomes `return await issuer.issue_if_eligible(session, enrolment_id)`
+
+# app/notices/dispatch.py
+async def send_notices_for_batch(
+    batch_id: uuid.UUID,
+    *,
+    factory: async_sessionmaker[AsyncSession] | None = None,   # default: app.db.session.session_factory()
+    adapters: AdapterSet | None = None,                        # new; default: build_adapters(), closed at the end
+    mailer: Mailer | None = None,                              # new; default: build_mailer()
+) -> int: ...
+```
+
+**`revoke_for_enrolment`** (implemented). The Seat Ledger calls it in step 2 of `assign_seats` when it releases the seat of an enrolment that became WITHDRAWN or TRANSFERRED, inside the ledger's transaction and with the ledger's `audit_sink`; `cases.service` calls it on CONFIRM. It revokes every unrevoked credential of the enrolment (any kind), sets `revoked_at`, `revoked_reason` and `revoked_by_id` (`actor_id`: the batch's uploader, null for a seeded batch), writes one audit UPDATE per credential, flushes, never commits, and returns how many it revoked (0 is normal). One change is owed by the credentials area: it stores a reason **code** (API_CONTRACT §A3.18). The ledger passes its `REVOKE_REASONS` words, `Enrolment withdrawn` and `Enrolment transferred`; the function maps them to `ENROLMENT_WITHDRAWN` and `ENROLMENT_TRANSFERRED`, takes `FLAG_CONFIRMED` (and the three codes) as they are, raises `ValueError` for anything else, writes the code to `revoked_reason` and to the audit entry, and calls `status_list.invalidate()`. The ledger imports the package, never `issuer`, so the ledger never loads the SD-JWT code.
+
+**`issue_if_eligible`.** Runs in the caller's transaction and never raises for an ineligible enrolment. Eligible (D26): the enrolment is ACTIVE; its STUDENT check is PASS; none of its checks is FAIL; no flag with status OPEN, DOCS_REQUESTED or ESCALATED and severity HIGH names it (as `enrolment_id` or in `related_enrolment_ids`, against its own institution, the rule of `_enrolment_rows.flags_for`); and it holds no unrevoked ENROLMENT credential. It locks the enrolment row (`SELECT ... FOR UPDATE`), creates the student's holder key if missing (§16.6), allocates a status-list index, signs the SD-JWT (API_CONTRACT §A3.15), inserts the `credentials` row inside a savepoint (a unique violation from the partial index means another transaction won: return None), writes an audit CREATE on `credential` with no actor (`after: {"kind", "enrolment_id", "short_id", "status_list_index"}`), flushes, and returns the new credential; otherwise None. Called after a reply (§16.3), after both recheck endpoints (for every enrolment rechecked), after a case CLEAR (the flag's `enrolment_id` and `related_enrolment_ids`), and by `send_notices_for_batch` for the batch's enrolments whose STUDENT check is PASS (an upload can clear the last FAIL after the student replied).
+
+**`send_notices_for_batch`.** Owns its sessions and commits, like `run_batch` (§4.3). Returns the number of `notifications` rows it created, so a second run for the same batch creates nothing and returns 0. Steps:
+
+1. Load the batch; anything but DONE returns 0.
+2. The batch's ACTIVE enrolments (`enrolments.upload_batch_id = batch_id`) that need a notice (DATA_MODEL `notifications`); skip students whose latest NOTICE consent is WITHDRAWN and students with neither an email nor a linked APAAR.
+3. `dispatch.create_notices` for them, in chunks of 500 enrolments, each chunk one transaction with its audit entries.
+4. `dispatch.deliver` the new rows (§16.3).
+5. In chunks of 500, one transaction each: `checks.refresh_student` for every enrolment of the batch (so UNREACHABLE and delivered states are written), then `issue_if_eligible` for those whose STUDENT check is PASS.
+
+Callers: the Celery task `countersign.send_notices(batch_id: str) -> int`, queued by `run_batch_task` through `enqueue_notices` once a batch is DONE (in place); the uploads router after `run_batch` when `UPLOAD_INLINE` is true; and `app/seed/cli.py` once per batch, in upload order, after every upload (D31). The worker runs one task at a time, so a notice task never overlaps a batch.
+
+### 16.3 `app/notices/`
+
+```python
+# app/notices/mailer.py
+MAIL_BATCH = 500   # messages per SMTP connection (D23)
+
+@dataclass(frozen=True, slots=True)
+class MailMessage:
+    to: str
+    subject: str
+    body: str                                   # plain text
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+@dataclass(frozen=True, slots=True)
+class MailResult:
+    ok: bool
+    error: str | None = None                    # PII-free sentence for notifications.last_error
+    transient: bool = False                     # worth another try
+
+class Mailer(Protocol):
+    def send_many(self, messages: Sequence[MailMessage]) -> list[MailResult]: ...   # one result per message, same order
+
+class SmtpMailer:                               # stdlib smtplib; From = NOTICE_FROM
+    def __init__(self, settings: Settings | None = None) -> None: ...
+    def send_many(self, messages: Sequence[MailMessage]) -> list[MailResult]: ...
+
+class MemoryMailer:                             # tests: keeps every message in .sent
+    def send_many(self, messages: Sequence[MailMessage]) -> list[MailResult]: ...
+
+def smtp_host_allowed(host: str, settings: Settings) -> bool: ...   # host in SMTP_ALLOWED_HOSTS, or ALLOW_REAL_SMTP
+def build_mailer(settings: Settings | None = None) -> Mailer: ...   # SmtpMailer
+```
+
+- `send_many` is synchronous; async code calls `await asyncio.to_thread(mailer.send_many, messages)`.
+- `SmtpMailer` checks the host on every call: a host that is not allowed fails every message with "Mail server not allowed." and opens no connection. It opens one connection per `MAIL_BATCH` messages (`SMTP_HOST`, `SMTP_PORT`). A refused recipient is "Email address was refused." (not transient); a connection or temporary error is "Mail server did not respond." (transient) for every message of that connection.
+- The existing settings `mail_from` and `web_base_url` are superseded by `NOTICE_FROM` and `WEB_ORIGIN` and are not read by Week 3 code.
+
+```python
+# app/notices/dispatch.py
+RETRY_PAUSES_SECONDS = (5, 20)   # before the second and the third try
+MAX_ATTEMPTS = 3
+DIGILOCKER_TRIP = 5              # consecutive unavailable calls that end a DigiLocker pass
+
+def programme_short(name: str, code: str) -> str: ...            # API_CONTRACT §A3.1
+def mint_token() -> tuple[str, str]: ...                          # (token, sha256 hex); secrets.token_urlsafe(32)
+def notice_link(token: str) -> str: ...                           # f"{WEB_ORIGIN}/student/notices/{token}"
+def notice_text(channel: NoticeChannel, facts: NoticeContext) -> tuple[str, str]: ...   # (subject or "", text without the link)
+
+async def needs_notice(session: AsyncSession, enrolment_ids: Sequence[uuid.UUID]) -> list[uuid.UUID]: ...
+async def create_notices(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], *,
+    resent_by_id: uuid.UUID | None, actor_id: uuid.UUID | None, now: datetime | None = None,
+) -> list[Notification]: ...
+async def deliver(
+    factory: async_sessionmaker[AsyncSession], notification_ids: Sequence[uuid.UUID], *,
+    adapters: AdapterSet, mailer: Mailer,
+) -> DeliveryTally: ...
+async def deliver_notices(notification_ids: Sequence[uuid.UUID], *, factory=None, adapters=None, mailer=None) -> int: ...
+```
+
+- **Tokens are minted at delivery, not at creation.** `create_notices` writes each row QUEUED with `token_hash` set to the hash of a random value nobody keeps (the column is NOT NULL and unique), `message` (text without link), `expires_at` = now + `notices.expiry_days`, and an audit CREATE on `notification` (`after: {"enrolment_id", "channel", "resent"}`). Each delivery try mints a fresh token, writes its hash, **commits**, and only then sends the link. So a plaintext token exists only in the process that sends it and in the message itself: it never sits in the database or in a queue, a resend can go through Celery safely, and a token from a failed try simply never works.
+- **`deliver`**, in chunks of 500 rows, each chunk: one transaction to mint tokens and bump `attempts`; then the sends outside any transaction (email first, through one `send_many` per chunk; DigiLocker calls concurrently under a semaphore of `CHECKS_CONCURRENCY`, decrypting the APAAR in memory only); then one transaction to record `delivery_status`, `sent_at` and `last_error` (API_CONTRACT §A3.2 table). DigiLocker outcomes: a result with `delivered` true is SENT; `AdapterRequestError` with status 404 (mockgov's `APAAR_NOT_LINKED`) is FAILED "No DigiLocker account." at once; any other `AdapterRequestError` is FAILED "DigiLocker refused the notice." at once; `SourceUnavailable` is transient; `RealAdapterDisabled` is FAILED "DigiLocker is not connected." at once. `InMemoryDigiLocker` raises `AdapterRequestError(404)` for an APAAR it does not know, like mockgov. Rows that met a transient failure are tried again after `RETRY_PAUSES_SECONDS` in the same call; after `MAX_ATTEMPTS` they are FAILED. When `DIGILOCKER_TRIP` DigiLocker calls in a row are unavailable, the rest of that pass's DigiLocker rows are counted as a failed try without a call. Email never waits for DigiLocker.
+- **`deliver_notices`** is the body of the Celery task `countersign.deliver_notices(notification_ids: list[str]) -> int` (used by resends); it delivers, then refreshes the STUDENT check of the enrolments involved (one transaction). `requeue_unfinished` in `app/worker.py` also enqueues `deliver_notices` for QUEUED rows created more than two minutes before the worker started, with fewer than three tries.
+
+```python
+# app/notices/service.py
+TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
+# the change window is rules.yaml notices.change_window_days (7), read through app.core.rules
+
+async def find_by_token(session: AsyncSession, token: str, *, for_update: bool = False) -> Notification: ...
+    # 404 NOTICE_NOT_FOUND for a malformed or unknown token (identical error)
+async def open_notice(session: AsyncSession, token: str) -> dict[str, Any]: ...
+    # GET /notices/{token}: 410 rule, opened_at, READ audit, the §A3.3 body
+async def respond(session: AsyncSession, token: str, response: NoticeResponse, comment: str | None) -> dict[str, Any]: ...
+async def respond_for_enrolment(
+    session: AsyncSession, enrolment_id: uuid.UUID, channel: NoticeChannel, response: NoticeResponse,
+    comment: str | None, *, via: str = "demo-seed",
+) -> Notification: ...                                          # seed replies (D31); no token needed
+async def apply_reply(
+    session: AsyncSession, notice: Notification, response: NoticeResponse, comment: str | None, *,
+    via: str, now: datetime | None = None,
+) -> ReplyOutcome: ...                                          # the one code path for both
+async def resend(session: AsyncSession, enrolment: Enrolment, user: User) -> list[Notification]: ...
+async def resend_state(session: AsyncSession, enrolment: Enrolment, user: User) -> dict[str, Any]: ...
+async def notices_for_student(session: AsyncSession, student_id: uuid.UUID) -> list[dict[str, Any]]: ...
+async def notices_for_enrolment(session: AsyncSession, enrolment_id: uuid.UUID) -> list[dict[str, Any]]: ...
+def notice_state(notice: Notification, now: datetime) -> str: ...   # QUEUED, FAILED, AWAITING, EXPIRED, ANSWERED
+```
+
+- Services raise `app.core.errors.ApiError` with the Addendum 3 codes, so routers stay thin; the seed CLI catches `ApiError` per line.
+- **`apply_reply`**, in the caller's transaction (the request's, or the seed chunk's): lock the notice (`FOR UPDATE`); apply rules 3 to 5 of API_CONTRACT §A3.4; audit UPDATE on `notification` with no actor and `after.via`; on YES, `privacy.service.record_consent(... NOTICE, GIVEN ...)`; `checks.refresh_student(session, [enrolment_id])`; when the answer changed from NO to YES, `cases.service.add_system_note(session, flag, REPLY_CHANGED_NOTE.format(changed_date=...))` on the enrolment's STUDENT_DENIED flag; finally `credentials.issue_if_eligible(session, enrolment_id)`.
+- **`resend`** applies the order of API_CONTRACT §A3.5, then `create_notices(..., resent_by_id=user.id, actor_id=user.id)`; the router commits and enqueues `countersign.deliver_notices` (or calls `deliver_notices` inline when `UPLOAD_INLINE` is true).
+- **`app/seed/replies.py`**: `python -m app.seed.replies --from DIR` reads `notice_replies.jsonl` (API_CONTRACT §A3.28), skips NONE lines, finds each enrolment by its initial upload batch (`upload_batches.filename` equal to the base name of `file`, source SEED) and `enrolments.source_row_no` = `row_no`, and calls `respond_for_enrolment` for the latest delivered notice of the line's `channel` (the latest notice of that channel when none was delivered). `reply_after_days` is not used. One transaction per 500 lines; prints the counts; a line that names nothing is reported and skipped.
+
+```python
+# app/notices/student_check.py
+@dataclass(frozen=True, slots=True)
+class NoticeFact:
+    id: uuid.UUID
+    channel: NoticeChannel
+    delivery_status: NoticeDelivery
+    sent_at: datetime | None
+    expires_at: datetime
+    response: NoticeResponse | None
+    responded_at: datetime | None
+    previous_response: NoticeResponse | None
+    changed_at: datetime | None
+    comment: str | None                 # in memory only; goes only into the officer-only evidence fact
+
+async def load_notice_facts(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, tuple[NoticeFact, ...]]: ...
+def derive(subject: CheckSubject, *, now: datetime | None = None) -> CheckOutcome: ...   # pure
+def student_denied_evidence(notice: NoticeFact, *, enrolment_id: uuid.UUID) -> dict[str, Any]: ...
+REPLY_CHANGED_NOTE = (
+    "The student changed the reply from No to Yes on {changed_date}. "
+    "The flag keeps its status until an officer decides."
+)
+```
+
+`derive` implements the table of API_CONTRACT §A3.8 and returns a `CheckOutcome` of type STUDENT, source `STUDENT_NOTICE`, with one STUDENT_DENIED `FlagIntent` (HIGH, `dedupe_key` `STUDENT_DENIED:{enrolment_id}`) whenever a notice's current response is NO, or its `previous_response` is NO (the refreshed "then changed the reply to Yes" evidence). The STUDENT evidence and detail builders live in this module, not in `app/engine/evidence.py`; they use `evidence.fact` and `evidence.fmt_date`.
+
+### 16.4 The STUDENT check inside the checks engine
+
+`run_checks` keeps evaluating all five checks, so a re-upload re-derives STUDENT from the notices instead of resetting it.
+
+- `CheckSubject` (`app/engine/checks/base.py`) gains three fields with defaults, after `passport_no`: `notices: tuple[NoticeFact, ...] = ()`, `has_email: bool = False`, `notice_consent_withdrawn: bool = False`. "Linked APAAR" is `consent_status is LINKED and apaar_last4 is not None`.
+- `load_subjects` fills them with one extra query per chunk each (`student_check.load_notice_facts`, `students.email IS NOT NULL`, the latest NOTICE consent row).
+- `app/engine/checks/student.py`: `evaluate(subject, adapters, gate)` returns `student_check.derive(subject)`; it makes no adapter call.
+- New in `app/engine/checks/__init__.py`, the one way the notices area writes the STUDENT row:
+
+```python
+async def refresh_student(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], *, actor_id: uuid.UUID | None = None
+) -> ChecksResult: ...
+```
+
+It loads subjects, evaluates only STUDENT and writes through the same `_Writer` (check row, `checked_at` on change, flags through `raise_intents`, one audit UPDATE per enrolment whose status changed). Like every engine function it flushes and never commits. `recheck_pending` still skips STUDENT.
+
+### 16.5 `app/cases/`
+
+```python
+# app/cases/transitions.py (pure)
+OFFICER_ACTIONS: tuple[CaseActionKind, ...] = (CLEAR, REQUEST_DOCS, ESCALATE, CONFIRM, NOTE, ASSIGN, REOPEN)
+NOTE_SHOWN_TO_COLLEGE: frozenset[CaseActionKind] = frozenset({CLEAR, REQUEST_DOCS, CONFIRM, COLLEGE_RESPONSE, SYSTEM_NOTE})
+NOTE_INTERNAL: frozenset[CaseActionKind] = frozenset({ESCALATE, NOTE, REOPEN})
+TABLE: Mapping[tuple[FlagStatus, CaseActionKind], tuple[FlagStatus, frozenset[UserRole]]]   # API_CONTRACT §A3.9
+
+def target(status: FlagStatus, action: CaseActionKind) -> FlagStatus | None: ...        # None: not in the table
+def allowed_actions(role: UserRole, status: FlagStatus) -> tuple[CaseActionKind, ...]: ...  # OFFICER_ACTIONS order
+def check(role: UserRole, status: FlagStatus, action: CaseActionKind) -> FlagStatus: ...
+    # the new status; ApiError 403 when another role could, 409 FLAG_TRANSITION_INVALID when nobody can
+def note_required(action: CaseActionKind) -> bool: ...                                   # every officer action but ASSIGN
+```
+
+```python
+# app/cases/attachments.py
+MAX_FILES = 3
+MAX_FILE_BYTES = 5_242_880
+MAX_BODY_BYTES = 16 * 1024 * 1024
+SIGNATURES = {b"%PDF-": "application/pdf", b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/jpeg"}
+
+@dataclass(frozen=True, slots=True)
+class StoredFile:
+    storage_key: str          # uuid4 hex
+    filename: str             # cleaned
+    content_type: str
+    size_bytes: int
+    sha256: str               # of the original bytes
+
+def sniff(head: bytes) -> str | None: ...
+def clean_filename(name: str | None) -> str: ...      # base name only, control characters dropped, 120 characters, "attachment" when empty
+async def store(upload: UploadFile) -> StoredFile: ...  # ApiError 413 ATTACHMENT_TOO_LARGE, 415 ATTACHMENT_TYPE
+def read(storage_key: str) -> bytes: ...                # decrypted
+def discard(storage_keys: Iterable[str]) -> None: ...
+```
+
+Files are Fernet-encrypted with `PII_FERNET_KEY` (like the upload spool) and written to `CASE_FILES_DIR/<storage_key>` through a temporary name and a rename. The router stores every file first; if one fails or the database work raises, it calls `discard` for those already written, so no file outlives a rolled-back response.
+
+```python
+# app/cases/service.py
+EVIDENCE_UPDATED_NOTE = "Evidence updated after the decision."
+
+async def scoped_flag(session: AsyncSession, user: User, flag_id: uuid.UUID, *, for_update: bool = False) -> Flag: ...
+    # 404 "Flag not found." outside the caller's scope (flags.scope_flags rules)
+async def apply_action(
+    session: AsyncSession, user: User, flag_id: uuid.UUID, *, action: CaseActionKind, note: str | None,
+    due_date: date | None, assignee_id: uuid.UUID | None,
+) -> ActionResult: ...                                 # flag, case action row, mail to send after the commit
+async def college_response(
+    session: AsyncSession, user: User, flag_id: uuid.UUID, *, note: str, files: Sequence[StoredFile]
+) -> CaseAction: ...
+async def add_system_note(session: AsyncSession, flag: Flag, text: str) -> CaseAction: ...
+async def history(session: AsyncSession, flag: Flag, user: User) -> list[dict[str, Any]]: ...   # redacted for INSTITUTION
+async def assignable_officers(session: AsyncSession, user: User, *, roles: Sequence[UserRole], flag: Flag | None) -> Select: ...
+async def docs_request_messages(session: AsyncSession, flag: Flag, action: CaseAction, user: User) -> list[MailMessage]: ...
+```
+
+- `apply_action`, in the request's transaction: `scoped_flag(..., for_update=True)`; `transitions.check`; field rules (API_CONTRACT §A3.10); the flag changes and the `case_actions` row of §A3.9; `last_action_at`; audit UPDATE on `flag`. CLEAR then calls `credentials.issue_if_eligible` for the flag's `enrolment_id` and every related enrolment; CONFIRM calls `credentials.revoke_for_enrolment(session, flag.enrolment_id, "FLAG_CONFIRMED", user.id)` when the flag names an enrolment. REQUEST_DOCS builds its emails with `docs_request_messages`; the router commits, then sends them with `await asyncio.to_thread(build_mailer().send_many, messages)` and only logs a failure.
+- `college_response`: `scoped_flag`, the status must be DOCS_REQUESTED, then the COLLEGE_RESPONSE row, one `case_attachments` row per stored file (`case_action_seq` from the flushed row), `response_received`, `last_action_at`, audit entries.
+- `add_system_note` writes a SYSTEM_NOTE row (no actor, `from_status` = `to_status` = the flag's status) and sets `last_action_at`. It has two callers: `raise_flag` and `notices.service.apply_reply` (§16.3).
+- **The hook in `app/engine/flags.py`.** In `raise_flag`, when an existing flag `changed` and its status is CLEARED or CONFIRMED, call `add_system_note(session, flag, EVIDENCE_UPDATED_NOTE)` (imported inside the function). Nothing else in `raise_flag` changes: engines still never change a flag's status.
+- `history` returns `CaseHistoryItem` dicts (API_CONTRACT §A3.13); for an INSTITUTION caller it leaves out ASSIGN rows, nulls the notes of `NOTE_INTERNAL` rows and nulls `assignee`.
+
+### 16.6 `app/credentials/`
+
+```python
+# app/credentials/keys.py
+@dataclass(frozen=True, slots=True)
+class IssuerKey:
+    kid: str
+    jwk: jwcrypto.jwk.JWK         # private; never logged
+
+async def active_issuer_key(session: AsyncSession) -> IssuerKey: ...
+    # creates one on first use: INSERT ... ON CONFLICT (purpose) WHERE active DO NOTHING, then SELECT
+async def jwks(session: AsyncSession) -> dict[str, Any]: ...            # {"keys": [public JWK of every ISSUER key]}
+async def public_key(session: AsyncSession, kid: str) -> jwcrypto.jwk.JWK | None: ...   # reads jwks(), as a third party would
+async def holder_key(session: AsyncSession, student_id: uuid.UUID, *, create: bool) -> jwcrypto.jwk.JWK | None: ...
+def thumbprint(key: jwcrypto.jwk.JWK) -> str: ...                       # RFC 7638, SHA-256, base64url
+```
+
+```python
+# app/credentials/status_list.py
+SIZE = 131_072
+LIST_ID = 1
+TTL_SECONDS = 60
+
+@dataclass(frozen=True, slots=True)
+class StatusListToken:
+    jwt: str
+    iat: datetime
+    bits: bytes                    # the 16,384 uncompressed bytes
+
+def uri() -> str: ...                                     # f"{ISSUER_URL}/status-lists/1"
+def encode(revoked_indexes: Iterable[int]) -> str: ...    # zlib + base64url, LSB first
+def bit(bits: bytes, index: int) -> int: ...
+async def current(session: AsyncSession) -> StatusListToken: ...   # rebuilt when older than TTL or invalidated
+def invalidate() -> None: ...                                       # this process only
+async def allocate_index(session: AsyncSession) -> int: ...          # random unused index; retried on a unique violation
+```
+
+```python
+# app/credentials/issuer.py
+ENROLMENT_VCT = "countersign:enrolment:v1"
+DEGREE_VCT = "countersign:degree:v1"
+ENROLMENT_DISCLOSABLE = ("name", "dob", "apaar_masked", "institution", "programme", "academic_year", "year_of_study", "countersigned")
+DEGREE_DISCLOSABLE = ("name", "apaar_masked", "institution", "programme", "university", "year_of_award")
+ALWAYS_DISCLOSED = ("institution", "programme")
+REASON_CODES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "FLAG_CONFIRMED")
+
+async def eligibility(session: AsyncSession, enrolment_id: uuid.UUID) -> bool: ...
+async def issue_if_eligible(session: AsyncSession, enrolment_id: uuid.UUID) -> Credential | None: ...
+async def issue_degree(session: AsyncSession, enrolment_id: uuid.UUID, *, actor_id: uuid.UUID) -> tuple[Credential, bool]: ...
+    # (credential, created); ApiError 409 CREDENTIAL_NOT_ELIGIBLE NOT_GRADUATED
+async def revoke(session: AsyncSession, credential: Credential, *, reason: str, actor_id: uuid.UUID) -> None: ...
+    # officer revocation; ApiError 409 CREDENTIAL_REVOKED
+def reason_code(stored: str | None) -> str | None: ...    # the stored value when it is a code, else "ADMIN"
+def claims_for(credential: Credential, ...) -> list[dict[str, Any]]: ...   # [{key, label, value, disclosable}]
+```
+
+Issuance builds the claims of API_CONTRACT §A3.15, marks the disclosable ones with the library's `SDObj`, and signs with `SDJWTIssuer(..., holder_key=<holder JWK> for ENROLMENT and None for DEGREE, sign_alg="ES256", add_decoy_claims=False, extra_header_parameters={"typ": "dc+sd-jwt", "kid": kid})`; check the argument names against the pinned `sd-jwt` version. The row stores `sd_jwt`, `vct`, `short_id` (8 random Crockford characters, retried on a clash), `disclosable`, `status_list_index`, `issuer_key_id`, `expires_at`.
+
+```python
+# app/credentials/holder.py
+SHARE_TTL = timedelta(minutes=10)
+
+def new_code() -> str: ...                         # six groups of four Crockford characters
+def normalise_code(raw: str) -> str | None: ...     # API_CONTRACT §A3.15; None when malformed
+def code_hash(code: str) -> str: ...
+def qr_svg(url: str) -> str: ...                    # segno, error M, border 4, no XML declaration
+async def present(session: AsyncSession, credential: Credential, user: User, *, fields: Sequence[str]) -> dict[str, Any]: ...
+async def cards(session: AsyncSession, user: User, *, filters: CredentialFilters, page: PageParams) -> Page: ...
+async def detail(session: AsyncSession, credential: Credential) -> dict[str, Any]: ...
+async def presentations(session: AsyncSession, credential: Credential, page: PageParams) -> Page: ...
+async def expire_live_presentations(session: AsyncSession, student_id: uuid.UUID, *, now: datetime) -> int: ...
+async def wallet_summary(session: AsyncSession, student_id: uuid.UUID) -> list[dict[str, Any]]: ...   # /students/me
+async def credential_refs(session: AsyncSession, enrolment_id: uuid.UUID) -> list[dict[str, Any]]: ...  # enrolment detail
+```
+
+`present` decrypts the holder key, calls `SDJWTHolder(credential.sd_jwt).create_presentation(...)` with the code as nonce and `{ISSUER_URL}/verify` as audience, stores the presentation, records the CREDENTIAL_SHARE consent through `privacy.service.record_consent`, and writes the audit entries of API_CONTRACT §A3.17. `expire_live_presentations` is called by `privacy.service.withdraw`.
+
+```python
+# app/credentials/verifier.py
+async def verify_code(session: AsyncSession, raw_code: str, *, ip: str) -> dict[str, Any]: ...       # ApiError 404 PRESENTATION_NOT_FOUND
+async def verify_presentation(session: AsyncSession, presentation: str, *, ip: str) -> dict[str, Any]: ...
+async def verify_degree_jws(session: AsyncSession, jws: str, *, ip: str) -> dict[str, Any]: ...
+async def verify_degree_id(session: AsyncSession, raw_short_id: str, *, ip: str) -> dict[str, Any]: ...  # register lookup
+def ip_hash(ip: str) -> str: ...      # first 16 hex of HMAC-SHA256(PII_HMAC_KEY, ip)
+```
+
+Each returns the `VerifyResult` dict of API_CONTRACT §A3.20 and writes its READ audit entry and counters in the request's transaction. The key callback given to `SDJWTVerifier` is built from `keys.jwks()` (the document `/.well-known/jwks.json` serves), selects by `kid` and refuses any `iss` other than `ISSUER_URL`; the status bit comes from `status_list.current()`. For a pasted presentation the nonce and audience are read from the key-binding JWT first and passed as the expected values.
+
+```python
+# app/credentials/degree.py
+def short_name(text: str, limit: int = 28) -> str: ...                 # API_CONTRACT §A3.21
+def mask_provisional(provisional_id: str) -> str: ...                  # "PRV-XXXX" + last four
+async def graduates(session: AsyncSession, user: User, query: GraduateQuery) -> Page: ...
+async def print_data(session: AsyncSession, user: User, enrolment_id: uuid.UUID) -> dict[str, Any]: ...
+async def compact_jws(session: AsyncSession, credential: Credential) -> str: ...
+def insert_pdf(data: Mapping[str, Any]) -> bytes: ...                  # reportlab, pure
+```
+
+`mask_provisional` is the one masking rule for public surfaces; the notices area imports it for the notice page.
+
+### 16.7 `app/privacy/`
+
+```python
+# app/privacy/notice.py
+NOTICE_VERSION = "v1"
+EFFECTIVE_FROM = date(2026, 10, 28)
+PRIVACY_NOTICE: Mapping[str, Any]                       # title and sections, mirrored from the copy deck
+CONSENT_TEXTS: Mapping[ConsentPurpose, str]             # copy deck §9, placeholders kept
+WITHDRAW_TEXTS: Mapping[ConsentPurpose, str]            # the withdraw confirmation texts
+def consent_text(purpose: ConsentPurpose, **values: str) -> str: ...
+def public_notice() -> dict[str, Any]: ...              # the GET /privacy/notice body
+```
+
+```python
+# app/privacy/service.py
+async def record_consent(
+    session: AsyncSession, *, student_id: uuid.UUID, purpose: ConsentPurpose, status: ConsentState,
+    channel: str, notice_text: str, enrolment_id: uuid.UUID | None = None, actor_id: uuid.UUID | None = None,
+) -> Consent: ...
+async def record_apaar_link(
+    session: AsyncSession, *, student_id: uuid.UUID, enrolment_id: uuid.UUID, consent_status: ConsentStatus,
+    institution_name: str, actor_id: uuid.UUID | None,
+) -> Consent | None: ...                                 # LINKED gives GIVEN, REFUSED gives REFUSED, else nothing
+async def notice_consent_withdrawn(session: AsyncSession, student_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]: ...
+async def consents_view(session: AsyncSession, student_id: uuid.UUID) -> dict[str, Any]: ...
+async def withdraw(session: AsyncSession, student_id: uuid.UUID, purpose: ConsentPurpose, user: User) -> dict[str, Any]: ...
+async def access_log(session: AsyncSession, student_id: uuid.UUID, *, own_user_id: uuid.UUID, page: PageParams) -> Page: ...
+async def create_request(session: AsyncSession, student_id: uuid.UUID, user: User, body: DataRequestCreate) -> dict[str, Any]: ...
+async def student_requests(session: AsyncSession, student_id: uuid.UUID, page: PageParams) -> Page: ...
+async def admin_requests(session: AsyncSession, user: User, query: DataRequestQuery) -> Page: ...
+async def resolve(session: AsyncSession, request_id: uuid.UUID, user: User, body: DataRequestResolve) -> dict[str, Any]: ...
+async def export(session: AsyncSession, student_id: uuid.UUID, user: User) -> dict[str, Any]: ...
+```
+
+- `record_apaar_link` is called from `app/engine/upload/upsert.py` when a student row is created or its `consent_status` changes, in the upsert chunk's transaction, with the batch's uploader as actor; an unchanged re-upload writes nothing (§13 still holds).
+- `notice_consent_withdrawn` is what `dispatch.needs_notice`, `resend` and `load_subjects` use.
+- `access_log` reads `audit_log` READ entries for the student's ids (student, notifications, credentials, presentations), leaves out the student's own reads and maps them as API_CONTRACT §A3.22 says.
+- `export` gathers everything in §A3.22 with the masking rules and the institution's flag summaries.
+
+### 16.8 Audit reads and the tamper tool
+
+- `app/core/audit.py` does not change. A READ entry that carries details is written with `record_many([AuditEntry(action=AuditAction.READ, entity_type=..., entity_id=..., actor_id=..., after={...})])`; `record_read` stays for plain reads. `AuditEntry.extra` is not stored, so details always go in `after`. The full list of Week 3 READ entries is API_CONTRACT §A3.23.
+- `GET /admin/audit` gains its filters and the `actor_role` and `via` columns (`app/routers/admin.py`, a join to `users` for the role, `after ->> 'via'` for `via`).
+- `app/core/audit_tamper.py`: `python -m app.core.audit_tamper --seq N`. Exit 2 with "audit-tamper runs only when DEMO_MODE=true." unless `DEMO_MODE` is true (it is true in the demo `.env`); exit 2 for an unknown entry; otherwise one `UPDATE audit_log SET after = coalesce(after, '{}'::jsonb) || '{"tampered": true}' WHERE seq = N` and a printed line saying the chain will now break at N. It writes no audit entry. `make audit-tamper SEQ=n` runs it in the api container.
+
+### 16.9 Routers and `app/main.py`
+
+New router modules: `cases` (`/flags/{id}/actions`, `/flags/{id}/response`, `/flags/{id}/attachments/{attachment_id}`), `credentials` (`/credentials*`), `issuer` (`/.well-known/*`, `/status-lists/{id}`), `notices` (`/notices/*`, `/enrolments/{id}/notices/resend`), `privacy` (`/privacy/notice`, `/students/me/consents*`, `/students/me/access-log`, `/students/me/data-requests`, `/students/me/export.json`, `/data-requests*`), `university` (`/university/*`), `users` (`/users`), `verify` (`/verify*`). Every area adds its own routers, so the import line and the registrations conflict once; resolve them to:
+
+```python
+from app.routers import (
+    admin, auth, cases, credentials, dashboard, enrolments, flags, healthz, institutions, issuer,
+    meta, notices, privacy, students, university, uploads, users, verify,
+)
+# registration order
+for router in (healthz, auth, issuer, notices, verify, privacy, dashboard, institutions, enrolments,
+               flags, cases, users, uploads, students, credentials, university, meta, admin):
+    app.include_router(router.router)
+```
+
+Inside `verify`, declare `/verify/d/{jws}` and `/verify/degree/{short_id}` before `/verify/{code}`. Public routes use `app.core.ratelimit.limiter` with their own limit strings (API_CONTRACT §A3.1); `ratelimit.py` itself does not change. `POST /flags/{id}/response` joins `POST /uploads` as an exemption from the JSON-only 415 check (the cases area adds it next to the existing one).
+
+### 16.10 Transactions
+
+| work | session and commit | engine-style functions inside it |
+|---|---|---|
+| any request handler | `get_session`: one session, committed when the handler returns; an error rolls everything back, READ audit entries included | flush only |
+| resend, REQUEST_DOCS | the handler commits itself, then enqueues delivery or sends the email | |
+| `POST /flags/{id}/response` | files stored before any database write; one transaction for the rows; files discarded if it fails | |
+| `send_notices_for_batch`, `deliver_notices` | own sessions: one per chunk of 500 for creation, for each delivery step and for the refresh; sends happen between transactions | `refresh_student`, `issue_if_eligible` flush only |
+| `run_batch` (ledger revocations, STUDENT re-derivation) | as §4.3 | `revoke_for_enrolment` and the STUDENT evaluator flush only |
+| `app.seed.replies` | one transaction per 500 lines | `apply_reply` |
+| `audit_tamper` | its own short transaction | |
+
+### 16.11 Who calls whom
+
+- `run_batch` → ledger → `credentials.revoke_for_enrolment`; → `run_checks` → `checks.student.evaluate` → `notices.student_check.derive`; `run_batch_task` → `enqueue_notices` → `countersign.send_notices` → `notices.dispatch.send_notices_for_batch` → `create_notices`, `deliver` (mailer, DigiLocker adapter), `checks.refresh_student`, `credentials.issue_if_eligible`.
+- `POST /notices/{token}/respond` and `app.seed.replies` → `notices.service.apply_reply` → `privacy.service.record_consent`, `checks.refresh_student` (→ `raise_flag` → `cases.service.add_system_note` when the flag was decided), `cases.service.add_system_note` (reply changed), `credentials.issue_if_eligible`.
+- `POST /enrolments/{id}/notices/resend` → `notices.service.resend` → `create_notices`; then `countersign.deliver_notices`.
+- Recheck endpoints → `checks.recheck_pending` → `credentials.issue_if_eligible`.
+- `POST /flags/{id}/actions` → `cases.service.apply_action` → `credentials.issue_if_eligible` (CLEAR) or `credentials.revoke_for_enrolment` (CONFIRM); mailer after commit (REQUEST_DOCS).
+- `POST /credentials/{id}/present` → `credentials.holder.present` → `privacy.service.record_consent`.
+- `POST /students/me/consents/CREDENTIAL_SHARE/withdraw` → `privacy.service.withdraw` → `credentials.holder.expire_live_presentations`.
+- `GET /students/me` → `notices.service.notices_for_student`, `credentials.holder.wallet_summary`; `GET /enrolments/{id}` → `notices.service.notices_for_enrolment`, `resend_state`, `credentials.holder.credential_refs`.
+- Upload UPSERT → `privacy.service.record_apaar_link`.
+
+Until an area's code is merged, the others build against these signatures with fakes: a `MemoryMailer`; `issue_if_eligible` returning None (as on `main`); a `refresh_student` that writes a fixed outcome; `add_system_note` writing the row directly.
+
+### 16.12 Tests each area owes
+
+| area | test |
+|---|---|
+| notices | a DONE batch gets one notice per channel per ACTIVE enrolment whatever its Identity result; a second run creates none |
+| notices | the mailer refuses a host outside `SMTP_ALLOWED_HOSTS` and opens one connection per 500 messages; DigiLocker 404 gives FAILED "No DigiLocker account." and never delays email |
+| notices | only `sha256(token)` is stored; a token from a failed try never opens the notice; malformed and unknown tokens give identical 404 bodies |
+| notices | every row of API_CONTRACT §A3.8, including UNREACHABLE and a No on one channel beating a Yes on the other |
+| notices | No then Yes inside 7 days: check PASS, flag status unchanged, evidence `summary_changed`, one system note; a second change is 409; a re-upload of the row keeps the derived status |
+| notices | resend: 409 while live or answered, 429 after three, the registrar only for its own students |
+| cases | every cell of the §A3.9 table for AICTE officer, regional officer and registrar (403 versus 409), 404 out of scope |
+| cases | response: three files accepted; a fourth, a 6 MB file and a renamed EXE each reject the whole response and leave no file behind; the download is scoped and audited |
+| cases | the registrar's history hides ASSIGN rows and internal notes; CONFIRM leaves the enrolment and its seat untouched and revokes its proof; an engine refresh of a cleared flag adds the system note |
+| credentials | issue, present three fields, verify VALID with only those three; the same code after 10 minutes is EXPIRED; after revocation REVOKED; a tampered disclosure or another code's key binding is INVALID |
+| credentials | the status list bit order (index 48213 is bit 5 of byte 6026) and a round trip through the JWKS document only |
+| credentials | ledger withdrawal revokes with `ENROLMENT_WITHDRAWN`; `revoked_reason_code` on the wire for all four causes |
+| credentials | the degree URL stays under 400 characters for the longest seeded names; `/verify/d/{jws}` and `/verify/degree/{short_id}` agree; the PDF renders |
+| cases (privacy) | APAAR_LINK rows from an upload and not again on re-upload; withdrawing share consent expires live proofs; the access log shows roles only and never the student's own reads; the export masks the APAAR |
+| cases (audit) | `audit_tamper` refuses without `DEMO_MODE`; after it, verify reports that seq |
+
+### 16.13 Known limits in Week 3
+
+- There is no scheduler (Addendum 2 errata 1): an expired notice reads "No reply (expired)." only after the next refresh of that enrolment; the status is PENDING either way.
+- Behind the web's `/api` rewrite the api sees the web server as the client, so per-address limits on public routes are shared by every browser that goes through the web. A deployment runs uvicorn with `--proxy-headers` behind a trusted proxy.
+- The status-list cache is per process: a revocation made by the worker (ledger, seed) reaches the api's token within 60 seconds.
+- The wallet is custodial: holder keys are on the server, encrypted; a real deployment keeps them on the student's device.
+- There is no index on `audit_log.entity_id`; the access log scans by entity id, fine at demo size.
+- The QR SVG and the PDF are generated per request and not cached.
