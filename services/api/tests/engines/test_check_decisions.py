@@ -384,6 +384,38 @@ async def test_studying_counts_semesters_since_admission() -> None:
     assert down.status is CheckStatus.PENDING and down.unavailable == ("ABC",)
 
 
+async def test_studying_lateral_entrant_counts_from_year_two() -> None:
+    gov = adapters()
+    _abc(gov, **{"2025_26": [(1, 22), (2, 24)]})
+    second = subject(year_of_study=2, cohort_year="2025-26", admission_route=AdmissionRoute.LATERAL)
+    joined = await studying.evaluate(second, gov, GATE)
+    assert joined.status is CheckStatus.NA and joined.calls == ()
+    assert joined.detail == {
+        "summary": "Joined in year 2 as a lateral entrant; no completed year to check yet."
+    }
+    no_apaar = await studying.evaluate(dataclasses.replace(second, apaar_id=None), gov, GATE)
+    assert no_apaar.status is CheckStatus.NA and no_apaar.detail == joined.detail
+
+    # year 3: only year 2 (2025-26, semesters 3 and 4) is asked for; year 1 was elsewhere
+    third = subject(year_of_study=3, cohort_year="2024-25", admission_route=AdmissionRoute.LATERAL)
+    _abc(gov, **{"2025_26": [(3, 20), (4, 21)]})
+    ok = await studying.evaluate(third, gov, GATE)
+    assert ok.status is CheckStatus.PASS and ok.calls == ("ABC",)
+    assert ok.detail["summary"] == "Credits recorded in ABC for all 2 semesters since admission."
+    assert ok.detail["semesters"] == [
+        {"academic_year": "2025-26", "sem": 3, "credits": 20},
+        {"academic_year": "2025-26", "sem": 4, "credits": 21},
+    ]
+    _abc(gov, **{"2025_26": [(3, 0), (4, 0)]})
+    idle = await studying.evaluate(third, gov, GATE)
+    assert idle.status is CheckStatus.FAIL
+    assert idle.detail["summary"] == (
+        "No credits recorded in ABC for 2 of 2 semesters since admission."
+    )
+    [intent] = idle.flags
+    assert intent.type is FlagType.NO_ACADEMIC_ACTIVITY
+
+
 async def test_student_is_pending_until_the_notice() -> None:
     outcome = await student.evaluate(subject(), adapters(), GATE)
     assert outcome.status is CheckStatus.PENDING

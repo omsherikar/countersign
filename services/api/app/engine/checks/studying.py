@@ -16,18 +16,27 @@ from app.engine.checks.base import (
     pending_unavailable,
 )
 from app.engine.contracts import CheckOutcome
-from app.models.enums import CheckStatus, CheckType, FlagType, Severity
+from app.models.enums import AdmissionRoute, CheckStatus, CheckType, FlagType, Severity
 
 SOURCE = "ABC"
 CHECK = CheckType.STUDYING
 
 
+def first_year_studied(subject: CheckSubject) -> int:
+    """The first year of study spent at the institution: 2 for a lateral entrant, else 1."""
+    return 2 if subject.admission_route is AdmissionRoute.LATERAL else 1
+
+
 def completed_years(subject: CheckSubject) -> list[tuple[str, tuple[int, int]]]:
-    """[(year label, (first semester, second semester))] for years 1 to year_of_study - 1."""
+    """[(year label, (first semester, second semester))] for each completed year of study.
+
+    Years 1 to year_of_study - 1; a lateral entrant joined in year 2, so its years start
+    at 2 (a year-3 lateral is checked on year 2 only, semesters 3 and 4).
+    """
     start = start_year(subject.academic_year)
     return [
         (year_label(start - (subject.year_of_study - k)), (2 * k - 1, 2 * k))
-        for k in range(1, subject.year_of_study)
+        for k in range(first_year_studied(subject), subject.year_of_study)
     ]
 
 
@@ -92,12 +101,16 @@ async def evaluate(
         return CheckOutcome(
             type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_first_year()
         )
+    years = completed_years(subject)
+    if not years:  # a year-2 lateral entrant
+        return CheckOutcome(
+            type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_lateral_entry()
+        )
     if not subject.apaar_id:
         return CheckOutcome(
             type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_no_apaar()
         )
     apaar_id = subject.apaar_id
-    years = completed_years(subject)
     results: list[AbcResult] = []
     for label, _ in years:
         result = await call_source(

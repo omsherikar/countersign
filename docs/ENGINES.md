@@ -526,8 +526,9 @@ PASS when the enrolment holds exactly one ASSIGNED seat in a pool of its cohort 
 ### STUDYING (source `ABC`)
 
 - `year_of_study` 1: NA ("First year, no result yet.").
+- Route `LATERAL` in year 2: NA ("Joined in year 2 as a lateral entrant; no completed year to check yet."). A lateral entrant joined in year 2, so its completed years start at k = 2: a year-3 lateral is checked on year 2 only.
 - No APAAR: NA.
-- Completed years k = 1 to `year_of_study - 1`; year k's label is `year_label(start_year(academic_year) - (year_of_study - k))`; its expected semesters are `2k - 1` and `2k`. One `adapters.abc.credits(apaar_id, label)` call per year.
+- Completed years k = 1 (2 for `LATERAL`) to `year_of_study - 1`; year k's label is `year_label(start_year(academic_year) - (year_of_study - k))`; its expected semesters are `2k - 1` and `2k`. One `adapters.abc.credits(apaar_id, label)` call per year.
 - Every call says `apaar_id_known` false: NA ("ABC has no record of this APAAR; see the Identity check."), so an unknown APAAR is not flagged twice.
 - missing = expected semesters with no entry or with 0 credits. 0 missing: PASS. 1 missing: PENDING with `awaiting_semester`. 2 or more: FAIL and NO_ACADEMIC_ACTIVITY (MEDIUM).
 
