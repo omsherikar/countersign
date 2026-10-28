@@ -8,6 +8,7 @@ import { FlagStatusBadge } from "@/components/brand/FlagStatusBadge";
 import { t, tk } from "@/lib/copy";
 import { formatCount, formatDate } from "@/lib/format";
 import { useFlags, useInstitution, useInstitutions, useStates } from "@/lib/queries";
+import { useOfficers } from "@/lib/queries-cases";
 import type { FlagListParams, FlagSort, FlagStatusFilter, FlagType, Region, Severity } from "@/lib/types";
 import { useUrlParams } from "@/lib/use-url-params";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ import { ErrorBlock, SkeletonRows, SlowHint, TableMessage } from "@/components/c
 import { FilterSelect, SearchInput } from "@/components/common/filter-select";
 import { Pager } from "@/components/common/pager";
 import { SeverityBars } from "@/components/flags/flag-chip";
+import { ResponseBadge } from "@/components/cases/response-badge";
 
 const PAGE_SIZE = 25;
 export const FLAG_TYPES: FlagType[] = [
@@ -47,7 +49,8 @@ export type FlagsTableVariant = "cases" | "tab" | "college";
 
 /**
  * The shared flags list (page spec W2-7): the officers' case queue, an
- * institution's Flags tab and the registrar's /college/flags. Read only.
+ * institution's Flags tab and the registrar's /college/flags. The case queue
+ * adds the Assignee column and the Assignee and Response filters (W3-8).
  * Filters live in the URL with the `f_` prefix; rows link to flag detail and
  * `j` / `k` move between them.
  */
@@ -79,6 +82,9 @@ export function FlagsTable({
   const programme = params.get("f_programme") ?? "";
   const q = params.get("f_q") ?? "";
   const sort = (params.get("f_sort") ?? "severity_desc") as FlagSort;
+  const queue = variant === "cases";
+  const assignee = queue ? (params.get("f_assignee") ?? "") : "";
+  const response = params.get("f_response") === "received";
   const page = Math.max(1, Number(params.get("f_page") ?? 1) || 1);
 
   const query: FlagListParams = {
@@ -93,21 +99,37 @@ export function FlagsTable({
     programme_id: chosenInstitution ? programme || undefined : undefined,
     q: q || undefined,
     sort,
+    assignee: assignee || undefined,
+    response_received: response || undefined,
   };
   const list = useFlags(query);
   const institutions = useInstitutions({ page_size: 200, sort: "name" }, variant === "cases");
   const states = useStates();
   const chosen = useInstitution(variant !== "college" ? chosenInstitution || null : null);
+  const officers = useOfficers(undefined, queue);
   const onSearch = React.useCallback((v: string) => set({ f_q: v, f_page: null }), [set]);
 
   const data = list.data;
   const rows = data?.items ?? [];
   const showInstitution = variant === "cases";
-  const showAssignee = rows.some((r) => r.assignee !== null);
+  const showAssignee = queue;
   const cols = 6 + (showInstitution ? 1 : 0) + (showAssignee ? 1 : 0);
-  const filtered = Boolean(severity || type || (variant === "cases" && chosenInstitution) || state || programme || q || status !== DEFAULT_STATUS);
+  const filtered = Boolean(
+    severity || type || (variant === "cases" && chosenInstitution) || state || programme || q || assignee || response || status !== DEFAULT_STATUS,
+  );
   const clearAll = () =>
-    set({ f_status: null, f_severity: null, f_type: null, f_institution: null, f_state: null, f_programme: null, f_q: null, f_page: null });
+    set({
+      f_status: null,
+      f_severity: null,
+      f_type: null,
+      f_institution: null,
+      f_state: null,
+      f_programme: null,
+      f_q: null,
+      f_assignee: null,
+      f_response: null,
+      f_page: null,
+    });
 
   const openWord = status === "UNRESOLVED" || status === "OPEN";
   const count = data
@@ -190,6 +212,26 @@ export function FlagsTable({
             onChange={(v) => set({ f_programme: v, f_page: null })}
           />
         )}
+        {queue && (
+          <FilterSelect
+            label={t("flags.filter.assignee")}
+            value={assignee}
+            options={[
+              { value: "me", label: t("flags.filter.assignee_me") },
+              { value: "none", label: t("flags.filter.assignee_none") },
+              ...(officers.data ?? []).map((o) => ({ value: o.id, label: o.name })),
+            ]}
+            allLabel={t("flags.filter.all")}
+            onChange={(v) => set({ f_assignee: v, f_page: null })}
+          />
+        )}
+        <FilterSelect
+          label={t("flags.filter.response")}
+          value={response ? "received" : ""}
+          options={[{ value: "received", label: t("flags.filter.response_received") }]}
+          allLabel={t("flags.filter.all")}
+          onChange={(v) => set({ f_response: v, f_page: null })}
+        />
         <SearchInput label={t("flags.search")} value={q} onChange={onSearch} className="w-full sm:w-80" />
         {filtered && (
           <Button variant="link" size="sm" className="h-8 px-0" onClick={clearAll}>
@@ -261,11 +303,14 @@ export function FlagsTable({
                 <td>
                   <SeverityCell severity={f.severity} />
                 </td>
-                <td className="font-medium">
-                  <span className="flex items-center gap-2">
-                    {tk(`flag.${f.type}.name`)}
-                    {f.status !== "OPEN" && <FlagStatusBadge status={f.status} compact />}
-                  </span>
+                <td className="wrap !h-auto min-w-[11rem] py-2 font-medium leading-snug">
+                  <span className="block">{tk(`flag.${f.type}.name`)}</span>
+                  {(f.status !== "OPEN" || f.response_received) && (
+                    <span className="mt-1 flex flex-wrap items-center gap-1">
+                      {f.status !== "OPEN" && <FlagStatusBadge status={f.status} />}
+                      {f.response_received && <ResponseBadge />}
+                    </span>
+                  )}
                 </td>
                 {showInstitution && (
                   <td className="max-w-[15rem] truncate text-ink-muted" title={`${f.institution.name}, ${f.institution.state_name}`}>
@@ -281,7 +326,11 @@ export function FlagsTable({
                 </td>
                 <td className="num">{formatCount(f.related_count)}</td>
                 <td className="num text-ink-muted">{formatDate(f.created_at)}</td>
-                {showAssignee && <td>{f.assignee?.name ?? ""}</td>}
+                {showAssignee && (
+                  <td className={cn("wrap !h-auto min-w-[7rem] py-2 leading-snug", !f.assignee && "text-ink-muted")}>
+                    {f.assignee?.name ?? t("case.assignee_none")}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
