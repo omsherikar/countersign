@@ -113,11 +113,21 @@ export function useDataRequests(params: DataRequestListQuery) {
   });
 }
 
+/**
+ * POST /data-requests/{id}/resolve. The resolved row is written into the
+ * lists in place, so it stays in view with its new status and date until the
+ * officer changes the filter; the lists refetch on their next use.
+ */
 export function useResolveDataRequest() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: DataRequestResolve }) => api.post<DataRequestAdminRow>(`/data-requests/${id}/resolve`, body),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["data-requests"] }),
+    onSuccess: (row) => {
+      qc.setQueriesData<Page<DataRequestAdminRow>>({ queryKey: ["data-requests"] }, (old) =>
+        old ? { ...old, items: old.items.map((r) => (r.id === row.id ? row : r)) } : old,
+      );
+      void qc.invalidateQueries({ queryKey: ["data-requests"], refetchType: "none" });
+    },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409) void qc.invalidateQueries({ queryKey: ["data-requests"] });
     },
