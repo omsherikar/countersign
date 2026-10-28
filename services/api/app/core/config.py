@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _HERE = Path(__file__).resolve().parent.parent.parent  # services/api
 
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     api_access_token_minutes: int = 120
     pii_hmac_key: str = "00" * 32
     pii_fernet_key: str = "Zm9yLWRlbW8tb25seS1yZXBsYWNlLW1lLXBsZWFzZS0wMDA="
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
     web_base_url: str = "http://localhost:3000"
     cookie_secure: bool = False
     api_version: str = "0.1.0"
