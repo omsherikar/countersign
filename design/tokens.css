@@ -25,9 +25,12 @@
   color-scheme: light;
 
   /* ---- Type ------------------------------------------------------------ */
-  --font-display: "Source Serif 4", "Iowan Old Style", "Times New Roman", Georgia, serif;
-  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-code: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* The inner var() lets next/font take over: give its `variable` option
+     these names (--font-source-serif, --font-plex-sans, --font-plex-mono)
+     and drop the Google Fonts @import from globals.css. */
+  --font-display: var(--font-source-serif, "Source Serif 4"), "Iowan Old Style", "Times New Roman", Georgia, serif;
+  --font-ui: var(--font-plex-sans, "IBM Plex Sans"), "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-code: var(--font-plex-mono, "IBM Plex Mono"), ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* Scale: 11 12 13 14 16 18 22 28 36 44 (px). Body is 14; tables run at 13. */
   --text-2xs: 0.6875rem;
