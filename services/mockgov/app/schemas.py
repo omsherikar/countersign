@@ -54,11 +54,20 @@ class AbcCreditsRequest(BaseModel):
     _check_apaar = field_validator("apaar_id")(_validate_apaar)
 
 
+class AbcIssuer(BaseModel):
+    """Who issued a credit record: the affiliating university, or the institution itself."""
+
+    type: Literal["UNIVERSITY", "INSTITUTION"]
+    code: str
+    name: str
+
+
 class AbcSemester(BaseModel):
     sem: int
     credits: int
     uploaded_at: datetime
     result: Literal["PASS", "FAIL", "PENDING"]
+    issuer: AbcIssuer | None = None
 
 
 class AbcCreditsResponse(BaseModel):

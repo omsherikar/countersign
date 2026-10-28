@@ -66,6 +66,11 @@ class AbcCredit(Base):
     credits: Mapped[int] = mapped_column(Integer, nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     result: Mapped[str] = mapped_column(String(8), nullable=False)
+    # The body that issued the credits: the affiliating UNIVERSITY, or the INSTITUTION itself
+    # for an autonomous college or a deemed university. Null for records loaded without one.
+    issuer_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    issuer_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issuer_name: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class DigiLockerMessage(Base):

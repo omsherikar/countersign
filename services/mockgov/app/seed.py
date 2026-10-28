@@ -73,6 +73,7 @@ def _counselling(record: dict) -> tuple:
 
 
 def _abc(record: dict) -> tuple:
+    issuer = record.get("issuer") or {}
     return (
         str(record["apaar_id"]),
         str(record["academic_year"]),
@@ -80,6 +81,9 @@ def _abc(record: dict) -> tuple:
         int(record["credits"]),
         _timestamp(record["uploaded_at"]),
         str(record["result"]),
+        issuer.get("type"),
+        issuer.get("code"),
+        issuer.get("name"),
     )
 
 
@@ -144,7 +148,17 @@ REGISTRIES: tuple[RegistryFile, ...] = (
     RegistryFile(
         "abc_credits.jsonl",
         "abc_credits",
-        ("apaar_id", "academic_year", "sem", "credits", "uploaded_at", "result"),
+        (
+            "apaar_id",
+            "academic_year",
+            "sem",
+            "credits",
+            "uploaded_at",
+            "result",
+            "issuer_type",
+            "issuer_code",
+            "issuer_name",
+        ),
         ("apaar_id", "academic_year", "sem"),
         _abc,
     ),

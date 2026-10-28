@@ -19,6 +19,13 @@ from sqlalchemy.ext.asyncio import (
 
 from app.models import Base
 
+# Columns added to existing tables since the first release; create_all only creates tables.
+UPGRADE_COLUMNS = (
+    ("issuer_type", "varchar(16)"),
+    ("issuer_code", "text"),
+    ("issuer_name", "text"),
+)
+
 
 class Database:
     def __init__(self, url: str) -> None:
@@ -32,6 +39,11 @@ class Database:
             # 16-character chaos.source; widen it so "admission_authority" fits. A no-op
             # once the column is 32 wide.
             await conn.execute(text("ALTER TABLE chaos ALTER COLUMN source TYPE varchar(32)"))
+            # ABC credit records gained their issuer after the first databases were made.
+            for column, kind in UPGRADE_COLUMNS:
+                await conn.execute(
+                    text(f"ALTER TABLE abc_credits ADD COLUMN IF NOT EXISTS {column} {kind}")
+                )
 
     async def ping(self) -> bool:
         try:

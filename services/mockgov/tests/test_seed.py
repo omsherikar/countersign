@@ -163,3 +163,17 @@ def test_cli_reports_a_missing_directory(settings: Settings, tmp_path: Path, cap
     finally:
         seed.get_settings.cache_clear()
     assert "seed failed" in capsys.readouterr().err
+
+
+async def test_an_older_abc_table_gains_the_issuer_columns(
+    app: FastAPI, settings: Settings, session: AsyncSession
+) -> None:
+    from sqlalchemy import text
+
+    async with app.state.db.engine.begin() as conn:
+        for column in ("issuer_type", "issuer_code", "issuer_name"):
+            await conn.execute(text(f"ALTER TABLE abc_credits DROP COLUMN {column}"))
+    await app.state.db.create_all()
+    await seed.run(FIXTURES, reset=False, settings=settings)
+    credit = await session.scalar(select(AbcCredit).where(AbcCredit.apaar_id == "123456780004"))
+    assert (credit.issuer_type, credit.issuer_code) == ("INSTITUTION", "1-XYZ-0002")
