@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.adapters.base import AdapterRequestError, RealAdapterDisabled, SourceUnavailable
 from app.engine import evidence
@@ -32,6 +32,9 @@ from app.models.enums import (
     SeatType,
     Severity,
 )
+
+if TYPE_CHECKING:
+    from app.notices.student_check import NoticeFact
 
 log = logging.getLogger("countersign.checks")
 
@@ -77,6 +80,11 @@ class CheckSubject:
     # decrypted in memory only; never logged, never put in a detail or evidence
     apaar_id: str | None = field(default=None, repr=False)
     passport_no: str | None = field(default=None, repr=False)
+    # the STUDENT check (ENGINES §16.4): every notice of the enrolment, oldest first; an
+    # email address on record; the latest NOTICE consent is WITHDRAWN
+    notices: tuple[NoticeFact, ...] = ()
+    has_email: bool = False
+    notice_consent_withdrawn: bool = False
 
 
 @dataclass(frozen=True, slots=True)

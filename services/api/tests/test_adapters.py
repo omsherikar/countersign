@@ -75,8 +75,9 @@ async def test_inmemory_abc_digilocker_sii():
     dl = InMemoryDigiLocker(linked={"1"})
     ok = await dl.notify("1", "hi", "http://cb")
     assert ok.delivered and ok.inbox_id and dl.inbox[0]["message"] == "hi"
-    nope = await dl.notify("2", "hi", "http://cb")
-    assert (nope.delivered, nope.reason) == (False, "APAAR_NOT_LINKED")
+    with pytest.raises(AdapterRequestError) as nope:
+        await dl.notify("2", "hi", "http://cb")
+    assert nope.value.status_code == 404 and len(dl.inbox) == 1
 
     sii = InMemorySii(
         {

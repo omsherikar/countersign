@@ -36,6 +36,7 @@ from app.models.seat import Seat, SeatEvent, SeatPool
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
 from app.models.user import User
+from app.notices.dispatch import issue_due_proofs
 from app.routers._enrolment_rows import (
     build_rows,
     check_filter,
@@ -523,6 +524,7 @@ async def institution_recheck(
         concurrency=get_settings().checks_concurrency,
         actor_id=user.id,
     )
+    await issue_due_proofs(session, ids)
     return InstitutionRecheck(
         institution_id=str(institution.id),
         academic_year=year,

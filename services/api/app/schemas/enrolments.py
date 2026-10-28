@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 
 from app.schemas.common import CheckOut, Countersign, FlagSummary, InstitutionRef, ProgrammeRef
 from app.schemas.institutions import StudentRef
+from app.schemas.notices import EnrolmentNotice, ResendState
 
 
 class StudentDetail(StudentRef):
@@ -54,6 +57,10 @@ class EnrolmentDetail(BaseModel):
     countersign: Countersign
     checks: list[CheckOut]
     flags: list[FlagSummary]
+    notices: list[EnrolmentNotice]
+    resend: ResendState
+    # CredentialRef (API_CONTRACT §A3.7), shaped by credentials.holder
+    credentials: list[dict[str, Any]]
 
 
 class CheckTransition(BaseModel):

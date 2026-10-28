@@ -1,4 +1,4 @@
-"""Celery app, the upload task and the notices task that follows it.
+"""Celery app, the upload task, the notices task that follows it and notice delivery.
 
 The worker runs with --concurrency=1 so batches never overlap.
 """
@@ -8,8 +8,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime, timedelta
 
 from celery import Celery
 from celery.signals import worker_ready
@@ -18,11 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.models.enums import UploadStage, UploadStatus
+from app.models.enums import NoticeDelivery, UploadStage, UploadStatus
 from app.models.upload import UploadBatch
+from app.models.verification import Notification
 
 log = logging.getLogger(__name__)
 UNFINISHED = (UploadStatus.QUEUED, UploadStatus.VALIDATING, UploadStatus.PROCESSING)
+# QUEUED notices younger than this may still be in the hands of the request that made them
+NOTICE_REQUEUE_AGE = timedelta(minutes=2)
+DELIVERY_BATCH = 500
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -151,18 +155,76 @@ def enqueue_notices(batch_id: uuid.UUID | str) -> None:
         )
 
 
+async def _deliver_notices(notification_ids: list[uuid.UUID]) -> int:
+    from app.notices.dispatch import deliver_notices
+
+    engine = create_async_engine(get_settings().database_url(), pool_pre_ping=True)
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        return await deliver_notices(notification_ids, factory=factory)
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(name="countersign.deliver_notices", acks_late=True)
+def deliver_notices_task(notification_ids: list[str]) -> int:
+    """Deliver QUEUED notices (a resend, or rows a stopped worker left); returns how many
+    were sent. Only ids travel through the queue, never a token."""
+    return asyncio.run(_deliver_notices([uuid.UUID(i) for i in notification_ids]))
+
+
+def enqueue_delivery(notification_ids: Sequence[uuid.UUID | str]) -> bool:
+    """Queue delivery of notices already committed as QUEUED. A queue failure is logged:
+    the rows stay QUEUED and the worker picks them up when it next starts."""
+    ids = [str(i) for i in notification_ids]
+    if not ids:
+        return True
+    try:
+        deliver_notices_task.delay(ids)
+        return True
+    except Exception:
+        log.exception("could not queue notice delivery", extra={"data": {"count": len(ids)}})
+        return False
+
+
+async def _unfinished_notice_ids(created_before: datetime) -> list[uuid.UUID]:
+    from app.notices.dispatch import MAX_ATTEMPTS
+
+    async def work(session: AsyncSession) -> list[uuid.UUID]:
+        stmt = (
+            select(Notification.id)
+            .where(
+                Notification.delivery_status == NoticeDelivery.QUEUED,
+                Notification.attempts < MAX_ATTEMPTS,
+                Notification.created_at < created_before,
+            )
+            .order_by(Notification.created_at, Notification.id)
+        )
+        return list((await session.execute(stmt)).scalars())
+
+    return await _with_session(work)
+
+
 def enqueue_batch(batch_id: uuid.UUID) -> None:
     run_batch_task.apply_async(args=[str(batch_id)])
 
 
 def requeue_unfinished() -> list[uuid.UUID]:
-    """Queue every batch a previous worker left unfinished. run_batch skips DONE and
-    FAILED batches and the worker runs one task at a time, so a duplicate is harmless."""
+    """Queue every batch a previous worker left unfinished, then the delivery of QUEUED
+    notices older than two minutes with tries left. run_batch skips DONE and FAILED
+    batches, delivery skips anything no longer QUEUED, and the worker runs one task at a
+    time, so a duplicate is harmless. Returns the batch ids."""
+    started = datetime.now(UTC)
     ids = asyncio.run(_unfinished_batch_ids())
     for batch_id in ids:
         enqueue_batch(batch_id)
     if ids:
         log.info("requeued unfinished uploads", extra={"data": {"count": len(ids)}})
+    notice_ids = asyncio.run(_unfinished_notice_ids(started - NOTICE_REQUEUE_AGE))
+    for start in range(0, len(notice_ids), DELIVERY_BATCH):
+        enqueue_delivery(notice_ids[start : start + DELIVERY_BATCH])
+    if notice_ids:
+        log.info("requeued notice delivery", extra={"data": {"count": len(notice_ids)}})
     return ids
 
 

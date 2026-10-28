@@ -3,7 +3,8 @@
 POST /uploads takes multipart/form-data (the one exemption from the JSON-only rule) and
 POST /uploads/rows takes JSON. Both check the header synchronously, spool the upload
 encrypted, commit the batch as QUEUED and hand it to run_batch: inline after the response
-when UPLOAD_INLINE is true, otherwise on the Celery worker.
+when UPLOAD_INLINE is true (then the batch's student notices follow it), otherwise on the
+Celery worker, which queues the notices itself.
 """
 
 from __future__ import annotations
@@ -329,9 +330,23 @@ async def _accept(
     return UploadAccepted(batch=await _batch_out(session, batch, institution.name, user))
 
 
+async def _run_inline(batch_id: uuid.UUID) -> None:
+    """UPLOAD_INLINE: the batch, then its student notices once it is DONE, as the worker
+    would chain them. A notice failure is logged; the batch stays DONE."""
+    batch = await pipeline.run_batch(batch_id)
+    if batch.status is not UploadStatus.DONE:
+        return
+    from app.notices.dispatch import send_notices_for_batch
+
+    try:
+        await send_notices_for_batch(batch_id)
+    except Exception:
+        log.exception("could not send student notices", extra={"batch_id": str(batch_id)})
+
+
 async def _start(session: AsyncSession, batch: UploadBatch, background: BackgroundTasks) -> None:
     if get_settings().upload_inline:
-        background.add_task(pipeline.run_batch, batch.id)
+        background.add_task(_run_inline, batch.id)
         return
     from app.worker import enqueue_batch
 

@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.schemas.common import Countersign
+from app.schemas.notices import StudentNotice
 
 
 class StudentEnrolment(BaseModel):
@@ -31,5 +32,6 @@ class StudentMe(BaseModel):
     email: str | None
     mobile_masked: str | None
     enrolments: list[StudentEnrolment]
-    notices: list[Any] = Field(default_factory=list)
-    credentials: list[Any] = Field(default_factory=list)
+    notices: list[StudentNotice] = Field(default_factory=list)
+    # StudentCredentialBrief (API_CONTRACT §A3.6), shaped by credentials.holder
+    credentials: list[dict[str, Any]] = Field(default_factory=list)

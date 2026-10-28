@@ -1,4 +1,4 @@
-"""GET /students/me (API_CONTRACT A.10). STUDENT only; the read is audited."""
+"""GET /students/me (API_CONTRACT A.10, §A3.6). STUDENT only; the read is audited."""
 
 from __future__ import annotations
 
@@ -11,10 +11,12 @@ from app.core import audit
 from app.core.crypto import mask_apaar, mask_mobile
 from app.core.deps import RequestId, SessionDep, require_roles
 from app.core.errors import not_found
+from app.credentials import holder
 from app.models.enums import UserRole
 from app.models.institution import Institution, Programme
 from app.models.student import Enrolment, Student
 from app.models.user import User
+from app.notices.service import notices_for_student
 from app.routers._enrolment_rows import countersigns
 from app.schemas.students import StudentEnrolment, StudentMe
 
@@ -40,6 +42,8 @@ async def students_me(
         )
     ).all()
     signs = await countersigns(session, [enrolment.id for enrolment, _, _ in rows])
+    notices = await notices_for_student(session, student.id)
+    wallet = await holder.wallet_summary(session, student.id)
     await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
     return StudentMe(
         id=str(student.id),
@@ -64,4 +68,6 @@ async def students_me(
             )
             for enrolment, institution, programme in rows
         ],
+        notices=notices,
+        credentials=wallet,
     )

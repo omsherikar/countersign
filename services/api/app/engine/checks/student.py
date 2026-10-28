@@ -1,22 +1,21 @@
-"""STUDENT: the student's own reply to a notice. PENDING until the student loop sends one."""
+"""STUDENT: the student's own reply to a notice, derived from the notices (D24)."""
 
 from __future__ import annotations
 
 import asyncio
 
 from app.adapters.base import AdapterSet
-from app.engine import evidence as ev
 from app.engine.checks.base import CheckSubject
 from app.engine.contracts import CheckOutcome
-from app.models.enums import CheckStatus, CheckType
+from app.models.enums import CheckType
+from app.notices import student_check
 
-SOURCE = "STUDENT_NOTICE"
+SOURCE = student_check.SOURCE
 CHECK = CheckType.STUDENT
 
 
 async def evaluate(
     subject: CheckSubject, adapters: AdapterSet, gate: asyncio.Semaphore
 ) -> CheckOutcome:
-    return CheckOutcome(
-        type=CHECK, status=CheckStatus.PENDING, source=SOURCE, detail=ev.student_notice_not_sent()
-    )
+    """No adapter call: the notices on the subject decide."""
+    return student_check.derive(subject)
