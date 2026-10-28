@@ -13,13 +13,14 @@ export type Region =
   | "SOUTH_WEST" | "SOUTH" | "SOUTH_CENTRAL" | "EAST" | "NORTH_EAST";
 
 export type CheckType = "IDENTITY" | "ADMISSION" | "SEAT" | "STUDYING" | "STUDENT";
-export type CheckStatus = "PASS" | "FAIL" | "PENDING" | "NA";
+export type CheckStatus = "CONFIRMED" | "CONTRADICTED" | "PENDING" | "NOT_YET_DUE" | "NOT_APPLICABLE" | "SOURCE_UNAVAILABLE";
 export type FlagType =
   | "EXCESS_ADMISSION" | "QUOTA_BREACH" | "LATE_REFILL" | "INVALID_APAAR" | "NAME_MISMATCH"
   | "DUPLICATE_CROSS_INSTITUTION" | "DUPLICATE_WITHIN_UPLOAD" | "DUAL_ENROLMENT_ALLOWED"
-  | "NO_ACADEMIC_ACTIVITY" | "STUDENT_DENIED" | "GHOST_RING" | "ANOMALY";
+  | "NO_ACADEMIC_ACTIVITY" | "STUDENT_DENIED" | "GHOST_RING" | "ANOMALY"
+  | "NOT_IN_JOINING_RECORD" | "ELIGIBILITY_BREACH" | "MISSING_FROM_UPLOAD";
 export type Severity = "LOW" | "MEDIUM" | "HIGH";
-export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "CLEARED" | "ESCALATED" | "CONFIRMED";
+export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "UPHELD" | "ESCALATED" | "WITHDRAWN" | "CORRECTED";
 export type ConsentStatus = "LINKED" | "REFUSED" | "PENDING" | "INTERNATIONAL";
 export type AdmissionRoute = "COUNSELLING" | "MANAGEMENT" | "NRI" | "SPOT" | "LATERAL" | "INTERNATIONAL" | "TFW";
 export type SeatType = "REGULAR" | "NRI" | "TFW" | "LATERAL" | "INTERNATIONAL";
@@ -351,10 +352,11 @@ export type StudentNoticeState = "NOT_SENT" | "UNREACHABLE" | "SENT" | "EXPIRED"
 export type IdKind = "APAAR" | "PROVISIONAL";
 export type ResendBlock = "LIVE" | "ANSWERED" | "LIMIT" | "CONSENT_WITHDRAWN" | "NO_CHANNEL" | "NOT_ACTIVE" | "ROLE";
 export type CaseAction =
-  | "CLEAR" | "REQUEST_DOCS" | "ESCALATE" | "CONFIRM" | "NOTE" | "ASSIGN" | "REOPEN" | "COLLEGE_RESPONSE" | "SYSTEM_NOTE";
-export type OfficerAction = Exclude<CaseAction, "COLLEGE_RESPONSE" | "SYSTEM_NOTE">;
+  | "UPHOLD" | "REQUEST_DOCS" | "ESCALATE" | "WITHDRAW" | "NOTE" | "ASSIGN" | "REOPEN" | "COLLEGE_RESPONSE" | "SYSTEM_NOTE" | "CORRECT";
+// CORRECT is recorded in case history; the API does not offer it as an action yet
+export type OfficerAction = Exclude<CaseAction, "COLLEGE_RESPONSE" | "SYSTEM_NOTE" | "CORRECT">;
 export type OfficerRole = Extract<Role, "AICTE_ADMIN" | "RO_OFFICER">;
-export type CredentialKind = "ENROLMENT" | "DEGREE";
+export type CredentialKind = "ENROLMENT" | "COMPLETION";
 export type CredentialStatus = "ACTIVE" | "REVOKED" | "EXPIRED";
 export type PresentationState = "LIVE" | "EXPIRED";
 export type VerifyResultCode = "VALID" | "REVOKED" | "EXPIRED" | "INVALID";

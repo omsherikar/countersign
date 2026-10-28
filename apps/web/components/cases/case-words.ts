@@ -8,17 +8,17 @@ import { REGION_NAME } from "@/lib/roles";
 import type { CaseHistoryItem, OfficerAction, Region, Role } from "@/lib/types";
 
 export const ACTION_WORD: Record<OfficerAction, CopyId> = {
-  CLEAR: "case.clear",
+  UPHOLD: "case.clear",
   REQUEST_DOCS: "case.request_docs",
   ESCALATE: "case.escalate",
-  CONFIRM: "case.confirm",
+  WITHDRAW: "case.confirm",
   NOTE: "case.note",
   ASSIGN: "case.assign",
   REOPEN: "case.reopen",
 };
 
 /** Actions whose note the college reads; every other note stays with officers. */
-export const NOTE_SHOWN_TO_COLLEGE: OfficerAction[] = ["CLEAR", "REQUEST_DOCS", "CONFIRM"];
+export const NOTE_SHOWN_TO_COLLEGE: OfficerAction[] = ["UPHOLD", "REQUEST_DOCS", "WITHDRAW"];
 
 export function noteLabel(action: OfficerAction): string {
   return NOTE_SHOWN_TO_COLLEGE.includes(action) ? t("case.note_label") : t("case.note_label_internal");

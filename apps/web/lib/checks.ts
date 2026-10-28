@@ -6,7 +6,7 @@
  */
 import { t, tk } from "@/lib/copy";
 import { formatDateTime } from "@/lib/format";
-import type { Check, CheckBrief, CheckType, Countersign } from "@/lib/types";
+import type { Check, CheckBrief, CheckStatus, CheckType, Countersign } from "@/lib/types";
 
 export const CHECK_ORDER: CheckType[] = ["IDENTITY", "ADMISSION", "SEAT", "STUDYING", "STUDENT"];
 
@@ -15,6 +15,7 @@ const hasDetail = (c: AnyCheck): c is Check => "detail" in c && typeof c.detail 
 
 /** The status word a reader sees: check.status.*, or for PENDING the first pending word that applies. */
 export function statusWord(c: AnyCheck): string {
+  if (c.status === "SOURCE_UNAVAILABLE") return t("check.pending.unavailable");
   if (c.status !== "PENDING") return tk(`check.status.${c.status}`);
   if (c.type === "STUDENT") {
     // Enrolment detail knows where the notice stands (A3.8); lists say "No reply yet".
@@ -31,9 +32,14 @@ export function statusWord(c: AnyCheck): string {
   return t("check.status.PENDING");
 }
 
+/** Rows a recheck asks again: PENDING or SOURCE_UNAVAILABLE. */
+export function awaitsSource(c: { status: CheckStatus }): boolean {
+  return c.status === "PENDING" || c.status === "SOURCE_UNAVAILABLE";
+}
+
 /** Pending checks other than Student: the {pending} of strip.score_pending. */
 export function pendingCount(countersign: Countersign): number {
-  return countersign.checks.filter((c) => c.status === "PENDING" && c.type !== "STUDENT").length;
+  return countersign.checks.filter((c) => awaitsSource(c) && c.type !== "STUDENT").length;
 }
 
 /** "3 of 4", or "2 of 4, 1 pending" when a check other than Student waits. */

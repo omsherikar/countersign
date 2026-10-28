@@ -25,7 +25,7 @@ export const FLAG_TYPES: FlagType[] = [
   "DUPLICATE_WITHIN_UPLOAD", "DUAL_ENROLMENT_ALLOWED", "NO_ACADEMIC_ACTIVITY", "STUDENT_DENIED", "GHOST_RING", "ANOMALY",
 ];
 const SEVERITIES: Severity[] = ["HIGH", "MEDIUM", "LOW"];
-const STATUSES: FlagStatusFilter[] = ["UNRESOLVED", "OPEN", "DOCS_REQUESTED", "ESCALATED", "CLEARED", "CONFIRMED"];
+const STATUSES: FlagStatusFilter[] = ["UNRESOLVED", "OPEN", "DOCS_REQUESTED", "ESCALATED", "UPHELD", "WITHDRAWN", "CORRECTED"];
 /** The default list matches the Open flags tile: every flag still waiting on someone (errata 2). */
 export const DEFAULT_STATUS: FlagStatusFilter = "UNRESOLVED";
 

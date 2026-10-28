@@ -6,9 +6,10 @@ import { cn } from "@/lib/utils";
 export type FlagType =
   | "EXCESS_ADMISSION" | "QUOTA_BREACH" | "LATE_REFILL" | "INVALID_APAAR" | "NAME_MISMATCH"
   | "DUPLICATE_CROSS_INSTITUTION" | "DUPLICATE_WITHIN_UPLOAD" | "DUAL_ENROLMENT_ALLOWED"
-  | "NO_ACADEMIC_ACTIVITY" | "STUDENT_DENIED" | "GHOST_RING" | "ANOMALY";
+  | "NO_ACADEMIC_ACTIVITY" | "STUDENT_DENIED" | "GHOST_RING" | "ANOMALY"
+  | "NOT_IN_JOINING_RECORD" | "ELIGIBILITY_BREACH" | "MISSING_FROM_UPLOAD";
 export type Severity = "LOW" | "MEDIUM" | "HIGH";
-export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "CLEARED" | "ESCALATED" | "CONFIRMED";
+export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "UPHELD" | "ESCALATED" | "WITHDRAWN" | "CORRECTED";
 
 /** The `evidence` every flag carries (API_CONTRACT A2.16): a sentence, facts with their sources, the rule. */
 export interface Evidence {
@@ -23,6 +24,7 @@ export const FLAG_TYPE_LABEL = Object.fromEntries(
     [
       "EXCESS_ADMISSION", "QUOTA_BREACH", "LATE_REFILL", "INVALID_APAAR", "NAME_MISMATCH", "DUPLICATE_CROSS_INSTITUTION",
       "DUPLICATE_WITHIN_UPLOAD", "DUAL_ENROLMENT_ALLOWED", "NO_ACADEMIC_ACTIVITY", "STUDENT_DENIED", "GHOST_RING", "ANOMALY",
+      "NOT_IN_JOINING_RECORD", "ELIGIBILITY_BREACH", "MISSING_FROM_UPLOAD",
     ] as const
   ).map((type) => [type, tk(`flag.${type}.name`)]),
 ) as Record<FlagType, string>;

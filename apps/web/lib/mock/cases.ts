@@ -10,7 +10,7 @@
  * Demo controls, from the browser console in mock mode only:
  *   countersignMock.tamperAudit(917)   the same as `make audit-tamper SEQ=917`
  *   countersignMock.restoreAudit()     the same as `make demo-reset` for the chain
- *   countersignMock.decideFlag(id, "CLEARED")   another officer decides meanwhile (409 on a stale page)
+ *   countersignMock.decideFlag(id, "UPHELD")   another officer decides meanwhile (409 on a stale page)
  */
 import { ApiError, type Query } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -389,9 +389,9 @@ function studentCheck(e: RollEntry, file: NoticeFile): Check {
   });
   const decided = (n: StoredNotice) => ({ channel: n.channel, sent_at: n.sent_at, responded_at: decidedAt(n), changed: Boolean(n.changed_at) });
   const no = earliest("NO");
-  if (no) return make("FAIL", `Denied by the student on ${formatDate(decidedAt(no))} (${channelWord(no.channel)}).`, "DENIED", decided(no), decidedAt(no));
+  if (no) return make("CONTRADICTED", `Denied by the student on ${formatDate(decidedAt(no))} (${channelWord(no.channel)}).`, "DENIED", decided(no), decidedAt(no));
   const yes = earliest("YES");
-  if (yes) return make("PASS", `Confirmed by the student on ${formatDate(decidedAt(yes))} (${channelWord(yes.channel)}).`, "CONFIRMED", decided(yes), decidedAt(yes));
+  if (yes) return make("CONFIRMED", `Confirmed by the student on ${formatDate(decidedAt(yes))} (${channelWord(yes.channel)}).`, "CONFIRMED", decided(yes), decidedAt(yes));
   const delivered = all.filter((n) => n.delivery_status === "SENT").sort((a, b) => (b.sent_at ?? "").localeCompare(a.sent_at ?? ""));
   if (delivered.length === 0) {
     if (!file.hasEmail && !linked(e)) return make("PENDING", "No email or APAAR on record, so no notice can be sent.", "UNREACHABLE", {}, null);
@@ -450,7 +450,7 @@ const REVOKED = new Map<string, string>();
 
 function credentialsFor(e: RollEntry): CredentialRef[] {
   const student = e.checks.find((c) => c.type === "STUDENT");
-  if (!student || student.status !== "PASS" || e.checks.some((c) => c.status === "FAIL")) return [];
+  if (!student || student.status !== "CONFIRMED" || e.checks.some((c) => c.status === "CONTRADICTED")) return [];
   const highOpen = allFlags().some(
     (f) => f.severity === "HIGH" && ["OPEN", "DOCS_REQUESTED", "ESCALATED"].includes(f.status) && (f.enrolmentId === e.row.id || f.related.includes(e.row.id)),
   );
@@ -493,13 +493,13 @@ function caseOf(id: string): CaseState {
   return c;
 }
 
-const ORDER: OfficerAction[] = ["CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "NOTE", "ASSIGN", "REOPEN"];
+const ORDER: OfficerAction[] = ["UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN", "REOPEN"];
 type Rule = { to: FlagStatus | "="; roles: Role[] };
 const LIVE_RULES: Partial<Record<OfficerAction, Rule>> = {
   REQUEST_DOCS: { to: "DOCS_REQUESTED", roles: [A, R] },
   ESCALATE: { to: "ESCALATED", roles: [A, R] },
-  CLEAR: { to: "CLEARED", roles: [A, R] },
-  CONFIRM: { to: "CONFIRMED", roles: [A, R] },
+  UPHOLD: { to: "UPHELD", roles: [A, R] },
+  WITHDRAW: { to: "WITHDRAWN", roles: [A, R] },
   NOTE: { to: "=", roles: [A, R] },
   ASSIGN: { to: "=", roles: [A, R] },
 };
@@ -510,20 +510,22 @@ const TABLE: Record<FlagStatus, Partial<Record<OfficerAction, Rule>>> = {
   DOCS_REQUESTED: LIVE_RULES,
   ESCALATED: {
     REQUEST_DOCS: { to: "DOCS_REQUESTED", roles: [A] },
-    CLEAR: { to: "CLEARED", roles: [A] },
-    CONFIRM: { to: "CONFIRMED", roles: [A] },
+    UPHOLD: { to: "UPHELD", roles: [A] },
+    WITHDRAW: { to: "WITHDRAWN", roles: [A] },
     NOTE: { to: "=", roles: [A, R] },
     ASSIGN: { to: "=", roles: [A] },
   },
-  CLEARED: CLOSED_RULES,
-  CONFIRMED: CLOSED_RULES,
+  UPHELD: CLOSED_RULES,
+  WITHDRAWN: CLOSED_RULES,
+  CORRECTED: CLOSED_RULES,
 };
 const STATUS_WORD: Record<FlagStatus, string> = {
   OPEN: "open",
   DOCS_REQUESTED: "waiting for documents",
   ESCALATED: "escalated",
-  CLEARED: "cleared",
-  CONFIRMED: "confirmed",
+  UPHELD: "cleared",
+  WITHDRAWN: "confirmed",
+  CORRECTED: "corrected",
 };
 const INTERNAL_NOTES: CaseHistoryItem["action"][] = ["ESCALATE", "NOTE", "REOPEN"];
 
@@ -636,7 +638,7 @@ async function act(user: User, id: string, body: unknown, next: Next): Promise<F
     c.responseReceived = false;
   }
   if ((req.action === "ASSIGN" || req.action === "ESCALATE") && assignee !== undefined) c.assignee = assignee;
-  if (req.action === "CONFIRM" && f.enrolmentId) {
+  if (req.action === "WITHDRAW" && f.enrolmentId) {
     const e = entryById(f.enrolmentId);
     if (e && credentialsFor(e).some((x) => x.status === "ACTIVE")) REVOKED.set(f.enrolmentId, at);
   }
@@ -1080,21 +1082,21 @@ function seedCases() {
   // Pune ITM, NRI quota: documents, a response, then confirmed by AICTE.
   apply(
     11,
-    "CONFIRMED",
+    "WITHDRAWN",
     [
       item(47, "2026-10-26T16:10:00Z", "REQUEST_DOCS", "OPEN", "DOCS_REQUESTED", west, "Send the NRI admission register for CSE, 2026-27, and any supernumerary approval.", { due_date: "2026-10-28" }),
       item(49, "2026-10-27T07:25:00Z", "COLLEGE_RESPONSE", "DOCS_REQUESTED", "DOCS_REQUESTED", puneRegistrar, "Register attached. We have no supernumerary approval for NRI seats this year.", {
         attachments: [storeSample(id(11), "nri_register_cse_2026-27.pdf", "application/pdf", 1_887_436)],
       }),
-      item(55, "2026-10-27T13:45:00Z", "CONFIRM", "DOCS_REQUESTED", "CONFIRMED", admin, "Three NRI admissions beyond the 5% carve-out with no supernumerary approval. Recorded as a confirmed irregularity."),
+      item(55, "2026-10-27T13:45:00Z", "WITHDRAW", "DOCS_REQUESTED", "WITHDRAWN", admin, "Three NRI admissions beyond the 5% carve-out with no supernumerary approval. Recorded as a confirmed irregularity."),
     ],
     { docsDueOn: "2026-10-28", responseReceived: true },
   );
 
   // GCE Karad, late refill: cleared, then the engines refreshed the evidence.
-  apply(12, "CLEARED", [
-    item(52, "2026-10-28T09:05:00Z", "CLEAR", "OPEN", "CLEARED", west, "The seat was released on 28 Sep and refilled on 5 Oct with the state counselling authority's written approval, which is on file."),
-    item(57, "2026-10-28T09:40:00Z", "SYSTEM_NOTE", "CLEARED", "CLEARED", null, "Evidence updated after the decision."),
+  apply(12, "UPHELD", [
+    item(52, "2026-10-28T09:05:00Z", "UPHOLD", "OPEN", "UPHELD", west, "The seat was released on 28 Sep and refilled on 5 Oct with the state counselling authority's written approval, which is on file."),
+    item(57, "2026-10-28T09:40:00Z", "SYSTEM_NOTE", "UPHELD", "UPHELD", null, "Evidence updated after the decision."),
   ]);
 }
 

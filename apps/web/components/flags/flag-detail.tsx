@@ -41,9 +41,10 @@ function crumbsFor(variant: FlagDetailVariant, d: Detail | undefined): Crumb[] {
 const SOFT: Record<FlagStatus, string> = {
   OPEN: "var(--flag-open-soft)",
   DOCS_REQUESTED: "var(--flag-docs-soft)",
-  CLEARED: "var(--flag-cleared-soft)",
+  UPHELD: "var(--flag-cleared-soft)",
   ESCALATED: "var(--flag-escalated-soft)",
-  CONFIRMED: "var(--flag-confirmed-soft)",
+  WITHDRAWN: "var(--flag-confirmed-soft)",
+  CORRECTED: "var(--flag-confirmed-soft)",
 };
 
 /**

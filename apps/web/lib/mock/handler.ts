@@ -149,8 +149,8 @@ function rollStats(id: string) {
   const rows = rollFor(id).filter((e) => e.row.status === "ACTIVE" && e.checks.length > 0);
   const s = {
     checked: rows.length,
-    countersigned: rows.filter((e) => e.checks.every((c) => c.status === "PASS" || c.status === "NA")).length,
-    clear: rows.filter((e) => e.checks.every((c) => c.status !== "FAIL")).length,
+    countersigned: rows.filter((e) => e.checks.every((c) => c.status === "CONFIRMED" || c.status === "NOT_APPLICABLE" || c.status === "NOT_YET_DUE")).length,
+    clear: rows.filter((e) => e.checks.every((c) => c.status !== "CONTRADICTED")).length,
   };
   STATS.set(id, s);
   return s;
@@ -315,9 +315,9 @@ function recheckInstitution(user: User, row: InstitutionRow, academicYear: strin
   const started = Date.now();
   const active = rollFor(row.id).filter((e) => e.row.status === "ACTIVE" && e.row.academic_year === academicYear);
   let rechecked = 0;
-  const after: Record<CheckStatus, number> = { PASS: 0, FAIL: 0, NA: 0, PENDING: 0 };
+  const after: Record<CheckStatus, number> = { CONFIRMED: 0, CONTRADICTED: 0, PENDING: 0, NOT_YET_DUE: 0, NOT_APPLICABLE: 0, SOURCE_UNAVAILABLE: 0 };
   for (const e of active) {
-    if (!e.checks.some((c) => c.status === "PENDING" && c.type !== "STUDENT")) continue;
+    if (!e.checks.some((c) => (c.status === "PENDING" || c.status === "SOURCE_UNAVAILABLE") && c.type !== "STUDENT")) continue;
     rechecked += 1;
     for (const r of recheck(e)) after[r.after] += 1;
   }
@@ -327,10 +327,10 @@ function recheckInstitution(user: User, row: InstitutionRow, academicYear: strin
     academic_year: academicYear,
     enrolments: active.length,
     rechecked,
-    now_pass: after.PASS,
-    now_fail: after.FAIL,
-    now_na: after.NA,
-    still_pending: after.PENDING,
+    now_pass: after.CONFIRMED,
+    now_fail: after.CONTRADICTED,
+    now_na: after.NOT_APPLICABLE + after.NOT_YET_DUE,
+    still_pending: after.PENDING + after.SOURCE_UNAVAILABLE,
     flags_raised: 0,
     duration_ms: Date.now() - started + 240,
   };

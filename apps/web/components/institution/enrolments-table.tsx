@@ -23,7 +23,7 @@ const PAGE_SIZE = 25;
 const COLS = 11;
 const STATUSES: EnrolmentStatus[] = ["ACTIVE", "WITHDRAWN", "TRANSFERRED", "GRADUATED"];
 const ROUTES: AdmissionRoute[] = ["COUNSELLING", "MANAGEMENT", "NRI", "SPOT", "LATERAL", "INTERNATIONAL", "TFW"];
-const RESULTS: CheckStatus[] = ["PASS", "FAIL", "PENDING", "NA"];
+const RESULTS: CheckStatus[] = ["CONFIRMED", "CONTRADICTED", "PENDING", "NOT_YET_DUE", "NOT_APPLICABLE", "SOURCE_UNAVAILABLE"];
 
 /**
  * Enrolments of one institution: masked ids only, consent, route, seat code

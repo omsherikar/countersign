@@ -36,13 +36,13 @@ function plusDays(date: string, n: number): string {
 
 function toastFor(action: OfficerAction, flag: FlagDetail): string {
   switch (action) {
-    case "CLEAR":
+    case "UPHOLD":
       return t("case.cleared_toast", { institution_name: flag.institution.name });
     case "REQUEST_DOCS":
       return t("case.docs_toast");
     case "ESCALATE":
       return t("case.escalated_toast");
-    case "CONFIRM":
+    case "WITHDRAW":
       return t("case.confirmed_toast");
     case "REOPEN":
       return t("case.reopened_toast");
@@ -180,10 +180,10 @@ export function CaseSheet({
               <DialogTitle className="font-display text-xl font-semibold">{t(ACTION_WORD[action])}</DialogTitle>
               <DialogDescription asChild>
                 <div className="flex flex-col gap-2 text-sm text-ink">
-                  {action === "CLEAR" && <p>{t("case.clear_confirm")}</p>}
+                  {action === "UPHOLD" && <p>{t("case.clear_confirm")}</p>}
                   {action === "REQUEST_DOCS" && <p>{t("case.request_docs_email", { institution_name: flag.institution.name })}</p>}
                   {action === "ESCALATE" && <p>{t("case.escalate_note")}</p>}
-                  {action === "CONFIRM" && (
+                  {action === "WITHDRAW" && (
                     <>
                       <p>{t("case.confirm_confirm", { institution_name: flag.institution.name })}</p>
                       {flag.enrolment_id && <p className="border-l-2 border-rule-margin pl-3">{t("case.confirm_revokes")}</p>}

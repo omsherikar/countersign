@@ -12,17 +12,17 @@ import { ACTION_WORD, lastOf } from "@/components/cases/case-words";
 import { ResponseBadge } from "@/components/cases/response-badge";
 
 const ICON: Record<OfficerAction, LucideIcon> = {
-  CLEAR: CircleCheck,
+  UPHOLD: CircleCheck,
   REQUEST_DOCS: FileQuestion,
   ESCALATE: ChevronsUp,
-  CONFIRM: Stamp,
+  WITHDRAW: Stamp,
   NOTE: MessageSquarePlus,
   ASSIGN: UserRoundPlus,
   REOPEN: RotateCcw,
 };
 
 /** Decisions sit on the left, record-keeping on the right (W3-8). */
-const DECIDE: OfficerAction[] = ["CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "REOPEN"];
+const DECIDE: OfficerAction[] = ["UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "REOPEN"];
 const RECORD: OfficerAction[] = ["NOTE", "ASSIGN"];
 
 /** Today in IST as YYYY-MM-DD. */
@@ -84,7 +84,7 @@ export function CaseActionBar({
   const allowed = flag.allowed_actions;
   const decide = DECIDE.filter((a) => allowed.includes(a));
   const record = RECORD.filter((a) => allowed.includes(a));
-  const closed = flag.status === "CLEARED" || flag.status === "CONFIRMED";
+  const closed = flag.status === "UPHELD" || flag.status === "WITHDRAWN" || flag.status === "CORRECTED";
   const line =
     role === "RO_OFFICER" && flag.status === "ESCALATED"
       ? t("case.escalated_ro")

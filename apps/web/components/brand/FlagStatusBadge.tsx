@@ -4,18 +4,19 @@ import { tk } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
 /** Mirrors `FlagStatus` in lib/types.ts. */
-export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "CLEARED" | "ESCALATED" | "CONFIRMED";
+export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "UPHELD" | "ESCALATED" | "WITHDRAWN" | "CORRECTED";
 
 export const FLAG_STATUS_LABEL = Object.fromEntries(
-  (["OPEN", "DOCS_REQUESTED", "CLEARED", "ESCALATED", "CONFIRMED"] as const).map((s) => [s, tk(`flag_status.${s}`)]),
+  (["OPEN", "DOCS_REQUESTED", "UPHELD", "ESCALATED", "WITHDRAWN", "CORRECTED"] as const).map((s) => [s, tk(`flag_status.${s}`)]),
 ) as Record<FlagStatus, string>;
 
 const STYLE: Record<FlagStatus, { chip: string; Icon: React.ComponentType<{ className?: string }> }> = {
   OPEN: { chip: "bg-flag-open-soft text-flag-open-ink border-flag-open/40", Icon: CircleDot },
   DOCS_REQUESTED: { chip: "bg-flag-docs-soft text-flag-docs-ink border-flag-docs/40", Icon: FileQuestion },
-  CLEARED: { chip: "bg-flag-cleared-soft text-flag-cleared-ink border-flag-cleared/40", Icon: CircleCheck },
+  UPHELD: { chip: "bg-flag-cleared-soft text-flag-cleared-ink border-flag-cleared/40", Icon: CircleCheck },
   ESCALATED: { chip: "bg-flag-escalated-soft text-flag-escalated-ink border-flag-escalated/40", Icon: ChevronsUp },
-  CONFIRMED: { chip: "bg-flag-confirmed-soft text-flag-confirmed-ink border-flag-confirmed/40", Icon: Stamp },
+  WITHDRAWN: { chip: "bg-flag-confirmed-soft text-flag-confirmed-ink border-flag-confirmed/40", Icon: Stamp },
+  CORRECTED: { chip: "bg-flag-confirmed-soft text-flag-confirmed-ink border-flag-confirmed/40", Icon: Stamp },
 };
 
 export interface FlagStatusBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {

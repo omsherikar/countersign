@@ -4,7 +4,7 @@ import { t, tk } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
 /** Mirrors `CheckStatus` and `CheckType` in lib/types.ts (API_CONTRACT.md D). */
-export type CheckStatus = "PASS" | "FAIL" | "PENDING" | "NA";
+export type CheckStatus = "CONFIRMED" | "CONTRADICTED" | "PENDING" | "NOT_YET_DUE" | "NOT_APPLICABLE" | "SOURCE_UNAVAILABLE";
 export type CheckType = "IDENTITY" | "ADMISSION" | "SEAT" | "STUDYING" | "STUDENT";
 
 /** Words from the copy deck: check.* and check.status.* (Countersigned, Not countersigned, Pending, n/a). */
@@ -13,14 +13,16 @@ export const CHECK_TYPE_LABEL = Object.fromEntries(
 ) as Record<CheckType, string>;
 
 export const CHECK_STATUS_LABEL = Object.fromEntries(
-  (["PASS", "FAIL", "PENDING", "NA"] as const).map((s) => [s, tk(`check.status.${s}`)]),
+  (["CONFIRMED", "CONTRADICTED", "PENDING", "NOT_YET_DUE", "NOT_APPLICABLE", "SOURCE_UNAVAILABLE"] as const).map((s) => [s, tk(`check.status.${s}`)]),
 ) as Record<CheckStatus, string>;
 
 const STYLE: Record<CheckStatus, { chip: string; Icon: React.ComponentType<{ className?: string }> }> = {
-  PASS: { chip: "bg-check-pass-soft text-check-pass-ink border-check-pass/40", Icon: Check },
-  FAIL: { chip: "bg-check-fail-soft text-check-fail-ink border-check-fail/40", Icon: X },
+  CONFIRMED: { chip: "bg-check-pass-soft text-check-pass-ink border-check-pass/40", Icon: Check },
+  CONTRADICTED: { chip: "bg-check-fail-soft text-check-fail-ink border-check-fail/40", Icon: X },
   PENDING: { chip: "bg-check-pending-soft text-check-pending-ink border-check-pending/40 border-dashed", Icon: Clock },
-  NA: { chip: "bg-check-na-soft text-check-na-ink border-check-na/40 border-dotted", Icon: Minus },
+  NOT_YET_DUE: { chip: "bg-check-na-soft text-check-na-ink border-check-na/40 border-dotted", Icon: Minus },
+  NOT_APPLICABLE: { chip: "bg-check-na-soft text-check-na-ink border-check-na/40 border-dotted", Icon: Minus },
+  SOURCE_UNAVAILABLE: { chip: "bg-check-pending-soft text-check-pending-ink border-check-pending/40 border-dashed", Icon: Clock },
 };
 
 export interface CheckBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {

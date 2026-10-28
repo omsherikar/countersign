@@ -600,9 +600,9 @@ function studentMeLive(): StudentMe {
   const reply = raviReply();
   const enrolments = me.enrolments.map((e) => {
     if (e.id !== RAVI_ENROLMENT || !reply) return e;
-    const checks = e.countersign.checks.map((c) => (c.type === "STUDENT" ? { ...c, status: reply === "YES" ? ("PASS" as const) : ("FAIL" as const) } : c));
-    const applicable = checks.filter((c) => c.status !== "NA").length;
-    const passes = checks.filter((c) => c.status === "PASS").length;
+    const checks = e.countersign.checks.map((c) => (c.type === "STUDENT" ? { ...c, status: reply === "YES" ? ("CONFIRMED" as const) : ("CONTRADICTED" as const) } : c));
+    const applicable = checks.filter((c) => c.status !== "NOT_APPLICABLE" && c.status !== "NOT_YET_DUE").length;
+    const passes = checks.filter((c) => c.status === "CONFIRMED").length;
     return { ...e, countersign: { score: { passes, applicable }, checks } };
   });
   const credentials = load()
@@ -827,7 +827,7 @@ function degreeCredential(g: StoredGraduate, issued: number): StoredCredential {
   const apaar = r.student.apaar_masked;
   return {
     id: uid(),
-    kind: "DEGREE",
+    kind: "COMPLETION",
     revoked: false,
     student: "graduate",
     vct: "countersign:degree:v1",
@@ -943,7 +943,7 @@ function verifyDegreeJws(jws: string): VerifyResult {
     return INVALID;
   }
   const state = load();
-  const c = state.credentials.find((x) => x.kind === "DEGREE" && x.short_id === claims.cid);
+  const c = state.credentials.find((x) => x.kind === "COMPLETION" && x.short_id === claims.cid);
   if (claims.v !== 1 || !c) return INVALID;
   const g = state.graduates.find((x) => x.credentialId === c.id);
   const base = verifyResult(c, [], null, "signature");
@@ -954,7 +954,7 @@ function verifyDegreeJws(jws: string): VerifyResult {
 function verifyDegreeLookup(raw: string): VerifyResult {
   const id = raw.trim().toUpperCase().replace(/O/g, "0").replace(/[IL]/g, "1");
   const state = load();
-  const c = state.credentials.find((x) => x.kind === "DEGREE" && x.short_id === id);
+  const c = state.credentials.find((x) => x.kind === "COMPLETION" && x.short_id === id);
   if (!c) throw new ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign proof.");
   const g = state.graduates.find((x) => x.credentialId === c.id);
   const base = verifyResult(c, [], null, "register_lookup");
