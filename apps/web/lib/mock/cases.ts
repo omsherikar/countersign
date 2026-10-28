@@ -289,7 +289,6 @@ const EXPIRES_AT = "2026-11-26T09:31:31Z";
 const OLD_SENT_AT = "2026-09-24T10:12:05Z";
 const OLD_EXPIRES_AT = "2026-10-24T10:12:00Z";
 const NOTICES = new Map<string, NoticeFile>();
-const COMMENTS = new Map<string, string | null>();
 
 const linked = (e: RollEntry) => e.row.student.consent_status === "LINKED";
 
