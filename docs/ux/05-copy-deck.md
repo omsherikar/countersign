@@ -2485,6 +2485,7 @@ DECISIONS D45 and R5. Visible to AICTE and regional officers only; never to a re
 | signal.open_case | Open case |
 | signal.open_case_heading | Open a case from this signal? |
 | signal.open_case_body | A {case_name} case opens for each college you choose, citing this signal. It follows the same steps as any case: the college can respond, and an officer decides. Records change only through that decision. |
+| signal.open_case_change | The {n} records the case names read Under review until an officer decides it. Nothing else about them changes. |
 | signal.open_case_colleges | Colleges to open a case for |
 | signal.open_case_submit | Open case |
 | signal.open_case_submit_many | Open {n} cases |
