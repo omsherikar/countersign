@@ -298,4 +298,5 @@ export const studentCopy = {
   "privacy.access.SYSTEM": "Countersign itself",
   "privacy.consent_state_none": "Not given yet",
   "privacy.request.cancel": "Cancel",
+  "degree.qr_alt": "QR code to verify this degree proof. The proof id is written under it.",
 } as const;

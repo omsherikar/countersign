@@ -1,6 +1,5 @@
 "use client";
 
-import { Printer } from "lucide-react";
 import { t } from "@/lib/copy";
 import { admittedOf } from "@/lib/counts";
 import { useDashboardSummary } from "@/lib/queries";
@@ -8,7 +7,7 @@ import { PageHeader } from "@/components/common/page-header";
 import { InstitutionsTable } from "@/components/overview/institutions-table";
 import { KpiStrip } from "@/components/overview/kpi-strip";
 
-/** /university: affiliates read-only, and where Degree print will live. */
+/** /university: affiliates read-only; Degree print has its own page. */
 export function UniversityPage() {
   const summary = useDashboardSummary();
   const data = summary.data;
@@ -35,13 +34,6 @@ export function UniversityPage() {
       />
       <section aria-label={t("app.university.affiliates")} className="mb-10">
         <InstitutionsTable variant="university" basePath="/university" academicYear={data?.academic_year} />
-      </section>
-      <section className="flex max-w-[68ch] items-start gap-3 border-l-2 border-rule-margin bg-paper-raised px-4 py-3">
-        <Printer className="mt-0.5 size-5 shrink-0 text-ink-faint" aria-hidden="true" />
-        <div>
-          <h2 className="font-sans text-md font-semibold">{t("nav.degree_print")}</h2>
-          <p className="mt-0.5 text-sm text-ink-muted">{t("university.degree_teaser")}</p>
-        </div>
       </section>
     </>
   );
