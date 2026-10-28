@@ -1,0 +1,499 @@
+/*
+  Countersign design tokens
+  -------------------------
+  Every enrolment, countersigned.
+
+  One file, three layers:
+    1. Plain CSS custom properties on :root (light) and .dark (dark).
+       These work in any stylesheet, with or without Tailwind.
+    2. shadcn/ui variable names (--background, --primary, --ring ...)
+       aliased to the layer-1 palette, so every shadcn primitive is themed.
+    3. A Tailwind v4 `@theme` block that exposes the same values as
+       utilities: bg-paper, text-check-pass-ink, font-display, text-xl ...
+
+  Fonts (load the @import line at the top of globals.css, or use next/font
+  with the same three CSS variables):
+    Source Serif 4  headings, the score, document-like display
+    IBM Plex Sans   all interface text, true tabular figures
+    IBM Plex Mono   seat codes, masked APAAR ids, hashes, audit sequences
+
+  Contrast ratios in the comments are computed by design/tools/contrast.py,
+  which parses this file. Run it after any change.
+*/
+
+:root {
+  color-scheme: light;
+
+  /* ---- Type ------------------------------------------------------------ */
+  --font-display: "Source Serif 4", "Iowan Old Style", "Times New Roman", Georgia, serif;
+  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-code: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Scale: 11 12 13 14 16 18 22 28 36 44 (px). Body is 14; tables run at 13. */
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+  --text-3xl: 2.25rem;
+  --text-4xl: 2.75rem;
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-serif: 1.4;
+
+  --tracking-display: -0.01em;
+  --tracking-stamp: 0.08em;
+
+  /* ---- Space, radii, rules, shadows ----------------------------------- */
+  --space-unit: 0.25rem;      /* 4px grid */
+  --row-dense: 2rem;          /* 32px table row */
+  --row-default: 2.25rem;     /* 36px table row */
+  --row-comfortable: 2.75rem; /* 44px */
+
+  --radius: 0.375rem;         /* 6px; shadcn derives sm/md/lg/xl from this */
+  --radius-chip: 0.125rem;    /* 2px for badges and pills */
+  --radius-stamp: 0.25rem;
+
+  --rule-width: 1px;
+  --shadow-hairline: 0 1px 0 0 var(--border);
+  --shadow-raised: 0 1px 2px 0 rgb(23 27 38 / 0.06), 0 0 0 1px var(--border);
+  --shadow-popover: 0 4px 16px -4px rgb(23 27 38 / 0.18), 0 0 0 1px var(--border);
+
+  /* ---- Paper and ink --------------------------------------------------- */
+  --paper: #f3f3ef;           /* page: stone white, not cream */
+  --paper-raised: #fcfcfa;    /* cards, table bodies, inputs */
+  --paper-sunken: #e9e9e4;    /* table heads, sidebar, secondary buttons */
+  --ink: #171b26;             /* primary text: blue-black writing ink */
+  --ink-muted: #5a6072;       /* secondary text */
+  --ink-faint: #7b8194;       /* placeholders, disabled, large-text only */
+  --ink-blue: #24407d;        /* primary action, links, selected */
+  --ink-blue-hover: #1b3266;
+  --on-ink-blue: #fcfcfa;
+  --seal: #5b3f8c;            /* stamp ink: the countersign mark, .stamp */
+  --seal-soft: #ece5f6;
+  --on-seal: #fcfcfa;
+
+  --line: #d6d7d0;            /* neutral border */
+  --rule: #c7d2e6;            /* feint blue ledger rule */
+  --rule-strong: #9fb0d0;     /* table head rule, section rule */
+  --rule-margin: #e0a9ae;     /* pink margin rule, one per block at most */
+
+  /* ---- Hue families (the only source of semantic colour) --------------- */
+  /* Each family: mark (glyphs, borders, chart status marks; >= 3:1 on paper),
+     soft (tint background), ink (text on soft and on paper; >= 4.5:1). */
+  --hue-ok: #2b7a3f;
+  --hue-ok-soft: #e2f0e4;
+  --hue-ok-ink: #1a5c2c;
+
+  --hue-alert: #b4302b;
+  --hue-alert-soft: #f9e4e2;
+  --hue-alert-ink: #8e2520;
+
+  --hue-caution: #9a6a00;
+  --hue-caution-soft: #f7ecd0;
+  --hue-caution-ink: #6d4b00;
+
+  --hue-neutral: #6f7480;
+  --hue-neutral-soft: #ecece9;
+  --hue-neutral-ink: #4a4f5c;
+
+  --hue-blue: #3a5ba8;
+  --hue-blue-soft: #e2e8f6;
+  --hue-blue-ink: #24407d;
+
+  --hue-seal: #6e4fa6;
+  --hue-seal-soft: #ece5f6;
+  --hue-seal-ink: #4d3479;
+
+  --hue-teal: #1f7f86;
+  --hue-teal-soft: #ddeff0;
+  --hue-teal-ink: #155d62;
+
+  /* ---- Semantic aliases ------------------------------------------------ */
+  /* Check status: PASS FAIL PENDING NA */
+  --check-pass: var(--hue-ok);
+  --check-pass-soft: var(--hue-ok-soft);
+  --check-pass-ink: var(--hue-ok-ink);
+  --check-fail: var(--hue-alert);
+  --check-fail-soft: var(--hue-alert-soft);
+  --check-fail-ink: var(--hue-alert-ink);
+  --check-pending: var(--hue-caution);
+  --check-pending-soft: var(--hue-caution-soft);
+  --check-pending-ink: var(--hue-caution-ink);
+  --check-na: var(--hue-neutral);
+  --check-na-soft: var(--hue-neutral-soft);
+  --check-na-ink: var(--hue-neutral-ink);
+
+  /* Flag severity: LOW MEDIUM HIGH (ordinal: slate, ochre, red) */
+  --severity-low: var(--hue-blue);
+  --severity-low-soft: var(--hue-blue-soft);
+  --severity-low-ink: var(--hue-blue-ink);
+  --severity-medium: var(--hue-caution);
+  --severity-medium-soft: var(--hue-caution-soft);
+  --severity-medium-ink: var(--hue-caution-ink);
+  --severity-high: var(--hue-alert);
+  --severity-high-soft: var(--hue-alert-soft);
+  --severity-high-ink: var(--hue-alert-ink);
+
+  /* Flag status: OPEN DOCS_REQUESTED CLEARED ESCALATED CONFIRMED */
+  --flag-open: var(--hue-blue);
+  --flag-open-soft: var(--hue-blue-soft);
+  --flag-open-ink: var(--hue-blue-ink);
+  --flag-docs: var(--hue-caution);
+  --flag-docs-soft: var(--hue-caution-soft);
+  --flag-docs-ink: var(--hue-caution-ink);
+  --flag-cleared: var(--hue-ok);
+  --flag-cleared-soft: var(--hue-ok-soft);
+  --flag-cleared-ink: var(--hue-ok-ink);
+  --flag-escalated: var(--hue-seal);
+  --flag-escalated-soft: var(--hue-seal-soft);
+  --flag-escalated-ink: var(--hue-seal-ink);
+  --flag-confirmed: var(--hue-alert);
+  --flag-confirmed-soft: var(--hue-alert-soft);
+  --flag-confirmed-ink: var(--hue-alert-ink);
+
+  /* Student consent: LINKED REFUSED PENDING INTERNATIONAL.
+     REFUSED is neutral on purpose: refusing APAAR is a lawful choice. */
+  --consent-linked: var(--hue-ok);
+  --consent-linked-soft: var(--hue-ok-soft);
+  --consent-linked-ink: var(--hue-ok-ink);
+  --consent-refused: var(--hue-neutral);
+  --consent-refused-soft: var(--hue-neutral-soft);
+  --consent-refused-ink: var(--hue-neutral-ink);
+  --consent-pending: var(--hue-caution);
+  --consent-pending-soft: var(--hue-caution-soft);
+  --consent-pending-ink: var(--hue-caution-ink);
+  --consent-international: var(--hue-teal);
+  --consent-international-soft: var(--hue-teal-soft);
+  --consent-international-ink: var(--hue-teal-ink);
+
+  /* Seat status: FREE ASSIGNED RELEASED */
+  --seat-free: var(--hue-neutral);
+  --seat-free-soft: var(--paper-raised);
+  --seat-free-ink: var(--hue-neutral-ink);
+  --seat-assigned: var(--hue-blue);
+  --seat-assigned-soft: var(--hue-blue-soft);
+  --seat-assigned-ink: var(--hue-blue-ink);
+  --seat-released: var(--hue-caution);
+  --seat-released-soft: var(--hue-caution-soft);
+  --seat-released-ink: var(--hue-caution-ink);
+
+  /* ---- Charts ---------------------------------------------------------- */
+  /* Categorical, fixed order, never cycled. Validated with the dataviz
+     checker: worst adjacent CVD dE 10.1, normal-vision 15.1 (light). */
+  --chart-1: #3a5ba8;   /* blue */
+  --chart-2: #c86a1e;   /* orange */
+  --chart-3: #1f8f74;   /* teal-green */
+  --chart-4: #a88718;   /* gold */
+  --chart-5: #8a5fc2;   /* violet */
+  --chart-6: #c4467a;   /* rose */
+  --chart-grid: #e3e4de;
+  --chart-axis: #b9bbb3;
+  --chart-label: var(--ink-muted);
+
+  /* Integrity Index, sequential, one hue (ink blue), 7 steps light to dark.
+     Step 1 means "near zero"; the index itself is 0 to 100. */
+  --index-1: #dce4f5;
+  --index-2: #bccbeb;
+  --index-3: #9bb0df;
+  --index-4: #7a94d0;
+  --index-5: #5a78be;
+  --index-6: #3e5ca3;
+  --index-7: #24407d;
+
+  /* ---- shadcn/ui variables --------------------------------------------- */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper-raised);
+  --card-foreground: var(--ink);
+  --popover: var(--paper-raised);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink-blue);
+  --primary-foreground: var(--on-ink-blue);
+  --secondary: var(--paper-sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--paper-sunken);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--hue-blue-soft);
+  --accent-foreground: var(--ink-blue);
+  --destructive: var(--hue-alert);
+  --destructive-foreground: #fcfcfa;
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--ink-blue);
+  --sidebar: var(--paper-sunken);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink-blue);
+  --sidebar-primary-foreground: var(--on-ink-blue);
+  --sidebar-accent: var(--paper-raised);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--ink-blue);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --shadow-hairline: 0 1px 0 0 var(--border);
+  --shadow-raised: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 0 0 1px var(--border);
+  --shadow-popover: 0 8px 24px -6px rgb(0 0 0 / 0.6), 0 0 0 1px var(--border);
+
+  --paper: #121419;
+  --paper-raised: #1a1d25;
+  --paper-sunken: #0d0f13;
+  --ink: #eceae2;             /* paper-coloured text on ink */
+  --ink-muted: #a6abb8;
+  --ink-faint: #8a8f9c;
+  --ink-blue: #8ea8e6;
+  --ink-blue-hover: #a9bdee;
+  --on-ink-blue: #121419;
+  --seal: #b39be5;
+  --seal-soft: #2a2140;
+  --on-seal: #121419;
+
+  --line: #2c3038;
+  --rule: #2a3449;
+  --rule-strong: #3d4b6b;
+  --rule-margin: #5a3a42;
+
+  --hue-ok: #5bbf74;
+  --hue-ok-soft: #17301f;
+  --hue-ok-ink: #8ad9a0;
+
+  --hue-alert: #e8736c;
+  --hue-alert-soft: #3a1d1b;
+  --hue-alert-ink: #f3a09a;
+
+  --hue-caution: #d9a33a;
+  --hue-caution-soft: #36290f;
+  --hue-caution-ink: #eac26b;
+
+  --hue-neutral: #9298a6;
+  --hue-neutral-soft: #262932;
+  --hue-neutral-ink: #c2c6d0;
+
+  --hue-blue: #7d9be0;
+  --hue-blue-soft: #1c2740;
+  --hue-blue-ink: #a9beef;
+
+  --hue-seal: #a98be0;
+  --hue-seal-soft: #2a2140;
+  --hue-seal-ink: #c9b5ec;
+
+  --hue-teal: #5bbbc2;
+  --hue-teal-soft: #133236;
+  --hue-teal-ink: #8ed6db;
+
+  --seat-free-soft: var(--paper-raised);
+
+  /* Same six hues stepped for the dark surface: worst adjacent CVD dE 10.5,
+     normal-vision 15.5. */
+  --chart-1: #5b7fd1;
+  --chart-2: #c9712f;
+  --chart-3: #2e9c80;
+  --chart-4: #ae8d22;
+  --chart-5: #9a7bd6;
+  --chart-6: #d6557c;
+  --chart-grid: #262a33;
+  --chart-axis: #3d4250;
+
+  /* Anchor flips: step 1 recedes toward the dark surface. */
+  --index-1: #1f2a45;
+  --index-2: #273a66;
+  --index-3: #324d8a;
+  --index-4: #4262ac;
+  --index-5: #5e7fc8;
+  --index-6: #85a1dd;
+  --index-7: #adc1ec;
+
+  --destructive-foreground: #121419;
+}
+
+/* ---- Tailwind v4 theme ------------------------------------------------- */
+/* Static values live in @theme; anything that changes with .dark is
+   referenced with `inline` so the utility reads the live variable. */
+@theme {
+  --font-sans: var(--font-ui);
+  --font-serif: var(--font-display);
+  --font-mono: var(--font-code);
+  --font-display: var(--font-display);
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
+  --text-md: 1rem;
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.625rem;
+  --text-xl: 1.375rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.75rem;
+  --text-2xl--line-height: 2.125rem;
+  --text-3xl: 2.25rem;
+  --text-3xl--line-height: 2.625rem;
+  --text-4xl: 2.75rem;
+  --text-4xl--line-height: 3.125rem;
+
+  --tracking-display: -0.01em;
+  --tracking-stamp: 0.08em;
+
+  --spacing: 0.25rem;
+  --spacing-row-dense: 2rem;
+  --spacing-row: 2.25rem;
+  --spacing-row-comfortable: 2.75rem;
+
+  --radius-chip: 0.125rem;
+  --radius-stamp: 0.25rem;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-hairline: var(--shadow-hairline);
+  --shadow-raised: var(--shadow-raised);
+  --shadow-popover: var(--shadow-popover);
+
+  /* shadcn */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-axis: var(--chart-axis);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* paper and ink */
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-paper-sunken: var(--paper-sunken);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-blue: var(--ink-blue);
+  --color-ink-blue-hover: var(--ink-blue-hover);
+  --color-on-ink-blue: var(--on-ink-blue);
+  --color-seal: var(--seal);
+  --color-seal-soft: var(--seal-soft);
+  --color-on-seal: var(--on-seal);
+  --color-line: var(--line);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-rule-margin: var(--rule-margin);
+
+  /* integrity ramp */
+  --color-index-1: var(--index-1);
+  --color-index-2: var(--index-2);
+  --color-index-3: var(--index-3);
+  --color-index-4: var(--index-4);
+  --color-index-5: var(--index-5);
+  --color-index-6: var(--index-6);
+  --color-index-7: var(--index-7);
+
+  /* checks */
+  --color-check-pass: var(--check-pass);
+  --color-check-pass-soft: var(--check-pass-soft);
+  --color-check-pass-ink: var(--check-pass-ink);
+  --color-check-fail: var(--check-fail);
+  --color-check-fail-soft: var(--check-fail-soft);
+  --color-check-fail-ink: var(--check-fail-ink);
+  --color-check-pending: var(--check-pending);
+  --color-check-pending-soft: var(--check-pending-soft);
+  --color-check-pending-ink: var(--check-pending-ink);
+  --color-check-na: var(--check-na);
+  --color-check-na-soft: var(--check-na-soft);
+  --color-check-na-ink: var(--check-na-ink);
+
+  /* severity */
+  --color-severity-low: var(--severity-low);
+  --color-severity-low-soft: var(--severity-low-soft);
+  --color-severity-low-ink: var(--severity-low-ink);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-medium-soft: var(--severity-medium-soft);
+  --color-severity-medium-ink: var(--severity-medium-ink);
+  --color-severity-high: var(--severity-high);
+  --color-severity-high-soft: var(--severity-high-soft);
+  --color-severity-high-ink: var(--severity-high-ink);
+
+  /* flag status */
+  --color-flag-open: var(--flag-open);
+  --color-flag-open-soft: var(--flag-open-soft);
+  --color-flag-open-ink: var(--flag-open-ink);
+  --color-flag-docs: var(--flag-docs);
+  --color-flag-docs-soft: var(--flag-docs-soft);
+  --color-flag-docs-ink: var(--flag-docs-ink);
+  --color-flag-cleared: var(--flag-cleared);
+  --color-flag-cleared-soft: var(--flag-cleared-soft);
+  --color-flag-cleared-ink: var(--flag-cleared-ink);
+  --color-flag-escalated: var(--flag-escalated);
+  --color-flag-escalated-soft: var(--flag-escalated-soft);
+  --color-flag-escalated-ink: var(--flag-escalated-ink);
+  --color-flag-confirmed: var(--flag-confirmed);
+  --color-flag-confirmed-soft: var(--flag-confirmed-soft);
+  --color-flag-confirmed-ink: var(--flag-confirmed-ink);
+
+  /* consent */
+  --color-consent-linked: var(--consent-linked);
+  --color-consent-linked-soft: var(--consent-linked-soft);
+  --color-consent-linked-ink: var(--consent-linked-ink);
+  --color-consent-refused: var(--consent-refused);
+  --color-consent-refused-soft: var(--consent-refused-soft);
+  --color-consent-refused-ink: var(--consent-refused-ink);
+  --color-consent-pending: var(--consent-pending);
+  --color-consent-pending-soft: var(--consent-pending-soft);
+  --color-consent-pending-ink: var(--consent-pending-ink);
+  --color-consent-international: var(--consent-international);
+  --color-consent-international-soft: var(--consent-international-soft);
+  --color-consent-international-ink: var(--consent-international-ink);
+
+  /* seats */
+  --color-seat-free: var(--seat-free);
+  --color-seat-free-soft: var(--seat-free-soft);
+  --color-seat-free-ink: var(--seat-free-ink);
+  --color-seat-assigned: var(--seat-assigned);
+  --color-seat-assigned-soft: var(--seat-assigned-soft);
+  --color-seat-assigned-ink: var(--seat-assigned-ink);
+  --color-seat-released: var(--seat-released);
+  --color-seat-released-soft: var(--seat-released-soft);
+  --color-seat-released-ink: var(--seat-released-ink);
+}
