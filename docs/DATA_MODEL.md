@@ -331,6 +331,7 @@ Changed enum: `upload_batches_status` value `CHECKING` is renamed to `PROCESSING
 | academic_year | none | already in 0001; one batch is one institution and one academic year (D14) |
 | rows_total | rename to `total_rows` | data rows in the file (header excluded) |
 | processed_rows | add, int NOT NULL DEFAULT 0 | work items finished in the current `stage`; reset to 0 when the stage changes |
+| stage_total | add, int NOT NULL DEFAULT 0 | work items in the current `stage` (rows for PARSE to FILE_DUPLICATES, enrolments after that); with `processed_rows` it gives the api's `progress_pct` |
 | stage | add, `upload_batches_stage` NULL | null while QUEUED; on FAILED it keeps the stage that failed |
 | source | add, `upload_batches_source` NOT NULL DEFAULT `'FILE'` | FILE (multipart), API (`POST /uploads/rows`), SEED (`make seed`) |
 | counts | add, jsonb NOT NULL DEFAULT `'{}'` | keys below |
