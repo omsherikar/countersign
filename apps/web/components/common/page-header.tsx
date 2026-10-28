@@ -7,7 +7,7 @@ export interface Crumb {
   href?: string;
 }
 
-/** "Overview / ABC College of Engineering"; the last crumb is plain text. */
+/** "Overview / ABC College of Engineering"; the last crumb is plain text. A crumb too long for a phone is cut with its full label in a title. */
 export function Crumbs({ items }: { items: Crumb[] }) {
   return (
     <nav aria-label="Breadcrumb" className="mb-2 text-sm text-ink-muted">
@@ -20,11 +20,11 @@ export function Crumbs({ items }: { items: Crumb[] }) {
               </span>
             )}
             {c.href && i < items.length - 1 ? (
-              <Link href={c.href} className="truncate text-ink-blue no-underline hover:underline">
+              <Link href={c.href} title={c.label} className="truncate text-ink-blue no-underline hover:underline">
                 {c.label}
               </Link>
             ) : (
-              <span aria-current={i === items.length - 1 ? "page" : undefined} className="truncate">
+              <span aria-current={i === items.length - 1 ? "page" : undefined} title={c.label} className="truncate">
                 {c.label}
               </span>
             )}
