@@ -193,55 +193,79 @@ Replaced: the earlier drawer inside the enrolments table. A page has its own URL
 - Flags: the five most severe open flags from `GET /flags?status=OPEN&page_size=5`, summaries verbatim, with [flags.see_all] to `/college/flags`; empty [empty.flags_college].
 - [last_upload.line] linked to the batch page, and a link [upload.upload_again] to `/college/upload`.
 
-### W2-7. `/aicte/cases` and `/ro/cases` (case queue)
+### W2-7. Flag lists: `/aicte/cases`, `/ro/cases`, `/college/flags`, and the Flags tab
 
 ```
-Cases                               37 open flags in 9 institutions
-Status [Open ▾] Severity [All ▾] Type [All ▾] Institution [All ▾] State [▾]  [Search]
-Sev   Type                 Institution              Evidence                                  Opened      Status
-High  Excess admission     ABC College of Engg      132 admitted against 120 approved in CSE   2 d ago     Open
-High  Student denied       ABC College of Engg      Student replied "not me" on 16 Jul         1 d ago     Open
-Med   Name mismatch        ABC College of Engg      Upload name differs from registry (71/100) 2 d ago     Docs requested
+Cases                                                   37 open flags in 9 institutions
+Status [Open ▾]  Severity [All ▾]  Type [All ▾]  Institution [All ▾]  State [All ▾]
+[Search evidence, institution or permanent id]                Sort [Most severe first ▾]
+Severity  Type                            Institution                  Programme  Evidence                                                          Related  Opened
+High      Excess admission                ABC College of Engineering   CSE        132 admitted against 120 approved seats in CSE (2026-27); 12 wi…  12       28 Oct 2026
+High      Duplicate across institutions   ABC College of Engineering   IT         The same student appears as active at ABC College of Engineer…    2        28 Oct 2026
+Medium    Name or date of birth mismatch  XYZ Institute of Technology  ME         Name on upload differs from the APAAR registry (similarity 62 …    1        28 Oct 2026
+1 to 25 of 37
 ```
 
-Data: `GET /flags?status&severity&type&institution_id&state&page&sort` (proposed; rows carry `id, type, severity, status, institution {id, name}, programme_code, evidence.summary, opened_at, assignee`).
-Default sort: `severity desc, opened_at asc` (oldest high first). Default filter `status=OPEN`. The count line is always visible.
-Columns: Severity (word), Type (human name from copy deck `flag.<TYPE>.name`), Institution (link), Evidence (`evidence.summary`, single line, truncated with full text on hover), Opened (relative with absolute on hover), Status, Assignee (initials, AICTE only).
-Keyboard: `j`/`k`, `Enter`. Row is a link to `/aicte/cases/{id}`.
-Empty: [empty.cases] "No open flags. Flags appear here after uploads are checked."
+Data, `GET /flags` (§A2.15): `status`, `severity`, `type`, `institution_id`, `state` (AICTE only), `programme_id` (once an institution is chosen), `q`, `sort`, `page`, and always `academic_year` (the selected year). Filters live in the URL with the `f_` prefix. Default `status=OPEN&sort=severity_desc` (High, Medium, Low, then oldest first; the Severity header carries [flags.sort_tip]).
+- Columns: Severity (word chip), Type (`flag.<TYPE>.name`), Institution (link; dropped on the Flags tab and `/college/flags`), Programme (`programme.code`, blank when null), Evidence (`summary` verbatim on one line, full text on focus and hover), Related (`related_count`, tooltip [col.related_tip]), Opened (`created_at` date). Assignee stays hidden while every `assignee` is null.
+- Count line per copy deck §18 from `total` and `institutions`; pager "1 to 25 of 37".
+- Rows are `<a href>` to flag detail; `j` and `k` move, `Enter` opens.
+- Empty without filters: [empty.cases] (officers), [empty.flags_college] (registrar), [empty.flags_institution] (Flags tab). Empty with filters: [empty.cases_filtered] with [empty.clear_filters].
+- `/college/flags`: heading [flags.heading_college]; no Institution or State filter; the api redacts every row (a cross-institution duplicate reads "another institution in <state>").
+- The regional officer only ever sees institutions of the region (the api scopes; the State filter lists the region's states).
 
-### W2-8. `/aicte/cases/[flagId]` and `/ro/cases/[flagId]` (flag detail)
+Replaced by the contract: row fields `evidence.summary`, `opened_at`, `programme_code` (now `summary`, `created_at`, `programme.code`).
+
+### W2-8. Flag detail: `/aicte/cases/[flagId]`, `/ro/cases/[flagId]`, `/college/flags/[flagId]` (read only)
 
 ```
 Overview / Cases / Excess admission, ABC College of Engineering
-Excess admission                                   High · Open · opened 14 Jul 2026
+Excess admission                                    High · Open · opened 28 Oct 2026
 ABC College of Engineering · CSE · 2026-27
+Read only for now. Clearing, requesting documents, escalating and confirming open in Week 3.
 
 Evidence
-132 admitted against 120 approved seats in CSE (2026-27).
-Approved intake      120        Source: AICTE approval 2026-27
-Admitted (active)    132        Source: college upload abc_2026-27.csv, 14 Jul
-Seated               120        Source: seat ledger
-Unseated              12        Source: seat ledger
-Rule                 APH 2024-27 cl. 2.8(b)                      [Open rule]
+132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat.
+Fact               Value  Source
+Approved intake    120    AICTE approval 2026-27
+Admitted (active)  132    College uploads, Regular and NRI routes
+Seated             120    Seat ledger
+Unseated           12     Seat ledger
+Rule: Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))
 
-Related enrolments (12)                            Viewing student records is logged.
-Student            APAAR           Route        Seat      Countersign
+Related enrolments (12)
+Student  APAAR / Provisional  Institution  Programme  Year  Route  Seat  Countersign  Flags
 ...
+Viewing student records is logged.
 
 History
-14 Jul 09:31  System        Flag opened
-15 Jul 11:02  RO West       Request documents: "Send admission register extract for CSE"
-16 Jul 10:40  ABC Registrar Response + admission_register_cse.pdf (412 KB)
-
-Actions
-[ Clear ] [ Request documents ] [ Escalate ] [ Confirm ]            [ Add note ]
+28 Oct 2026, 15:32 IST   Flag opened
 ```
 
-Data: `GET /flags/{id}` (proposed: flag fields, `evidence {summary, facts[{label, value, source?}], rule_source?}`, `related_enrolments[]` as EnrolmentRow, `history[]` from `case_actions` with actor name/role, `attachments`). Actions `POST /flags/{id}/actions {action, note, due_date?, assignee_id?}` (Week 3), attachments via multipart.
-Action sheets (all require a note): [case.clear_confirm], [case.request_docs_prompt], [case.escalate_prompt], [case.confirm_confirm]. The Confirm sheet repeats "Nothing is deleted. The enrolment keeps its status; the case record and your note are what change."
-Institution view `/college/flags/[flagId]` shows the same evidence and history, no action bar, plus "Respond" (note + files) when status is Documents requested.
-Cross-institution duplicates: the officer sees both institutions; the registrar sees "another institution in Maharashtra" (no name).
+Data, `GET /flags/{id}` (§A2.16):
+- Header: type name, [flag.meta], [flag.where] (or [flag.where_no_programme]), then [flag.readonly_officer] or, for the registrar, [flag.readonly_college]. No action bar.
+- Evidence: `evidence.summary` verbatim; facts table (Fact, Value, Source) in the order sent, a null source left blank; [flag.rule] when `rule_source` is set. The registrar receives the redacted summary and facts; the page prints what it gets.
+- [flag.enrolment_heading]: `enrolment` as one enrolments-table row with an Institution column; left out when null (Excess admission, Quota breach).
+- [flag.related_heading]: `related_enrolments` as enrolments-table rows with an Institution column; officers see both institutions of a cross-institution flag. [flag.related_hidden] when `related_hidden` is above 0. Empty [empty.related]. Student cells link to enrolment detail.
+- History: one line, [case.history.opened] with `created_at` (`history` is `[]` in Week 2).
+- Footer [privacy.read_logged]; the api writes READ audit entries for every student shown.
+
+States: 404 [err.NOT_FOUND_flag] with a link back to the list.
+
+Replaced by the contract: `opened_at` (now `created_at`), `attachments`, and the action bar (moved to W3-8).
+
+### W2-9. Dashboards: flags and the numbers rule
+
+`/aicte` and `/ro` (§A2.19):
+- Tiles in this order: Institutions, Programmes, Approved seats [app.hint.intake], Admitted [app.hint.intake], Students on roll [app.hint.all_years], Open flags (tooltip [kpi.flags_open_tip], links to the case queue), Countersigned ([kpi.countersigned_value], tooltip [kpi.countersigned_tip]), No source disagrees ([kpi.clear_value], tooltip [kpi.clear_tip]). A null percentage prints [kpi.not_computed].
+- [section.flags_by_type]: `flags_by_type` rows with `open` above 0, in the order sent, `flag.<TYPE>.name` and the count, each linking to the case queue with `f_type=<TYPE>&f_status=OPEN`. All zero: [empty.flags_by_type].
+- Institutions table: default `sort=flags_open_desc`; the Open flags header carries `aria-sort="descending"` and [table.sort_tip]. Columns Name, Permanent id, State, Region, Type, Programmes, Approved seats, Admitted, On roll ([col.enrolments_tip]), Open flags, Integrity Index.
+- By state and By region: Approved seats, Admitted, On roll, Open flags. No fill percentage anywhere.
+- Counts of open flags are ink with weight, never red; severity colour appears only on severity chips.
+
+`/university`: Admitted after Approved seats; Enrolments becomes On roll with its tooltip; still no flags.
+
+`/student`: the strip is live from `/students/me` with [student.strip_caption]; while the Student check is pending, [student.check_student_pending] sits under it.
 
 ## Week 3
 
@@ -293,9 +317,26 @@ Print view: A4, no nav, `@media print`; university name, student name, programme
 
 Table from `GET /admin/audit?page&actor_id&entity_type`: Seq, Time, Actor (email), Action, Entity type, Entity id (short), Hash (first 8, full on hover). Filters by entity type and actor. "Verify chain" button as on `/admin/system`; result banner "Chain intact, 1,842 entries" or "Chain broken at entry 917" (the row is highlighted and scrolled into view).
 
-### W3-7. `/college/flags` and `/college/flags/[flagId]`
+### W3-7. Respond on `/college/flags/[flagId]`
 
-List: same columns as the officer queue minus Assignee; status filter default All. Detail: evidence and history read-only, plus "Respond" when Documents requested: note (required) + files; `POST /flags/{id}/response` (proposed). After submit: "Sent to the officer. You will see their decision here."
+The list and the read-only detail are live from Week 2 (W2-7, W2-8). Week 3 adds "Respond" when the status is Documents requested: note (required) + files; `POST /flags/{id}/response` (proposed). After submit: [college.respond_sent]. The read-only note goes.
+
+### W3-8. Case actions on officer flag detail
+
+The Week 2 detail (W2-8) gains history and actions:
+
+```
+History
+14 Jul 09:31  System        Flag opened
+15 Jul 11:02  RO West       Request documents: "Send admission register extract for CSE"
+16 Jul 10:40  ABC Registrar Response + admission_register_cse.pdf (412 KB)
+
+Actions
+[ Clear ] [ Request documents ] [ Escalate ] [ Confirm ]            [ Add note ]
+```
+
+Data: `history[]` from `case_actions` with actor name and role, `attachments`; actions `POST /flags/{id}/actions {action, note, due_date?, assignee_id?}` (proposed), attachments via multipart.
+Action sheets (all require a note): [case.clear_confirm], [case.request_docs_prompt], [case.escalate_prompt], [case.confirm_confirm]. The Confirm sheet repeats "Nothing is deleted. The enrolment keeps its status; the case record and your note are what change." The read-only note goes; the Assignee column appears in the queue.
 
 ## Week 4
 
