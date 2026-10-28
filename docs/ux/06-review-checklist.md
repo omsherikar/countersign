@@ -1,6 +1,8 @@
-# Week 1 review checklist
+# Review checklist
 
 One line per check, pass or fail. Run against the built pages with the seeded data (`make up && make datagen && make seed`), signed in as each demo user. Record the result per page in a table under each section when reviewing. Copy ids refer to `05-copy-deck.md`.
+
+Sections A to K are the Week 1 pages. Sections L to U are the Week 2 pages (`04-pages-later.md` W2-1 to W2-9, API_CONTRACT Addendum 2); from Week 2 the seed also loads the update files, and where a Week 1 line and a Week 2 line disagree (labels, the Countersigned tile, the default sort, nav items) the Week 2 line wins.
 
 ## A. Global (check on every page)
 
@@ -150,3 +152,147 @@ One line per check, pass or fail. Run against the built pages with the seeded da
 - [ ] Login -> `/aicte` -> ABC College detail -> `/ro` -> `/college` -> `/student` -> `/admin/system` can be walked in under 3 minutes without any error toast.
 - [ ] Setting chaos `apaar down` and pressing Ping shows Unavailable; resetting chaos and pinging again shows OK.
 - [ ] `make demo-reset` followed by a page refresh shows the same numbers as the first run.
+
+## L. Week 2 global (check on every Week 2 page)
+
+- [ ] Numbers rule: no screen compares all-year enrolments with one year's seats; no ratio, bar, percentage, difference or "against" sentence pairs Students on roll (`enrolments`) with Approved seats.
+- [ ] Every Approved seats figure (tile, column, cell) is followed directly by Admitted for the same academic year.
+- [ ] Every Students on roll or On roll figure carries "All years of study" (hint or tooltip) and never sits between Approved seats and Admitted.
+- [ ] No fill percentage appears anywhere: no "%" beside seats, admitted or on-roll figures, including state cards.
+- [ ] ABC College CSE 2026-27 reads Approved 120, Admitted 132, Seated 120, Unseated 12 on the /aicte, /ro and /college programme rows, and its flag reads "132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat."
+- [ ] An institution's Admitted figure equals the sum of its programmes' Admitted column.
+- [ ] Flag summaries, evidence facts, check details, row problem messages and batch `error` sentences match the api response character for character; no component builds them from `flag.*.summary` or `check.detail.*`.
+- [ ] Flag types use the `flag.<TYPE>.name` words; "Invalid APAAR", "Ghost ring", "Duplicate in upload", "fraud" and "fake" appear nowhere.
+- [ ] A PENDING check is hollow and never red or crossed on every strip, badge and cell.
+- [ ] Open-flag counts (tiles, cells, tab labels) are ink, never red; severity colour appears only on severity chips.
+- [ ] Upload status words are only Queued, Validating, Processing, Done and Failed; "Checking" never appears as a status.
+- [ ] The word "rejected" appears on no upload screen.
+- [ ] Masked values print exactly as sent (`XXXX XXXX 4417`, `XXXXXX4521`, `<11 characters>`); no page shows a 12-digit APAAR or a 10-digit mobile.
+- [ ] A masked mobile appears only on /student and on enrolment detail for officers and the registrar; never in a table and never for the university.
+- [ ] Enrolment detail, flag detail and the row problems table each carry [privacy.read_logged].
+- [ ] Dates read like `5 Oct 2026` in api sentences and in web-rendered dates; "Sept" appears nowhere.
+- [ ] Nav: the registrar's Upload and Flags and the officers' Cases are live links; Reports, Audit, Notices, My proofs, Degree print and Why this score stay disabled with their week.
+- [ ] No Week 2 page scrolls sideways at 1280, 1024 or 375 px (tables scroll inside their own wrapper).
+- [ ] No Clear, Request documents, Escalate, Confirm or Respond button appears anywhere.
+
+## M. `/college/upload`
+
+- [ ] Heading "Upload admissions file", academic year select at 2026-27, [upload.lead] and [upload.changes_note] present.
+- [ ] "Download CSV template" and "Download XLSX template" save `countersign_upload_template.csv` and `.xlsx` with the 19 headers in §A2.2 order.
+- [ ] The columns panel lists six required and thirteen optional columns in §A2.2 order, in monospace.
+- [ ] No Kind control is shown and no `kind` field is sent.
+- [ ] The declaration text equals [upload.declaration]; pressing Upload without the tick shows "Tick the declaration to upload." under the checkbox, focuses it and sends no request.
+- [ ] A .pdf shows [upload.err_type] and a 21 MB file shows [upload.err_size], both with no network request.
+- [ ] The request through the proxy is `multipart/form-data` with a boundary and carries only `file`, `academic_year` and `declaration=true`.
+- [ ] While sending, the button reads "Sending file, n%" and the inputs are disabled.
+- [ ] A file without `name` and `dob` columns shows "The file is missing required columns: name, dob." and [upload.header_help], stays on the page and keeps the file chosen.
+- [ ] A header-only file shows "The file has a header but no rows."
+- [ ] A second upload while one is running shows [err.UPLOAD_IN_PROGRESS] with a link to the running batch.
+- [ ] A 202 lands on `/college/uploads/{id}` reading Queued or a later status.
+- [ ] Previous uploads has columns File, Uploaded, By, Kind, Source, Status, Rows, Accepted, With errors, With warnings, newest first; seeded batches read "Demo seed"; each row links to its batch page.
+
+## N. `/college/uploads/[batchId]`
+
+- [ ] The header shows the filename and "<Kind> · <Source> · uploaded <date>, <time> IST by <name>".
+- [ ] The rail shows Queued, Validating, Processing, Done in order, the current one marked by icon and word, not colour alone.
+- [ ] While processing, the line reads "Step n of 8: <stage word>" with the `upload_stage.*` words; while queued it reads [upload.queued_note].
+- [ ] The progress bar has `role="progressbar"` with `aria-valuenow` and never goes backwards between polls.
+- [ ] Polling runs every 2 s and stops at Done or Failed (no further `GET /uploads/{id}` in the Network tab).
+- [ ] The done card's numbers equal `counts.accepted`, `.seated`, `.unseated`, `.flags_raised`, and its change line equals `counts.created`, `.updated`, `.unchanged`, `.withdrawn`, `.transferred`, `.released`.
+- [ ] The done card shows [upload.done_note] and links to the seat ledger, enrolments and flags.
+- [ ] Uploading the same file again shows [upload.same_file] and "0 new".
+- [ ] With chaos `apaar down`, the APAAR registry line reads [upload.source_waiting] with `sources[].unavailable` and the batch still reaches Done.
+- [ ] A failed batch shows [upload.failed], the api `error` sentence verbatim, [upload.failed_earlier] and a link to upload again.
+- [ ] Row problems has columns Row, Level, Column, Problem, Value as uploaded; Level is a word with an icon; Column is the template name in monospace.
+- [ ] Each row problem's Problem equals the api `message` and its Value equals `value_masked` (null reads "blank").
+- [ ] The heading count equals the errors endpoint `total`; All, Errors and Warnings send `level` and update the count.
+- [ ] "Download errors as CSV" is a link that saves `<file stem>_errors.csv` with the header `row_no,level,field,code,message,value_masked`.
+- [ ] A batch with no problems shows [upload.errors_none].
+- [ ] The registrar opening another college's batch id sees [err.NOT_FOUND_upload].
+
+## O. Countersign strip and enrolment tables
+
+- [ ] Every strip has five segments in the order Identity, Admission, Seat, Studying, Student: filled for PASS, filled with a cross for FAIL, hollow for PENDING, hatched for NA.
+- [ ] The demo student's row reads "3 of 4" with Studying hatched and Student hollow.
+- [ ] ", n pending" appears only on rows with a pending check other than Student.
+- [ ] The strip is one Tab stop; Enter, hover or tap opens a popover with five "<Check>: <word>" lines; Student reads "Notice not sent yet" and any other pending check reads "Pending".
+- [ ] The strip's `aria-label` follows [strip.aria] with the same words.
+- [ ] A row with `score: null` shows five hollow grey segments and "Not yet checked".
+- [ ] The Student cell links to the role's enrolment detail route.
+- [ ] The Seat cell shows the seat code in monospace or "Unseated" in muted text, never an amber chip.
+- [ ] The Flags cell shows at most two chips (type name and severity word) then "+n"; each of the 12 unseated ABC CSE first-years shows Excess admission.
+- [ ] Check, Result, Flags and Seat filters send `check_type`, `check_status`, `flagged` and `seated`; Check alone sends nothing; the filters survive reload; no match shows [empty.enrolments_filtered].
+
+## P. Enrolment detail
+
+- [ ] `/aicte/enrolments/{id}`, `/ro/enrolments/{id}`, `/college/enrolments/{id}` and `/university/enrolments/{id}` open for their roles; an out-of-scope id shows [err.NOT_FOUND_enrolment].
+- [ ] The header shows name, masked APAAR or provisional id, consent badge, programme, institution link and the strip with "Countersigned 3 of 4" for the demo student.
+- [ ] The enrolment block shows "2026-27 approval", year, route with counselling reference, category, "Active since <date>", admitted on, mode and "Row <n> of <file>".
+- [ ] The seat block shows "<seat code> · Regular · 2026-27 approval · assigned <date>", or "No seat held." with a link to the named flag for an unseated student.
+- [ ] The checks table has five rows in order; Detail equals `detail.summary` verbatim; Result uses the copy deck words.
+- [ ] With chaos `apaar down` and a new upload, an affected Identity row reads "Awaiting source", hollow, Detail "APAAR registry did not respond. This check will retry on its own.", plus [check.attempts].
+- [ ] A name-review case (similarity 75 to 89) reads "Needs review", not "Awaiting source".
+- [ ] "Recheck pending checks" shows only for the AICTE officer, the regional officer and the registrar, and only when a check other than Student is pending.
+- [ ] After chaos reset, Recheck turns that Identity row to Countersigned and announces "Identity: Pending to Countersigned" in an `aria-live` region.
+- [ ] A 429 on recheck shows [err.RATE_LIMITED] and the button counts down.
+- [ ] Flags on this enrolment shows severity, type name, status, summary verbatim and date; rows link for officers and the registrar and are plain text for the university.
+- [ ] The masked mobile shows for officers and the registrar and not for the university.
+
+## Q. Institution detail and `/college`
+
+- [ ] Header figures in the order Approved seats, Admitted, Students on roll, Open flags; the first two hinted "2026-27 intake", the third "All years of study".
+- [ ] Programmes columns are Code, Programme, Level, Shift, Mode, Approved, Admitted, Seated, Unseated; the Admitted tooltip equals [col.admitted_tip] with the year filled.
+- [ ] Seated equals the sum of the assigned figures in that programme's pools line.
+- [ ] The last upload line reads [last_upload.line] from `last_upload`, with the status word.
+- [ ] The Flags tab label shows `flags_open`; its request is `/flags` with `institution_id`, `academic_year` and `status=OPEN`, and its `total` equals `flags_open`.
+- [ ] University users see no Flags tab and no Open flags figure.
+- [ ] Officers see "Recheck pending checks" in the header; the registrar and the university do not.
+- [ ] After chaos reset, the institution recheck announces [recheck.institution_result] with "0 still pending".
+- [ ] `/college` tiles are Approved seats, Admitted, Seated, Unseated, then the line "<n> students on roll across all years of study"; no tile shows the all-years figure.
+- [ ] The `/college` Flags section lists at most five open flags with summaries verbatim and "See all flags".
+- [ ] No institution other than the registrar's own is named anywhere on `/college` pages; a cross-institution duplicate reads "another institution in <state>".
+
+## R. Flag lists (`/aicte/cases`, `/ro/cases`, `/college/flags`, Flags tab)
+
+- [ ] `/aicte/cases` opens on status Open, sorted most severe first; the count line equals "<total> open flags in <institutions> institutions" from the response.
+- [ ] Columns are Severity, Type, Institution, Programme, Evidence, Related, Opened; there is no Assignee column.
+- [ ] Evidence shows the summary on one line with the full sentence on focus and on hover.
+- [ ] Status, Severity, Type, Institution, State, search and Sort set `f_` URL params that survive reload; every request carries `academic_year`.
+- [ ] Setting Status to anything but Open switches the count line to [table.count.flags_any].
+- [ ] Filters with no match show [empty.cases_filtered] with "Clear filters".
+- [ ] `j` and `k` move through rows and Enter opens flag detail; every row is an `<a href>`.
+- [ ] `/ro/cases` lists only the region's institutions and its State filter lists only the region's states.
+- [ ] `/college/flags` has the heading [flags.heading_college], no Institution or State filter, and never names another institution.
+- [ ] University and student users have no Cases or Flags nav item, and `/aicte/cases` redirects them with the toast.
+
+## S. Flag detail
+
+- [ ] The header shows the type name, "<Severity> · <Status> · opened <date>" and "<institution> · <programme> · <year>".
+- [ ] [flag.readonly_officer] (officers) or [flag.readonly_college] (registrar) sits under the header, and no action button exists.
+- [ ] Evidence shows `evidence.summary` verbatim, the facts as Fact, Value, Source in the order sent, and "Rule: <rule_source>".
+- [ ] The ABC CSE Excess admission facts read Approved intake 120, Admitted (active) 132, Seated 120, Unseated 12.
+- [ ] Excess admission and Quota breach show no "Enrolment this flag is about" block; enrolment-level flags show exactly one row there.
+- [ ] Related enrolments shows the count and rows with an Institution column; officers see both institutions of a cross-institution duplicate.
+- [ ] The registrar's view of a cross-institution duplicate shows [flag.related_hidden] and never the other institution's name.
+- [ ] Student cells link to enrolment detail.
+- [ ] History shows exactly one line, "Flag opened" with the created time.
+- [ ] An out-of-scope flag id shows [err.NOT_FOUND_flag].
+
+## T. Dashboards
+
+- [ ] `/aicte` tiles in the order Institutions, Programmes, Approved seats, Admitted, Students on roll, Open flags, Countersigned, No source disagrees.
+- [ ] Countersigned reads "0% of enrolments fully countersigned" with [kpi.countersigned_tip]; No source disagrees reads "<clear_pct>% of enrolments" with [kpi.clear_tip]; a null reads "Not yet computed".
+- [ ] Percentages print as sent without a trailing ".0".
+- [ ] Open flags by type lists only non-zero types, in the order sent, with copy deck names; each row links to the case queue filtered by that type and Open.
+- [ ] The institutions table requests `sort=flags_open_desc` by default; the Open flags header has `aria-sort="descending"` and [table.sort_tip]; Admitted follows Approved seats and On roll follows Admitted.
+- [ ] By state and By region show Approved seats, Admitted, On roll and Open flags, with no fill percentage.
+- [ ] `/ro` shows the same, scoped to the region.
+- [ ] `/university` shows Admitted after Approved seats and On roll in place of Enrolments, and no flag figure.
+- [ ] `/student` shows "3 of 4 sources agree" under the strip and [student.check_student_pending].
+
+## U. Demo rehearsal (Week 2)
+
+- [ ] The registrar uploads an update file: Queued, Validating, Processing, Done; withdrawals release seats and the `/college` Seated and Unseated tiles change within the minute.
+- [ ] A late refill from the update file raises Late refill reading "after the last admission date 15 Sep 2026" with "Rule: Last admission date for 2026-27 (rules.yaml cutoff_dates)".
+- [ ] Chaos `apaar down`, upload, open an affected enrolment (Identity "Awaiting source", hollow), reset chaos, recheck the institution: the row turns Countersigned and the outage raised no flag.
+- [ ] `/aicte` to Cases to the ABC Excess admission flag to a related enrolment and back, by keyboard only, with no error toast.

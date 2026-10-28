@@ -16,14 +16,14 @@ Timing is for the full Week 4 build. Week 1 rehearsal uses steps 1, 2, 3, 8 and 
 | 2:30 | RO_OFFICER | `/ro/cases` | region WEST queue | Only Western institutions. Queue sorted by severity then age. Narrator points at the count "37 open flags in 9 institutions". |
 | 3:00 | RO_OFFICER | `/ro/cases/[nameMismatch]` | Ravi Kumar Sharma vs R. K. Sharma | Evidence panel: claimed name, registry similarity 71 of 100, date of birth matches, same mobile last four. Officer clicks "Request documents", writes "Send admission form and ID copy", submits. Status becomes Documents requested. |
 | 4:00 | INSTITUTION | `/college/flags/[same]` | same | Registrar sees the request, uploads a PDF, writes "Student's full name per 10th certificate is Ravi Kumar Sharma", submits. Timeline shows both entries. |
-| 4:30 | INSTITUTION | `/college/upload` | update file with 2 bad rows | Drag CSV, validation finds row 17 (APAAR not 12 digits) and row 41 (duplicate in file). Registrar downloads the error sheet, fixes, resubmits. Batch goes Queued, Validating, Checking, Done. |
+| 4:30 | INSTITUTION | `/college/upload` | update file with 2 bad rows | Drag CSV, validation finds row 17 (APAAR not 12 digits, a warning: the row is kept without its APAAR) and row 41 (duplicate in file, an error: the row is not saved). Registrar downloads the error sheet, fixes row 41, uploads it again. Batch goes Queued, Validating, Processing, Done. |
 | 5:30 | INSTITUTION | `/college` | ledger reaction | CSE row: admitted 133, seated 120, unseated 13, same day. Narrator: "The ledger has a row per approved seat, so excess shows the day it is uploaded." |
 | 6:00 | STUDENT | Mailpit tab, then `/student/notices/[token]` | Ravi, LINKED | Email "ABC College of Engineering says you joined B.Tech CSE (2026-27). Is that right?" Click link, page shows the claim and two buttons. Click "Yes, that is right". Confirmation screen. Student check becomes Pass. |
 | 6:45 | STUDENT | second token (the "No" student) | not-me scenario | Click "No, that is not me". Page: "Thank you. An AICTE officer will look into this." Officer queue gains a `STUDENT_DENIED` flag, High. |
 | 7:15 | STUDENT | `/student/wallet` | Ravi credential | "Enrolment proof" card. Click "Share proof", untick date of birth, keep institution, programme, year. QR appears with "Shares 3 of 5 fields". |
 | 7:45 | VERIFIER | phone camera -> `/verify/[code]` | same | "Valid. Issued by Countersign for ABC College of Engineering." Shows only the 3 shared fields, APAAR masked. "Checked against the revocation list just now." |
 | 8:15 | UNIVERSITY | `/university/degrees/[id]/print` | graduating demo student | Print preview: name, programme, year, "APAAR XXXX XXXX 4417", QR. Narrator: "The degree carries the masked id and a scannable proof." |
-| 8:45 | AICTE_ADMIN | `/admin/system` | chaos: APAAR down | Toggle "APAAR registry: down". Ping shows Unavailable. Open any enrolment: Identity check is "Awaiting source", hollow, not red. Narrator: "A source outage never fails a student." Reset chaos. |
+| 8:45 | AICTE_ADMIN | `/admin/system` | chaos: APAAR down | Toggle "APAAR registry: down". Ping shows Unavailable. In the registrar's tab, upload a small file during the outage; as the officer, open one of its enrolments: Identity check is "Awaiting source", hollow, not red. Narrator: "A source outage never fails a student." Reset chaos, press "Recheck pending checks" on the institution: the check turns Countersigned. |
 | 9:15 | AICTE_ADMIN | `/aicte/institutions/[abc]/score` | Integrity Index | "Why this score": penalties listed per component with counts and weights, rule sources cited. Audit "Verify chain" button returns "Chain intact, 1,842 entries". |
 | 9:45 | AICTE_ADMIN | `/admin/psi` | PSI | Two sets, intersection size without revealing members. Close on the tagline. |
 
@@ -73,16 +73,16 @@ Actor: INSTITUTION. All Week 2 except step 10 which is visible in Week 1 as the 
 1. `/college/upload`. State: drop zone, "Choose file" button, template download link (CSV and XLSX), the column list, and the declaration checkbox [upload.declaration].
 2. Drop a file. Client checks extension (`.csv`, `.xlsx`) and size (<= 20 MB). Errors inline [upload.err_type], [upload.err_size].
 3. Tick the declaration. "Upload" enables.
-4. Submit. `POST /uploads` multipart (W2). Response `{batch_id, status: "QUEUED"}`. Navigate to `/college/uploads/[batchId]`.
-5. Batch page polls `GET /uploads/{id}` every 2 s. Status rail: Queued -> Validating -> Checking -> Done, or Failed. Progress bar from `progress_pct`. Counts: rows total, ok, error.
-6. On Validating complete with `rows_error > 0`: row error table from `GET /uploads/{id}/errors` (W2): row no, field, problem, value (masked). Button "Download errors as CSV".
-7. Registrar fixes the file offline, returns to `/college/upload`, uploads again as kind UPDATE. The previous batch stays listed with its counts.
-8. Checking runs the five sources. Page shows "Checking against sources: APAAR, Counselling, Seat ledger, ABC" with per-source progress. If a source is unavailable, that line reads "APAAR registry: awaiting source, will retry" and the batch still reaches Done.
-9. Done. Summary card: rows accepted, seats assigned, unseated, flags opened (with the line "Flags are for review by an officer; nothing has been rejected" [upload.done_note]). Link "View seat ledger".
+4. Submit. `POST /uploads` multipart (`file`, `academic_year`, `declaration`; API_CONTRACT §A2.4). Response 202 `{batch}` with status QUEUED. Navigate to `/college/uploads/[batchId]`.
+5. Batch page polls `GET /uploads/{id}` every 2 s. Status rail: Queued -> Validating -> Processing -> Done, or Failed, with the current stage under it ("Step 6 of 8: Checking with sources"). Progress bar from `progress_pct`. Counts: rows, accepted, with errors, with warnings.
+6. Once Validating is over: the row problems table from `GET /uploads/{id}/errors`: row, level (Error: row not saved; Warning: row saved with a note), column, problem, value as uploaded (masked). Button "Download errors as CSV".
+7. Registrar fixes the rows offline, returns to `/college/upload` and uploads them again, alone or in the whole file (a file changes only the rows in it; the server marks it an update). The previous batch stays listed with its counts.
+8. Processing assigns seats and runs the five checks. Page shows "Checking against sources" with one line per source and its checks. If a source is unavailable, that line reads [upload.source_waiting] and the batch still reaches Done; those checks stay pending until a recheck or the next upload of those rows.
+9. Done. Summary card: rows accepted, seats assigned, unseated, flags opened, then new, updated, withdrawn and transferred counts, and [upload.done_note]. Links to the seat ledger, enrolments and flags.
 10. `/college` seat ledger. The CSE row now reads approved 120, admitted 132, seated 120, unseated 12, the same day. The row has a muted amber "12 unseated" chip with a tooltip "Enrolments beyond approved intake. An officer will review the flag." No red, no "excess" word in the chip; the flag row below uses the full evidence sentence.
 11. `/college/flags` lists the new flags with evidence summaries and status Open.
 
-Error cases: 413 file too large [upload.err_size]; 415 wrong type; 422 `VALIDATION_ERROR` on missing declaration; `SOURCE_UNAVAILABLE` never fails the batch.
+Error cases: 413 [err.FILE_TOO_LARGE] or [err.TOO_MANY_ROWS]; 415 [err.UNSUPPORTED_FILE_TYPE]; 422 [err.UPLOAD_HEADER_INVALID], [err.UPLOAD_EMPTY], or `VALIDATION_ERROR` on the declaration or the academic year; 409 [err.UPLOAD_IN_PROGRESS]; an unavailable source never fails the batch.
 
 ## Flow 4. Student notice
 
