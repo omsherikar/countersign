@@ -14,7 +14,9 @@ async def credits(body: AbcCreditsRequest, session: SessionDep) -> AbcCreditsRes
     """Semester credits the Academic Bank of Credits holds for one id in one academic year.
 
     An id is "known" when the APAAR registry has it or when any credits were ever uploaded
-    against it, so a registered student with no uploads is known with an empty list.
+    against it, so a registered student with no uploads is known with an empty list. Each
+    semester names its issuer: the affiliating university's code, or the AICTE permanent id
+    of a college that issues its own credits.
     """
     known = await session.scalar(
         select(
@@ -33,7 +35,14 @@ async def credits(body: AbcCreditsRequest, session: SessionDep) -> AbcCreditsRes
     return AbcCreditsResponse(
         apaar_id_known=True,
         semesters=[
-            AbcSemester(sem=r.sem, credits=r.credits, uploaded_at=r.uploaded_at, result=r.result)
+            AbcSemester(
+                sem=r.sem,
+                credits=r.credits,
+                uploaded_at=r.uploaded_at,
+                result=r.result,
+                issuer=r.issuer,
+                issuer_name=r.issuer_name,
+            )
             for r in rows
         ],
     )

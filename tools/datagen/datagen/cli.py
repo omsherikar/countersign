@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 import time
 from pathlib import Path
@@ -11,10 +12,23 @@ from pathlib import Path
 from .config import Config
 
 
-def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: bool | None = None):
+def generate(
+    size: str,
+    seed: int,
+    out: Path,
+    *,
+    scenarios: bool = True,
+    xlsx: bool | None = None,
+    perf: int | None = None,
+):
     from .anomalies import Planter
+    from .eligibility import EligibilityPlanner
     from .graduates import GraduateBuilder
+    from .joining import JoiningPlanner
+    from .signals import SignalPlanner
+    from .statuses import StatusPlanner
     from .students import World
+    from .submissions import SubmissionPlanner
     from .updates import UpdatePlanner
     from .writers import write_all
 
@@ -38,8 +52,39 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     t = time.perf_counter()
     GraduateBuilder(world).build()
     world.timings["graduates"] = time.perf_counter() - t
+    # Everything below draws from streams of its own, so the rows above keep their values.
+    t = time.perf_counter()
+    submissions = SubmissionPlanner(world, planter)
+    submissions.choose()
+    overdue = set(world.overdue)
+    eligibility = EligibilityPlanner(world, planter)
+    added = eligibility.add_rows(avoid=overdue)
+    signals = SignalPlanner(world, planter)
+    added += signals.plant()
+    world.history = signals.history
+    world.settle(added, random.Random(f"settle:{seed}"))
+    eligibility.mark()
+    keep_clear = signals.colleges | overdue
+    eligibility.plant(avoid=keep_clear)
+    world.timings["eligibility_signals"] = time.perf_counter() - t
+    t = time.perf_counter()
+    statuses = StatusPlanner(world, planter, avoid=keep_clear)
+    statuses.plant_provisional()
+    joining = JoiningPlanner(world, planter, avoid=keep_clear)
+    joining.plan(self_issued_state=statuses.choose_self_issued_state())
+    statuses.plant(joining)
+    submissions.record(joining)
+    world.demo_rows = {
+        role: row
+        for role, row in (
+            ("PROVISIONAL_CLAIM", statuses.provisional),
+            ("SOMEONE_ELSE", statuses.someone_else),
+        )
+        if row is not None
+    }
+    world.timings["joinings_statuses"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
-    summary = write_all(world, out, xlsx=want_xlsx)
+    summary = write_all(world, out, xlsx=want_xlsx, submissions=submissions, perf=perf)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)
     with open(out / "summary.json", "w", encoding="utf-8", newline="\n") as fh:
         json.dump(summary, fh, indent=2, ensure_ascii=False)
@@ -90,6 +135,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="also write .xlsx uploads (default from datagen.yaml per size)",
     )
 
+    gen.add_argument(
+        "--perf",
+        type=int,
+        default=None,
+        metavar="N",
+        help="also write perf/: one college with exactly N legitimate rows, for throughput",
+    )
+
     summ = sub.add_parser("summary", help="print summary.json of a generated directory")
     summ.add_argument("dir", type=Path)
     return parser
@@ -104,7 +157,10 @@ def main(argv: list[str] | None = None) -> int:
         return pytest.main(argv[1:])
     args = build_parser().parse_args(argv)
     if args.command == "generate":
-        summary = generate(args.size, args.seed, args.out, scenarios=args.scenarios, xlsx=args.xlsx)
+        summary = generate(
+            args.size, args.seed, args.out, scenarios=args.scenarios, xlsx=args.xlsx,
+            perf=args.perf,
+        )  # fmt: skip
         print_summary(summary)
         return 0
     path = args.dir / "summary.json"

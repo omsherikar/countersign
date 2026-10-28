@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -84,6 +84,15 @@ class GraduateConfig:
     status_dates: tuple[str, str]
 
 
+def for_size(value: Any, size: str) -> Any:
+    """Resolve every `{small: .., full: ..}` mapping inside `value` to the size's entry."""
+    if isinstance(value, dict):
+        if set(value) == {"small", "full"}:
+            return value[size]
+        return {k: for_size(v, size) for k, v in value.items()}
+    return value
+
+
 @dataclass(frozen=True)
 class Config:
     size: SizeConfig
@@ -94,6 +103,23 @@ class Config:
     graduates: GraduateConfig
     rules: dict[str, Any]
     scenarios: bool
+    autonomous_share: float = 0.30
+    joining: dict[str, Any] = field(default_factory=dict)
+    eligibility: dict[str, Any] = field(default_factory=dict)
+    signals: dict[str, Any] = field(default_factory=dict)
+    statuses: dict[str, Any] = field(default_factory=dict)
+    submissions: dict[str, Any] = field(default_factory=dict)
+
+    def reporting_deadline(self, academic_year: str) -> str:
+        """rules.yaml `reporting.deadline` (a date, or a mapping by year), else datagen.yaml,
+        else 30 September of the year's start."""
+        configured = (self.rules.get("reporting") or {}).get("deadline")
+        if isinstance(configured, dict) and configured.get(academic_year):
+            return str(configured[academic_year])
+        if isinstance(configured, str) and academic_year == self.academic_year:
+            return configured
+        fallback = self.joining.get("reporting_deadline", {}).get(academic_year)
+        return str(fallback) if fallback else f"{academic_year[:4]}-09-30"
 
     @classmethod
     def build(
@@ -150,4 +176,10 @@ class Config:
             graduates=graduates,
             rules=load_rules(rules_yaml),
             scenarios=scenarios,
+            autonomous_share=float(raw.get("autonomous_share", 0.30)),
+            joining=for_size(raw.get("joining", {}), size),
+            eligibility=for_size(raw.get("eligibility", {}), size),
+            signals=for_size(raw.get("signals", {}), size),
+            statuses=for_size(raw.get("statuses", {}), size),
+            submissions=for_size(raw.get("submissions", {}), size),
         )

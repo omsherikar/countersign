@@ -2,11 +2,14 @@
 
     python -m app.seed --from /data/generated/mockgov [--reset]
 
-Reads apaar_registry.jsonl, counselling.jsonl, abc_credits.jsonl and sii.jsonl (file contract
-in docs/API_CONTRACT.md section E), streams them through COPY into a staging table and merges
-on each registry's natural key, so a second run with the same files changes nothing and a run
-with updated rows overwrites them. --reset truncates the registries and the DigiLocker inbox
-first.
+Reads apaar_registry.jsonl, counselling.jsonl, abc_credits.jsonl, sii.jsonl,
+admission_joinings.jsonl (the state admission authority's joinings) and
+digilocker_accounts.jsonl (the sign-in simulator's synthetic accounts, file order kept for the
+sign-in page); the file contract is docs/API_CONTRACT.md section E and A4.25. Each file streams
+through COPY into a staging table and merges on its natural key, so a second run with the same
+files changes nothing and a run with updated rows overwrites them. A missing file is skipped.
+--reset drops and recreates every mockgov table first (create_all never alters an existing
+table), which also empties the DigiLocker inbox, the sign-in codes and the chaos settings.
 """
 
 import argparse
@@ -34,7 +37,7 @@ class RegistryFile:
     table: str
     columns: tuple[str, ...]
     key: tuple[str, ...]
-    to_row: Callable[[dict], tuple]
+    to_row: Callable[[dict, int], tuple]
 
 
 def _date(value: str) -> date:
@@ -45,7 +48,7 @@ def _timestamp(value: str) -> datetime:
     return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
 
 
-def _apaar(record: dict) -> tuple:
+def _apaar(record: dict, _line: int = 0) -> tuple:
     return (
         str(record["apaar_id"]),
         record["name"],
@@ -55,7 +58,7 @@ def _apaar(record: dict) -> tuple:
     )
 
 
-def _counselling(record: dict) -> tuple:
+def _counselling(record: dict, _line: int = 0) -> tuple:
     return (
         str(record["state"]).upper(),
         int(record["year"]),
@@ -71,7 +74,7 @@ def _counselling(record: dict) -> tuple:
     )
 
 
-def _abc(record: dict) -> tuple:
+def _abc(record: dict, _line: int = 0) -> tuple:
     return (
         str(record["apaar_id"]),
         str(record["academic_year"]),
@@ -79,10 +82,12 @@ def _abc(record: dict) -> tuple:
         int(record["credits"]),
         _timestamp(record["uploaded_at"]),
         str(record["result"]),
+        str(record["issuer"]),
+        str(record["issuer_name"]),
     )
 
 
-def _sii(record: dict) -> tuple:
+def _sii(record: dict, _line: int = 0) -> tuple:
     return (
         str(record["passport_no"]).upper(),
         record["name"],
@@ -91,6 +96,41 @@ def _sii(record: dict) -> tuple:
         str(record["institution_aicte_id"]),
         str(record["programme"]),
         str(record["academic_year"]),
+    )
+
+
+def _joining(record: dict, _line: int = 0) -> tuple:
+    rnd = record.get("round")
+    roll = record.get("roll_no")
+    apaar = record.get("apaar_id")
+    return (
+        str(record["state"]).upper(),
+        str(record["academic_year"]),
+        record["name"],
+        normalize_name(record["name"]),
+        _date(record["dob"]),
+        None if roll in (None, "") else str(roll),
+        str(record["institution_code"]),
+        str(record["programme"]),
+        _date(record["joined_on"]),
+        None if rnd is None else int(rnd),
+        str(record["route"]),
+        str(record["category"]),
+        None if apaar in (None, "") else str(apaar),
+    )
+
+
+def _digilocker_account(record: dict, line: int = 0) -> tuple:
+    apaar = record.get("apaar_id") or None
+    return (
+        str(record["digilocker_id"]).upper(),
+        record["name"],
+        normalize_name(record["name"]),
+        _date(record["dob"]),
+        record.get("gender"),
+        None if apaar is None else str(apaar),
+        None if apaar is None else str(apaar)[-4:],
+        line,
     )
 
 
@@ -124,7 +164,16 @@ REGISTRIES: tuple[RegistryFile, ...] = (
     RegistryFile(
         "abc_credits.jsonl",
         "abc_credits",
-        ("apaar_id", "academic_year", "sem", "credits", "uploaded_at", "result"),
+        (
+            "apaar_id",
+            "academic_year",
+            "sem",
+            "credits",
+            "uploaded_at",
+            "result",
+            "issuer",
+            "issuer_name",
+        ),
         ("apaar_id", "academic_year", "sem"),
         _abc,
     ),
@@ -143,18 +192,47 @@ REGISTRIES: tuple[RegistryFile, ...] = (
         ("passport_no",),
         _sii,
     ),
+    RegistryFile(
+        "admission_joinings.jsonl",
+        "admission_joinings",
+        (
+            "state",
+            "academic_year",
+            "name",
+            "name_normalized",
+            "dob",
+            "roll_no",
+            "institution_code",
+            "programme",
+            "joined_on",
+            "round",
+            "route",
+            "category",
+            "apaar_id",
+        ),
+        ("institution_code", "academic_year", "programme", "dob", "name", "roll_no"),
+        _joining,
+    ),
+    RegistryFile(
+        "digilocker_accounts.jsonl",
+        "digilocker_accounts",
+        (
+            "digilocker_id",
+            "name",
+            "name_normalized",
+            "dob",
+            "gender",
+            "apaar_id",
+            "apaar_last4",
+            "position",
+        ),
+        ("digilocker_id",),
+        _digilocker_account,
+    ),
 )
 
-RESET_TABLES = (
-    "apaar_registry",
-    "counselling_allotments",
-    "abc_credits",
-    "sii_admissions",
-    "digilocker_inbox",
-)
 
-
-def read_rows(path: Path, to_row: Callable[[dict], tuple]) -> Iterator[tuple]:
+def read_rows(path: Path, to_row: Callable[[dict, int], tuple]) -> Iterator[tuple]:
     """Parse one JSONL file into table rows, naming the line on any bad record."""
     with path.open(encoding="utf-8") as handle:
         for line_no, line in enumerate(handle, start=1):
@@ -166,7 +244,7 @@ def read_rows(path: Path, to_row: Callable[[dict], tuple]) -> Iterator[tuple]:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{path.name}:{line_no}: invalid JSON ({exc.msg})") from exc
             try:
-                yield to_row(record)
+                yield to_row(record, line_no)
             except KeyError as exc:
                 raise ValueError(f"{path.name}:{line_no}: missing field {exc}") from exc
             except (TypeError, ValueError) as exc:
@@ -222,6 +300,9 @@ async def run(from_dir: Path, reset: bool, settings: Settings | None = None) -> 
 
     db = Database(settings.database_url())
     try:
+        if reset:
+            # create_all never alters an existing table, so a reset rebuilds them all.
+            await db.drop_all()
         await db.create_all()
     finally:
         await db.dispose()
@@ -229,9 +310,6 @@ async def run(from_dir: Path, reset: bool, settings: Settings | None = None) -> 
     summary: dict[str, dict] = {}
     conn = await asyncpg.connect(settings.asyncpg_dsn())
     try:
-        if reset:
-            tables = ", ".join(RESET_TABLES)
-            await conn.execute(f"TRUNCATE {tables} RESTART IDENTITY")
         for spec in REGISTRIES:
             path = from_dir / spec.filename
             read = await load_registry(conn, spec, path) if path.exists() else None

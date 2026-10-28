@@ -1,7 +1,9 @@
 """Load datagen output (API_CONTRACT §E, §A2.24) into the api database. Safe to re-run.
 
 institutions.json -> regions, states, universities, institutions, programmes (with mode),
-                     approvals (+ seat pools and seats through engine.seatpools)
+                     approvals (+ seat pools and seats through engine.seatpools), and each
+                     approval's `versions` into approval_versions once that table exists
+                     (migration 0004); until then the versions are read and left alone
 graduates.jsonl   -> when present: students who finished in an earlier year, each with a
                      GRADUATED enrolment and no seat, batch, checks or flags (graduates.py)
 users.json        -> staff users first, student users after the uploads
@@ -26,7 +28,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select, text, true
+from sqlalchemy import Table, select, text, true
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.base import AdapterSet
@@ -59,6 +62,7 @@ from app.models.user import User
 
 log = logging.getLogger("countersign.seed")
 
+APPROVAL_VERSIONS = "approval_versions"
 UPLOAD_NAME = re.compile(r"^(?P<aicte_id>.+?)_(?P<year>\d{4}-\d{2})(?:_update(?P<n>\d+))?\.csv$")
 STAFF_ROLES = (
     UserRole.AICTE_ADMIN,
@@ -397,6 +401,8 @@ async def _import_programmes(
                 summary.bump("approvals", False)
             await _keep_current_version(session, approval)
 
+            await _import_approval_versions(session, approval, arow.get("versions"), summary)
+
             has_pools = (
                 await session.execute(
                     select(SeatPool.id).where(SeatPool.approval_id == approval.id).limit(1)
@@ -410,6 +416,65 @@ async def _import_programmes(
             else:
                 summary.bump("seat_pools", False, 5)
         await session.flush()
+
+
+def _filled_defaults(table: Table, values: dict[str, Any]) -> dict[str, Any]:
+    """Values for required columns the caller did not set and the table cannot default."""
+    out: dict[str, Any] = {}
+    for column in table.c:
+        if column.name in values or column.nullable:
+            continue
+        if column.default is not None or column.server_default is not None:
+            continue
+        if column.name == "id":
+            out["id"] = uuid.uuid4()
+        elif column.name.endswith("_at"):
+            out[column.name] = datetime.now(UTC)
+    return out
+
+
+async def _import_approval_versions(
+    session: AsyncSession,
+    approval: Approval,
+    versions: list[dict[str, Any]] | None,
+    summary: Summary,
+    table: Table | None = None,
+) -> None:
+    """institutions.json `approvals[].versions` -> approval_versions, one row per version,
+    upserted on (approval, version), and the approval's current_version set to the latest.
+
+    The table and the column arrive with migration 0004; until the models declare them this
+    does nothing, so the same seed runs before and after the schema change. The approval's
+    own approved_intake is already the current version's (datagen writes it so).
+    """
+    table = table if table is not None else Base.metadata.tables.get(APPROVAL_VERSIONS)
+    if table is None or not versions:
+        return
+    existing = set(
+        (
+            await session.execute(select(table.c.version).where(table.c.approval_id == approval.id))
+        ).scalars()
+    )
+    for version in versions:
+        values: dict[str, Any] = {
+            "approval_id": approval.id,
+            "version": int(version["version"]),
+            "approved_intake": int(version["approved_intake"]),
+            "effective_from": date.fromisoformat(str(version["effective_from"])),
+            "source": str(version.get("source") or ""),
+        }
+        values.update(_filled_defaults(table, values))
+        stmt = pg_insert(table).values(**values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[table.c.approval_id, table.c.version],
+            set_={
+                key: stmt.excluded[key] for key in ("approved_intake", "effective_from", "source")
+            },
+        )
+        await session.execute(stmt)
+        summary.bump("approval_versions", values["version"] not in existing)
+    if "current_version" in Approval.__table__.c:
+        approval.current_version = max(int(v["version"]) for v in versions)
 
 
 # ------------------------------------------------------------------- uploads

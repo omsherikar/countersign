@@ -167,8 +167,8 @@ def test_programmes_without_a_seat_case_stay_inside_every_pool(small):
         if r["anomaly_type"] in {"EXCESS_ADMISSION", "QUOTA_BREACH"}
     }
     checked = 0
-    for aid, inst in small.institutions().items():
-        rows = small.upload(aid)
+    for aid, rows in small.all_uploads().items():
+        inst = small.institutions()[aid]
         for prog in inst["programmes"]:
             for year in range(1, prog["duration_years"] + 1):
                 cap = usable_capacity(prog, year)

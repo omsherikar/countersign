@@ -21,6 +21,18 @@ SOURCE_CALLS = {
     "abc": ("post", "/abc/credits", {"apaar_id": "123456784417", "academic_year": "2025-26"}),
     "digilocker": ("get", "/digilocker/inbox/123456784417", None),
     "sii": ("post", "/sii/verify", {"passport_no": "N1", "name": "A", "nationality": "BD"}),
+    "admission_authority": (
+        "post",
+        "/admission-authority/joining",
+        {
+            "state": "MH",
+            "academic_year": "2026-27",
+            "name": "Ravi",
+            "dob": "2007-03-21",
+            "institution_code": "1-ABC-0001",
+            "programme": "CSE",
+        },
+    ),
 }
 
 
@@ -174,3 +186,22 @@ async def test_env_defaults_seed_every_source(settings: Settings) -> None:
         }
     finally:
         await application.state.db.dispose()
+
+
+async def test_an_older_chaos_table_is_widened_for_the_admission_authority(app: FastAPI) -> None:
+    """Databases created before the admission authority had a 16-character source column."""
+    from sqlalchemy import text
+
+    async with app.state.db.engine.begin() as conn:
+        await conn.execute(text("DELETE FROM chaos"))
+        await conn.execute(text("ALTER TABLE chaos ALTER COLUMN source TYPE varchar(16)"))
+    await app.state.db.create_all()
+    async with app.state.db.sessions() as session:
+        await app.state.chaos.save(session)
+        width = await session.scalar(
+            text(
+                "SELECT character_maximum_length FROM information_schema.columns "
+                "WHERE table_name = 'chaos' AND column_name = 'source'"
+            )
+        )
+    assert width == 32

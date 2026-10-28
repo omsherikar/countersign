@@ -41,7 +41,7 @@ def referenced_rows(gen, skip: set[str] = frozenset()) -> set[tuple[str, int]]:
 
 def test_one_line_per_initial_upload_row_in_file_order(small):
     expected = []
-    for aid in sorted(small.institutions()):
+    for aid in sorted(small.all_uploads()):
         name = f"uploads/{aid}_2026-27.csv"
         expected += [(name, n) for n in range(2, len(small.file(name)) + 2)]
     lines = replies(small)
@@ -80,9 +80,7 @@ def test_every_will_deny_row_answers_no(small):
     for text in comments:
         assert len(text) <= 120 and "—" not in text and "–" not in text
     not_me = next(r for r in records if r.get("scenario") == "not_me")["rows"][0]
-    assert (
-        lines[(not_me["file"], not_me["row_no"])]["comment"] == "I never applied to this college."
-    )
+    assert lines[(not_me["file"], not_me["row_no"])]["comment"] == "I never joined this college."
 
 
 def test_live_demo_notices_stay_unanswered(small):

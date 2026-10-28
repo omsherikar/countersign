@@ -135,9 +135,12 @@ def test_clean_programmes_stay_inside_seat_pools(small):
     rules = load_rules()
     breached = planted_programmes(small)
     insts = small.json("institutions.json")["institutions"]
+    uploads = small.all_uploads()
     for inst in insts:
         aid = inst["aicte_permanent_id"]
-        rows = small.upload(aid)
+        if aid not in uploads:
+            continue  # an overdue college sent no file
+        rows = uploads[aid]
         for prog in inst["programmes"]:
             if prog["mode"] != "PHYSICAL" or (aid, prog["code"]) in breached:
                 continue

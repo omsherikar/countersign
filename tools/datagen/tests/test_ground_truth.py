@@ -9,9 +9,16 @@ from datagen.config import load_datagen_config
 FLAG_TYPES = {
     "EXCESS_ADMISSION", "QUOTA_BREACH", "LATE_REFILL", "INVALID_APAAR", "NAME_MISMATCH",
     "DUPLICATE_WITHIN_UPLOAD", "DUPLICATE_CROSS_INSTITUTION", "DUAL_ENROLMENT_ALLOWED",
-    "NO_ACADEMIC_ACTIVITY", "STUDENT_DENIED", "GHOST_RING",
+    "NO_ACADEMIC_ACTIVITY", "STUDENT_DENIED", "ELIGIBILITY_BREACH",
+    "NOT_IN_JOINING_RECORD", "MISSING_FROM_UPLOAD",
 }  # fmt: skip
-NOT_FLAGGED = {"CONSENT_REFUSED_NO_APAAR", "WITHDRAWAL", "TRANSFER"}
+NOT_FLAGGED = {
+    "CONSENT_REFUSED_NO_APAAR", "WITHDRAWAL", "TRANSFER", "CIWG_ADMISSION",
+    "TFW_INCOME_NOT_REPORTED", "ANOMALY", "GHOST_RING", "CLEAN_INDEPENDENT", "SELF_ISSUED_ONLY",
+    "PROVISIONAL_UNCLAIMED", "LATE_UPLOAD", "OVERDUE_UPLOAD",
+}  # fmt: skip
+# Records about a college, not about rows of its upload.
+INSTITUTION_LEVEL = {"ANOMALY", "MISSING_FROM_UPLOAD", "LATE_UPLOAD", "OVERDUE_UPLOAD"}
 FIXED_SEVERITY = {
     "EXCESS_ADMISSION": "HIGH",
     "LATE_REFILL": "MEDIUM",
@@ -20,6 +27,8 @@ FIXED_SEVERITY = {
     "DUPLICATE_CROSS_INSTITUTION": "HIGH",
     "DUAL_ENROLMENT_ALLOWED": "LOW",
     "NO_ACADEMIC_ACTIVITY": "MEDIUM",
+    "NOT_IN_JOINING_RECORD": "MEDIUM",
+    "MISSING_FROM_UPLOAD": "MEDIUM",
 }
 APAAR = re.compile(r"[0-9]{12}")
 
@@ -50,7 +59,8 @@ def test_record_shape_and_flag_vocabulary(small):
         ):  # fmt: skip
             assert key in rec, key
         assert rec["institution_aicte_id"] == rec["institution_aicte_ids"][0]
-        assert rec["rows"] and len(rec["student_refs"]) == len(rec["rows"])
+        assert len(rec["student_refs"]) == len(rec["rows"])
+        assert bool(rec["rows"]) is (rec["anomaly_type"] not in INSTITUTION_LEVEL)
         if rec["anomaly_type"] in NOT_FLAGGED:
             assert rec["expected_flag"] is None and rec["severity_expected"] is None
         else:
@@ -66,6 +76,9 @@ def test_severity_follows_the_engine_rules(small):
             assert rec["severity_expected"] == FIXED_SEVERITY[flag], rec["note"]
         elif flag == "INVALID_APAAR":
             want = "HIGH" if rec["kind"] == "UNKNOWN" else "MEDIUM"
+            assert rec["severity_expected"] == want
+        elif flag == "ELIGIBILITY_BREACH":
+            want = "HIGH" if rec["eligibility_rule"] == "INTERNATIONAL_CIWG" else "MEDIUM"
             assert rec["severity_expected"] == want
         elif flag == "QUOTA_BREACH":
             high = rec["seat_type"] in {"NRI", "INTERNATIONAL"} and rec["unseated"] > 2
@@ -100,7 +113,8 @@ def test_abc_cse_132_against_120(small):
         for p in small.json("institutions.json")["institutions"][0]["programmes"]
         if p["code"] == "CSE"
     )
-    assert {"academic_year": "2026-27", "approved_intake": 120} in cse["approvals"]
+    approval = next(a for a in cse["approvals"] if a["academic_year"] == "2026-27")
+    assert approval["approved_intake"] == 120 and approval["versions"][-1]["version"] == 2
     rows = small.upload("1-ABC-0001")
     first_years = [r for r in rows if r["programme_code"] == "CSE" and r["year_of_study"] == "1"]
     assert len(first_years) == 132
