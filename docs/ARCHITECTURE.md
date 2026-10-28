@@ -63,6 +63,20 @@ countersign/
 
 Rule: an agent edits only inside its own ownership. Anything else is a request to the owner through the parent.
 
+### Week 2 branches
+
+| Branch | Agent | Owns |
+|---|---|---|
+| `api/upload-pipeline` | backend-pipeline | in `services/api/`: `app/engine/upload/`, `app/engine/pipeline.py`, `app/routers/uploads.py`, `app/schemas/uploads.py`, `app/worker.py` (the `countersign.run_batch` task), `app/seed/`, `alembic/versions/0002_*` with the model and enum edits it needs, the new settings in `app/core/config.py`, every new dependency in `pyproject.toml` and `uv.lock`, the multipart exemption and uploads router in `app/main.py`, `tests/pipeline/`, `tests/fixtures/mini_generated/`; at the root: `.env.example` additions, `docker-compose.yml` (upload spool volume, worker concurrency 1) and the `Makefile` seed order (mockgov first, then the api seed through `run_batch`) |
+| `api/engines` | backend-engines | in `services/api/`: `app/engine/matching.py`, `ledger.py`, `checks/`, `duplicates.py`, `flags.py`, `evidence.py`, `score.py`; `app/routers/flags.py`, `app/routers/enrolments.py` and their schemas; the count and countersign changes in `app/routers/dashboard.py`, `institutions.py`, `students.py`, `_stats.py` and `app/schemas/common.py`, `dashboard.py`, `institutions.py`, `students.py`, including `admitted` beside approved seats on the dashboard, the institutions list and institution detail (API_CONTRACT §A2.18); the flags and enrolments routers in `app/main.py`; `tests/engines/` |
+| both api branches | | `services/api/app/engine/contracts.py`, identical bytes copied from ENGINES.md §3 |
+| `datagen/week2` | datagen | `tools/datagen/**` (API_CONTRACT §A2.24) |
+| `frontend/week2` | frontend | `apps/web/**` outside the UI agent's paths; pastes API_CONTRACT §A2.23 into `lib/types.ts`; teaches the proxy to stream multipart uploads and file downloads |
+| `main` | architecture | `docs/ARCHITECTURE.md`, `docs/API_CONTRACT.md`, `docs/DATA_MODEL.md`, `docs/ENGINES.md`, DECISIONS D14 to D22 |
+| `main` | ux | `docs/ux/**`, including the copy deck keys Addendum 2 points at (`rowerr.*`, `upload_status.PROCESSING`, `upload_stage.*`, `check.pending.*`, the QUOTA_BREACH and LATE_REFILL templates) |
+
+Merge order: backend-pipeline's first commit (migration 0002, model and enum edits, settings, dependencies, `contracts.py`) is merged to `main` before anything else, and backend-engines merges `main` straight after (ENGINES.md §2.1). After that the branches merge in any order; the one expected conflict is the `from app.routers import ...` line in `app/main.py`, resolved as ENGINES.md §2.4 says. `services/mockgov` has no Week 2 work.
+
 ### services/api layout
 
 ```
@@ -264,16 +278,20 @@ Added in Week 2 (API_CONTRACT Addendum 2):
 | Endpoint group | Week 1 | Week 2 | Week 3 | Week 4 |
 |---|---|---|---|---|
 | `/healthz`, `/auth/*`, `/me` | real | | | |
-| `/dashboard/summary` | real (`flags_open` = 0, `integrity_index` null) | flags real | | integrity real |
-| `/institutions`, `/institutions/{id}`, `/seats`, `/enrolments` | real, `countersign` null/[] | countersign + flags real | | |
-| `/students/me` | real (no notices/credentials) | | notices, consents, wallet | |
+| `/dashboard/summary` | real (`flags_open` = 0, `integrity_index` null) | `flags_open`, `countersigned_pct`, `clear_pct`, `flags_by_type`, `admitted` real | | integrity real |
+| `/institutions`, `/institutions/{id}`, `/seats`, `/enrolments` | real, `countersign` null/[] | countersign, flags, seats (`seated`, `unseated`), `admitted`, `last_upload` real; enrolment filters `check_status`, `check_type`, `flagged`, `seated`; sort `flags_open_desc` real and default | | |
+| `/students/me` | real (no notices/credentials) | countersign real | notices, consents, wallet | |
 | `/admin/adapters/ping`, `/admin/audit/verify` | real | | audit UI | |
-| `/uploads/*` | absent (404) | real | | |
-| `/flags/*`, `/cases/*` | absent | real | actions, docs | |
+| `/admin/demo/reset` | 501, use `make demo-reset` | 501 | | |
+| `/uploads`, `/uploads/rows`, `/uploads/{id}`, `/uploads/{id}/errors`, `/uploads/{id}/errors.csv`, `/uploads/template.csv`, `/uploads/template.xlsx` | absent (404) | real | | |
+| `/enrolments/{id}`, `POST /enrolments/{id}/recheck`, `POST /institutions/{id}/recheck` | absent | real | | |
+| `/flags`, `/flags/{id}` | absent | real, read-only | actions, documents, history | |
 | `/notices/*`, `/credentials/*`, `/verify/*`, `/university/*` | absent | | real | |
 | `/reports/*`, `/scores/*`, `/psi/*` | absent | | | real |
 
 The frontend may build Week 2+ pages against the contract once it is written, but must not ship navigation to routes whose endpoints are absent; show a "coming in Week N" placeholder behind the nav item instead.
+
+There is no `/cases/*` api path: the officers' case queue pages (`/aicte/cases`, `/ro/cases`) read `GET /flags`.
 
 ## 11. Environment
 
