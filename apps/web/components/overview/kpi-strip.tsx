@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { KpiTile } from "@/components/brand/KpiTile";
 import { t, type CopyId } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SlowHint } from "@/components/common/query-state";
 
 export interface KpiSpec {
@@ -16,6 +18,15 @@ export interface KpiSpec {
   tone?: "default" | "alert" | "muted";
   hint?: string;
   format?: (n: number) => string;
+  /** What the figure counts, on hover and on focus. */
+  tip?: string;
+  /** The tile opens this page (Open flags opens the case queue). */
+  href?: string;
+}
+
+/** Percentages arrive with one decimal; print them as sent without a trailing ".0" (0.0 is "0%"). */
+export function formatPct(n: number): string {
+  return `${String(Math.round(n * 10) / 10).replace(/\.0$/, "")}%`;
 }
 
 /** A tile-shaped placeholder that keeps the strip's rhythm while values load or fail. */
@@ -79,16 +90,35 @@ export function KpiStrip({
               </TileShell>
             );
           }
-          return (
+          const body = (
             <KpiTile
-              key={tile.label}
               label={label}
               value={tile.value}
               hint={tile.hint}
               format={tile.format}
               tone={tile.tone ?? "default"}
-              className={cn(tile.tone === "muted" && "text-ink-muted")}
+              className={cn(tile.tone === "muted" && "text-ink-muted", (tile.href || tile.tip) && "h-full")}
             />
+          );
+          const wrapped = tile.href ? (
+            <Link href={tile.href} className="block h-full text-ink no-underline outline-offset-[-2px] hover:bg-flag-open-soft/60">
+              {body}
+            </Link>
+          ) : tile.tip ? (
+            <div tabIndex={0} className="h-full outline-offset-[-2px]">
+              {body}
+            </div>
+          ) : (
+            body
+          );
+          if (!tile.tip) return <React.Fragment key={tile.label}>{wrapped}</React.Fragment>;
+          return (
+            <Tooltip key={tile.label}>
+              <TooltipTrigger asChild>{wrapped}</TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-72">
+                {tile.tip}
+              </TooltipContent>
+            </Tooltip>
           );
         })}
       </div>
