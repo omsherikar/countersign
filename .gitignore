@@ -1,0 +1,28 @@
+# env
+.env
+.env.*
+!.env.example
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+# node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.pnpm-store/
+# data
+data/generated/
+*.log
+# os / editors
+.DS_Store
+.idea/
+.vscode/
+# playwright
+test-results/
+playwright-report/

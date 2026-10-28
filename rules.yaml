@@ -1,0 +1,95 @@
+# Countersign rules. Every number carries its source so the panel can see provenance.
+# Seat pools are built per approval (programme x academic year) from approved_intake.
+# Percentages round half up to whole seats; a pool never drops below 0.
+
+handbook:
+  edition: "AICTE Approval Process Handbook 2024-25 to 2026-27 (with 2026-27 addendum)"
+  verified_on: "2026-10-28"
+
+seat_pools:
+  REGULAR:
+    share: 1.00                 # of approved intake, minus the NRI carve-out
+    supernumerary: false
+    source: "Approval record (approved_intake)"
+  NRI:
+    share: 0.05
+    carved_from: REGULAR        # NRI seats sit WITHIN approved intake
+    supernumerary: false
+    unfilled: "revert to general candidates at regular fee"
+    source: "APH 2024-27 cl. 2.8(b)"
+  TFW:
+    share: 0.05
+    supernumerary: true
+    condition: "only for courses that filled >= 50% of approved intake last year"
+    unfilled: "not reallocated to any other category"
+    source: "APH 2024-27 cl. 6.42(d)(i), (d)(iii)"
+  LATERAL:
+    share: 0.10
+    supernumerary: true
+    plus_first_year_vacancies: true
+    source: "APH 2024-27 cl. 6.13(a), 6.13(f)"
+  INTERNATIONAL:                # Foreign Nationals / OCI / PIO / Children of Indian Workers in Gulf
+    supernumerary: true
+    ciwg_reserved_fraction: 0.3333   # one third of these seats for CIWG
+    unfilled: "cannot be allocated to anyone other than an international student (from 2026-27)"
+    slabs:
+      - match: {discipline_group: ENGINEERING, level: [DIPLOMA, UG]}
+        share: 0.15
+        source: "APH 2024-27 cl. 2.9; APH 2026-27 addendum keeps 15% for Engg Diploma/UG"
+      - match: {discipline_group: ENGINEERING, level: [PG]}
+        share: 0.25
+        source: "APH 2026-27 addendum (PG Engineering raised to 25%)"
+      - match: {discipline_group: [MANAGEMENT, COMPUTER_APPLICATIONS, DESIGN, PLANNING, HOTEL_MANAGEMENT, APPLIED_ARTS], level: [DIPLOMA, UG, PG]}
+        share: 0.25
+        source: "APH 2026-27 addendum (25% all levels)"
+    lateral_combined_cap: 0.15  # FN under supernumerary + FN via lateral <= 15% of approved intake
+    lateral_combined_cap_source: "APH 2024-27 cl. 6.13(b)"
+
+# EWS is a reservation category inside approved intake, not a seat pool.
+reservation:
+  EWS:
+    share: 0.10
+    source: "APH 2024-27 cl. 4.6"
+
+admission_routes:
+  # which seat pool an admission route may consume, and what ADMISSION check applies
+  COUNSELLING:   {pool: REGULAR,       admission_check: COUNSELLING_LIST}
+  MANAGEMENT:    {pool: REGULAR,       admission_check: SEAT_TYPE_RULES}
+  NRI:           {pool: NRI,           admission_check: SEAT_TYPE_RULES}
+  TFW:           {pool: TFW,           admission_check: COUNSELLING_LIST}
+  LATERAL:       {pool: LATERAL,       admission_check: COUNSELLING_LIST}
+  SPOT:          {pool: REGULAR,       admission_check: SEAT_TYPE_RULES}
+  INTERNATIONAL: {pool: INTERNATIONAL, admission_check: STUDY_IN_INDIA}
+
+apaar:
+  format: "^[0-9]{12}$"
+  optional: true   # Supreme Court order July 2026 + DPDP Act: admission is never blocked on APAAR
+
+name_matching:
+  pass_threshold: 90
+  review_threshold: 75
+  dob_must_match: true
+
+cutoff_dates:
+  # academic_year -> last date for regular admission; refills after this raise LATE_REFILL
+  "2026-27": "2026-09-15"
+
+dual_enrolment:
+  # UGC 2022: one physical programme plus one ODL/online is allowed
+  allowed_modes: [["PHYSICAL", "ODL"], ["PHYSICAL", "ONLINE"]]
+
+ghost_ring:
+  min_component_cross_college: 3
+  min_colleges: 2
+  min_component_single_college: 5
+
+integrity_index:
+  weights:   # penalties per rate; filled and tuned in Week 4
+    invalid_id: 15
+    mismatch: 10
+    duplicate: 15
+    excess_admission: 20
+    no_activity: 15
+    student_denied: 15
+    ghost_ring: 20
+    anomaly: 10
