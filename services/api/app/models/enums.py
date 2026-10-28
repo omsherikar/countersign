@@ -233,7 +233,7 @@ class CredentialKind(StrEnum):
     COMPLETION = "COMPLETION"
 
 
-class EnrolmentVersionSource(StrEnum):
+class VersionSource(StrEnum):
     UPLOAD = "UPLOAD"
     DECISION = "DECISION"
     SEED = "SEED"

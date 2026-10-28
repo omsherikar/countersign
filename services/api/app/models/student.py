@@ -151,7 +151,7 @@ class EnrolmentVersion(UUIDPk, Base):
     enrolment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("enrolments.id"), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     changes: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
-    # UPLOAD, DECISION or SEED (app.models.enums.EnrolmentVersionSource)
+    # UPLOAD, DECISION or SEED (app.models.enums.VersionSource)
     source: Mapped[str] = mapped_column(String, nullable=False)
     batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("upload_batches.id"))
     case_action_seq: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("case_actions.seq"))

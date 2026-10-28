@@ -110,6 +110,8 @@ class InstitutionColumnMapping(Base):
         ForeignKey("institutions.id"), primary_key=True
     )
     # {their header: our column}
-    mapping: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
+    mapping: Mapped[dict[str, Any]] = mapped_column(
+        nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     updated_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)

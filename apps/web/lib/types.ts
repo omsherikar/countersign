@@ -187,7 +187,7 @@ export interface Check {
   /** Provenance (D34): who supplied the fact, when, and whether independently of the college. */
   supplied_by?: string; observed_at?: string | null; independent?: boolean;
   /** Set when an officer's decision resolved this row's contradiction (R2). */
-  resolved?: { outcome: FlagStatus; at: string } | null;
+  resolved?: { outcome: FlagStatus; case_id: string; case_action_seq: number; reason_code: string | null; at: string } | null;
 }
 
 // ---------- uploads ----------

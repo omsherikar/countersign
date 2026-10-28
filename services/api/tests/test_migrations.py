@@ -158,9 +158,16 @@ SEED_0003 = (
     *(
         "INSERT INTO enrolments (id, student_id, institution_id, programme_id, academic_year, "
         "year_of_study, cohort_year, admission_route, category, status) "
-        f"VALUES ('{_id(10 + k)}', '{_id(6)}', '{_id(3)}', '{_id(4)}', '{year}', 1, '{year}', "
-        "'COUNSELLING', 'GENERAL', 'ACTIVE')"
-        for k, year in enumerate(("2024-25", "2025-26", "2026-27"))
+        f"VALUES ('{_id(10 + k)}', '{_id(6)}', '{_id(3)}', '{_id(4)}', '{year}', {study}, "
+        f"'{year}', '{route}', 'GENERAL', 'ACTIVE')"
+        # a first-year, a year-2 lateral entrant and an ordinary year-2 student
+        for k, (year, study, route) in enumerate(
+            (
+                ("2024-25", 1, "COUNSELLING"),
+                ("2025-26", 2, "LATERAL"),
+                ("2026-27", 2, "COUNSELLING"),
+            )
+        )
     ),
     *(
         "INSERT INTO checks (enrolment_id, type, status, detail, source, attempts) "
@@ -173,6 +180,7 @@ SEED_0003 = (
             (10, "STUDENT", "PENDING", '{"summary": "Notice not sent yet."}'),
             (11, "IDENTITY", "NA", '{"summary": "APAAR not linked."}'),
             (11, "STUDYING", "NA", f'{{"summary": "{LATERAL}"}}'),
+            (11, "STUDENT", "FAIL", '{"summary": "Denied by the student."}'),
             (12, "STUDYING", "NA", '{"summary": "APAAR not linked; ABC cannot be checked."}'),
         )
     ),
@@ -182,9 +190,16 @@ SEED_0003 = (
         f"'{_id(3)}', '{{}}', '{{}}'::jsonb, 'K{n}')"
         for n, status in ((20, "CLEARED"), (21, "CONFIRMED"), (22, "OPEN"))
     ),
+    "INSERT INTO flags (id, type, severity, status, institution_id, related_enrolment_ids, "
+    f"evidence, dedupe_key) VALUES ('{_id(25)}', 'STUDENT_DENIED', 'HIGH', 'CLEARED', "
+    f"'{_id(3)}', '{{{_id(11)}}}', '{{}}'::jsonb, 'K25')",
     "INSERT INTO case_actions (flag_id, action, attachments, from_status, to_status) VALUES "
     f"('{_id(20)}', 'CLEAR', '[]', 'OPEN', 'CLEARED'), "
-    f"('{_id(21)}', 'CONFIRM', '[]', 'OPEN', 'CONFIRMED')",
+    f"('{_id(21)}', 'CONFIRM', '[]', 'OPEN', 'CONFIRMED'), "
+    f"('{_id(25)}', 'NOTE', '[]', 'OPEN', 'OPEN'), "
+    f"('{_id(25)}', 'CLEAR', '[]', 'OPEN', 'CLEARED')",
+    "INSERT INTO institution_scores (institution_id, academic_year, integrity_index, components) "
+    f"VALUES ('{_id(3)}', '2026-27', 55.5, '{{}}'::jsonb)",
     *(
         "INSERT INTO credentials (student_id, enrolment_id, kind, sd_jwt, status_list_index, "
         f"revoked, issuer_key_id, vct, short_id) VALUES ('{_id(6)}', '{_id(12)}', '{kind}', "
@@ -208,15 +223,19 @@ def test_0004_moves_every_old_value_to_its_new_name_and_back(scratch_url):
     before = _sql(scratch_url, CHECK_STATES, FLAG_STATES, ACTIONS, KINDS)
 
     command.upgrade(cfg, "head")
-    checks, flags, actions, kinds, versions, records = _sql(
+    checks, flags, actions, kinds, versions, records, resolved, reasons, scores = _sql(
         scratch_url,
         CHECK_STATES,
         FLAG_STATES,
         ACTIONS,
         KINDS,
-        "SELECT approval_id::text, version, approved_intake, effective_from::text, source "
-        "FROM approval_versions",
+        "SELECT v.approval_id::text, v.version, v.approved_intake, "
+        "v.effective_from = a.created_at::date, v.source "
+        "FROM approval_versions v JOIN approvals a ON a.id = v.approval_id",
         "SELECT DISTINCT record_status::text FROM enrolments",
+        "SELECT enrolment_id::text, type::text, resolved FROM checks WHERE resolved IS NOT NULL",
+        "SELECT action::text, reason_code FROM case_actions ORDER BY seq",
+        "SELECT completeness_pct FROM institution_scores",
     )
     e10, e11, e12 = _id(10), _id(11), _id(12)
     assert checks == [
@@ -226,6 +245,7 @@ def test_0004_moves_every_old_value_to_its_new_name_and_back(scratch_url):
         (e10, "STUDENT", "PENDING"),
         (e10, "STUDYING", "NOT_YET_DUE"),
         (e11, "IDENTITY", "NOT_APPLICABLE"),
+        (e11, "STUDENT", "CONTRADICTED"),
         (e11, "STUDYING", "NOT_YET_DUE"),
         (e12, "STUDYING", "NOT_APPLICABLE"),
     ]
@@ -233,13 +253,35 @@ def test_0004_moves_every_old_value_to_its_new_name_and_back(scratch_url):
         ("K20", "UPHELD", "NAME_MISMATCH"),
         ("K21", "WITHDRAWN", "NAME_MISMATCH"),
         ("K22", "OPEN", "NAME_MISMATCH"),
+        ("K25", "UPHELD", "STUDENT_DENIED"),
     ]
     assert actions == [
         (_id(20), "UPHOLD", "OPEN", "UPHELD"),
         (_id(21), "WITHDRAW", "OPEN", "WITHDRAWN"),
+        (_id(25), "NOTE", "OPEN", "OPEN"),
+        (_id(25), "UPHOLD", "OPEN", "UPHELD"),
     ]
+    # the cleared dispute resolves the student's contradiction it decided (R2)
+    [(enrolment, row_type, marker)] = resolved
+    assert (enrolment, row_type) == (e11, "STUDENT")
+    assert marker["at"].endswith("Z")
+    assert {k: v for k, v in marker.items() if k != "at"} == {
+        "outcome": "UPHELD",
+        "case_id": _id(25),
+        "case_action_seq": 4,
+        "by_id": None,
+        "reason_code": "OTHER",
+    }
+    assert reasons == [
+        ("UPHOLD", "OTHER"),
+        ("WITHDRAW", "OTHER"),
+        ("NOTE", None),
+        ("UPHOLD", "OTHER"),
+    ]
+    # an old Integrity Index is not a completeness
+    assert scores == [(None,)]
     assert kinds == [(1, "ENROLMENT"), (2, "COMPLETION")]
-    assert versions == [(_id(5), 1, 60, "2026-07-01", "SEED")]
+    assert versions == [(_id(5), 1, 60, True, "Initial approval")]
     assert records == [("AWAITING_EVIDENCE",)]
 
     # values only the new schema has: a correction and a case of a new type
@@ -254,13 +296,22 @@ def test_0004_moves_every_old_value_to_its_new_name_and_back(scratch_url):
         f"('{_id(24)}', 'NOTE', '[]', 'OPEN', 'OPEN')",
     )
     command.downgrade(cfg, PREVIOUS)
-    checks, flags, actions, kinds = _sql(scratch_url, CHECK_STATES, FLAG_STATES, ACTIONS, KINDS)
+    checks, flags, actions, kinds, scores = _sql(
+        scratch_url,
+        CHECK_STATES,
+        FLAG_STATES,
+        ACTIONS,
+        KINDS,
+        "SELECT integrity_index FROM institution_scores",
+    )
     old_checks, old_flags, old_actions, old_kinds = before
     # not yet due reads as n/a again and an unavailable source as pending
     assert checks == old_checks
-    assert flags == [*old_flags, ("K23", "CONFIRMED", "NAME_MISMATCH")]
-    assert actions == [*old_actions, (_id(23), "CONFIRM", "OPEN", "CONFIRMED")]
+    # a corrected case reads as cleared and its CORRECT row as a note
+    assert flags == sorted([*old_flags, ("K23", "CLEARED", "NAME_MISMATCH")])
+    assert actions == [*old_actions, (_id(23), "NOTE", "OPEN", "CLEARED")]
     assert kinds == old_kinds
+    assert scores == [(0,)]
 
 
 def test_every_database_enum_has_exactly_the_python_values(scratch_url):

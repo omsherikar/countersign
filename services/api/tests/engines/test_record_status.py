@@ -163,8 +163,10 @@ async def test_a_student_no_disputes_the_record_until_an_officer_upholds_the_cla
     student = (await _checks(session, enrolment.id))[CheckType.STUDENT]
     assert student.status is CheckStatus.CONTRADICTED
     assert student.resolved is not None
-    assert (student.resolved["outcome"], student.resolved["by"]) == ("UPHELD", str(admin.id))
+    assert (student.resolved["outcome"], student.resolved["by_id"]) == ("UPHELD", str(admin.id))
     assert student.resolved["case_id"] == str(dispute.id)
+    assert isinstance(student.resolved["case_action_seq"], int)
+    assert student.resolved["reason_code"] is None
     record = await _record(session, enrolment.id)
     # the joining record is still the independent evidence that countersigns
     assert record.record_status is RecordStatus.COUNTERSIGNED

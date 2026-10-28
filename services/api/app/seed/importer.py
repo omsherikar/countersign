@@ -22,7 +22,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +32,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.adapters.base import AdapterSet
 from app.adapters.factory import build_adapters
 from app.core import audit
-from app.core.cohort import start_year
 from app.core.crypto import hmac_bytes, normalise
 from app.core.rules import Rules, get_rules
 from app.core.security import hash_password, verify_password
@@ -132,9 +131,12 @@ class SeedError(ValueError):
 # ------------------------------------------------------------------ public API
 
 
+INITIAL_APPROVAL = "Initial approval"
+
+
 async def _keep_current_version(session: AsyncSession, approval: Approval) -> None:
-    """The approval's current version carries its intake; a new approval gets version 1,
-    in force from the start of its academic year (1 July), as migration 0004 backfills."""
+    """The approval's current version carries its intake; a new approval gets version 1, in
+    force from the day it was recorded, as migration 0004 backfills existing approvals."""
     version = (
         await session.execute(
             select(ApprovalVersion).where(
@@ -149,8 +151,8 @@ async def _keep_current_version(session: AsyncSession, approval: Approval) -> No
                 approval_id=approval.id,
                 version=approval.current_version,
                 approved_intake=approval.approved_intake,
-                effective_from=date(start_year(approval.academic_year), 7, 1),
-                source="SEED",
+                effective_from=datetime.now(UTC).date(),
+                source=INITIAL_APPROVAL,
             )
         )
     else:

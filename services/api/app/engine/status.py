@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import literal, or_, select, update
+from sqlalchemy import and_, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -434,28 +434,50 @@ def named_enrolments(flag: Flag) -> list[uuid.UUID]:
 
 
 async def mark_resolved(
-    session: AsyncSession, flag: Flag, outcome: FlagStatus, *, actor_id: uuid.UUID, at: datetime
+    session: AsyncSession,
+    flag: Flag,
+    outcome: FlagStatus,
+    *,
+    actor_id: uuid.UUID,
+    at: datetime,
+    case_action_seq: int,
+    reason_code: str | None = None,
 ) -> None:
-    """An officer decided the case: the CONTRADICTED rows it decides keep their state and
-    carry {outcome, by, at, case_id}, and no longer count as unresolved (R2)."""
+    """An officer upheld the case (API_CONTRACT A4.10): on each ACTIVE record it names, the
+    row it covers, when CONTRADICTED (or PENDING with needs_review for NAME_MISMATCH), keeps
+    its state and carries {outcome, case_id, case_action_seq, by_id, at, reason_code}, and no
+    longer counts as unresolved (R2)."""
     row_type = CASE_ROW.get(flag.type)
     named = named_enrolments(flag)
     if row_type is None or not named:
         return
     resolved = {
         "outcome": outcome.value,
-        "by": str(actor_id),
-        "at": at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
         "case_id": str(flag.id),
+        "case_action_seq": case_action_seq,
+        "by_id": str(actor_id),
+        "at": at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+        "reason_code": reason_code,
     }
+    states = [Check.status == CheckStatus.CONTRADICTED]
+    if flag.type is FlagType.NAME_MISMATCH:
+        states.append(
+            and_(
+                Check.status == CheckStatus.PENDING,
+                Check.detail["needs_review"].as_boolean().is_(True),
+            )
+        )
     await session.execute(
         update(Check)
         .where(
             Check.enrolment_id.in_(named),
             Check.type == row_type,
-            Check.status == CheckStatus.CONTRADICTED,
+            or_(*states),
             Check.enrolment_id.in_(
-                select(Enrolment.id).where(Enrolment.institution_id == flag.institution_id)
+                select(Enrolment.id).where(
+                    Enrolment.institution_id == flag.institution_id,
+                    Enrolment.status == EnrolmentStatus.ACTIVE,
+                )
             ),
         )
         .values(resolved=resolved)

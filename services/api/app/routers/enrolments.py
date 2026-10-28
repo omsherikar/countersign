@@ -192,7 +192,9 @@ async def enrolment_detail(
                 supplied_by=c.supplied_by,
                 observed_at=iso(c.observed_at),
                 independent=c.independent,
-                resolved={k: c.resolved.get(k) for k in ("outcome", "at")} if c.resolved else None,
+                resolved={k: v for k, v in c.resolved.items() if k != "by_id"}
+                if c.resolved
+                else None,
             )
             for c in checks
         ],

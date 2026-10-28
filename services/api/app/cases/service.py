@@ -268,7 +268,15 @@ async def apply_action(
 
     # an upheld claim resolves the contradiction it decided, without becoming evidence (R2)
     if action is CaseActionKind.UPHOLD:
-        await mark_resolved(session, flag, FlagStatus.UPHELD, actor_id=user.id, at=now)
+        await mark_resolved(
+            session,
+            flag,
+            FlagStatus.UPHELD,
+            actor_id=user.id,
+            at=now,
+            case_action_seq=row.seq,
+            reason_code=row.reason_code,
+        )
     elif action is CaseActionKind.REOPEN:
         await clear_resolved(session, flag)
     await refresh_record_status(session, named_enrolments(flag), now=now)

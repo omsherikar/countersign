@@ -183,6 +183,8 @@ class InstitutionScore(UUIDPk, Timestamps, Base):
 
     institution_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("institutions.id"), nullable=False)
     academic_year: Mapped[str] = mapped_column(String, nullable=False)
-    integrity_index: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    # the completeness percentage, 100 * uploaded_and_joined / joined; null when nothing
+    # joined (D40)
+    completeness_pct: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     components: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
     computed_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))

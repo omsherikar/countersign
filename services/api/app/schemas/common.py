@@ -57,7 +57,8 @@ class CheckOut(BaseModel):
     supplied_by: str = ""
     observed_at: str | None = None
     independent: bool = False
-    # {outcome, at} when an officer's decision resolved this row's contradiction (R2)
+    # {outcome, case_id, case_action_seq, reason_code, at} when an officer's decision resolved
+    # this row's contradiction (R2)
     resolved: dict[str, Any] | None = None
 
 

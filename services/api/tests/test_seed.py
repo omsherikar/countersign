@@ -2,7 +2,7 @@ import asyncio
 import os
 import subprocess
 import sys
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -86,9 +86,9 @@ async def test_import_fixture_then_rerun_is_idempotent(clean_db):
             )
         ).all()
         assert len(versions) == 8
-        for year, intake, version, version_intake, effective_from in versions:
+        for _year, intake, version, version_intake, effective_from in versions:
             assert (version, version_intake) == (1, intake)
-            assert effective_from == date(int(year[:4]), 7, 1)
+            assert effective_from == datetime.now(UTC).date()
         ok, length, broken = await audit.verify_chain(session)
         assert ok and broken is None and length > 0
 

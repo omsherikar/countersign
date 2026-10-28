@@ -402,7 +402,7 @@ The latest row per purpose (by `recorded_at`) is the student's current choice.
 |---|---|---|
 | institution_id | FK institutions | |
 | academic_year | text | unique with institution_id |
-| integrity_index | numeric(5,2) NOT NULL | from 0004: the completeness percentage, `100 * uploaded_and_joined / joined` rounded to 2 places, 0 when `joined` is 0 (the api then reports null). The column keeps its Week 1 name; the Integrity Index is dropped (D40) |
+| completeness_pct | numeric(5,2) NULL | from 0004 (renamed from `integrity_index`): the completeness percentage, `100 * uploaded_and_joined / joined` rounded to 2 places; null when `joined` is 0. The Integrity Index is dropped (D40) |
 | components | jsonb | from 0004: the reconciliation, `{"joined", "uploaded_and_joined", "missing", "uploaded_not_joined", "missing_students": [{"name", "roll_no", "programme_code", "joined_on", "round", "route", "apaar_last4"}], "published": bool, "source_unavailable": bool, "first_upload_at": timestamp or null}`; the missing students are the college's own admitted students as the authority lists them, shown to the college and officers (never a full APAAR) (ENGINES §17.10) |
 | computed_at | timestamptz | when the authority's list was last read |
 
@@ -416,11 +416,14 @@ Why: one row per institution and year holds what the deadline state and the comp
 | institution_ids | uuid[] NOT NULL | every institution the signal touches (one for ANOMALY) |
 | enrolment_ids | uuid[] NOT NULL default `'{}'` | GHOST_RING: the members' ACTIVE enrolments; empty for ANOMALY |
 | summary | text NOT NULL | one plain sentence, never a student name or a full id |
-| facts | jsonb NOT NULL | an object: `items` (`[{label, value, source}]`, shown verbatim), `features` (ANOMALY), `shared` (GHOST_RING: masked shared contacts), `cases` (`[{flag_id, institution_id}]` opened from it), `dismissal` (`{note, by_id, at}`) (ENGINES §17.11) |
+| facts | jsonb NOT NULL default `'{}'` | an object: `items` (`[{label, value, source}]`, shown verbatim), `features` (ANOMALY), `shared` (GHOST_RING: masked shared contacts), `cases` (`[{flag_id, institution_id}]` opened from it) (ENGINES §17.11) |
 | rule | text NOT NULL | the rule or model that produced it, e.g. "Isolation Forest, contamination 5%, trained on this year's 50 colleges" |
 | score | numeric nullable | ANOMALY: the Isolation Forest score (lower is more unusual); GHOST_RING: null |
 | status | enum signals_status | NEW, CASE_OPENED, DISMISSED |
 | case_flag_id | FK flags nullable | the first case opened from it |
+| note | text nullable | the officer's note when the signal was dismissed or the first case opened from it |
+| decided_by_id | FK users nullable | the officer who dismissed it or opened its first case |
+| decided_at | timestamptz nullable | when |
 | dedupe_key | text unique | `GHOST_RING:{academic_year}:{smallest member student id}` or `ANOMALY:{academic_year}:{institution_id}` |
 | created_at / updated_at | timestamptz | `updated_at` moves when a later run refreshes it |
 
@@ -710,7 +713,7 @@ Backfill: one version 1 row per approval, `approved_intake` = the approval's, `e
 `institution_id` uuid PK, FK institutions; `mapping` jsonb NOT NULL DEFAULT `'{}'`; `updated_at` timestamptz NOT NULL DEFAULT now(); `updated_by_id` uuid NOT NULL FK users.
 
 ### New table `signals`
-`id` uuid PK (`gen_random_uuid()`), `type` `signals_type` NOT NULL, `academic_year` text NOT NULL, `institution_ids` uuid[] NOT NULL, `enrolment_ids` uuid[] NOT NULL DEFAULT `'{}'`, `summary` text NOT NULL, `facts` jsonb NOT NULL DEFAULT `'{}'`, `rule` text NOT NULL, `score` numeric NULL, `status` `signals_status` NOT NULL DEFAULT `'NEW'`, `case_flag_id` uuid NULL FK flags, `dedupe_key` text NOT NULL unique, `created_at` timestamptz NOT NULL DEFAULT now(), `updated_at` timestamptz NOT NULL DEFAULT now().
+`id` uuid PK (`gen_random_uuid()`), `type` `signals_type` NOT NULL, `academic_year` text NOT NULL, `institution_ids` uuid[] NOT NULL, `enrolment_ids` uuid[] NOT NULL DEFAULT `'{}'`, `summary` text NOT NULL, `facts` jsonb NOT NULL DEFAULT `'{}'`, `rule` text NOT NULL, `score` numeric NULL, `status` `signals_status` NOT NULL DEFAULT `'NEW'`, `case_flag_id` uuid NULL FK flags, `dedupe_key` text NOT NULL unique, `note` text NULL, `decided_by_id` uuid NULL FK users, `decided_at` timestamptz NULL, `created_at` timestamptz NOT NULL DEFAULT now(), `updated_at` timestamptz NOT NULL DEFAULT now(). A dismissal or an opened case records its note, officer and time in the three `decided` columns, not in `facts`.
 
 ### `flags` and `case_actions`
 `flags_type` gains three values; `flags_status` and `case_actions_action` are renamed and extended as above (`case_actions.from_status` and `to_status` use `flags_status`, so their stored values follow the rename).
@@ -729,11 +732,18 @@ Backfill: one version 1 row per approval, `approved_intake` = the approval's, `e
 |---|---|---|
 | digilocker_sub | add, text NULL, unique (`uq_users_digilocker_sub`) | |
 
+### `institution_scores`
+| column | change | notes |
+|---|---|---|
+| integrity_index | renamed `completeness_pct`, now NULL | existing values are an Integrity Index, not a completeness, so they are set to null until the next reconciliation |
+
+From 0004 its rows hold the completeness reconciliation (table reference above) and nothing writes an Integrity Index.
+
 ### Not changed
-`institution_scores` keeps its columns; from 0004 its rows hold the completeness reconciliation (table reference above) and nothing writes an Integrity Index. `notifications`, `consents`, `upload_batches`, `seats`, `seat_pools` and `seat_events` keep their columns: a reply after DigiLocker sign-in is recorded on the notice as before (the actor is in the audit entry), a SEED batch's `created_at` may carry the submission time from the datagen manifest (API_CONTRACT §A4.25), a seat retired by a lower approval version is a `seats` row with status `RELEASED` (that value's first use), and the column mapping a batch used is stored in `upload_batches.counts.column_mapping`.
+`notifications`, `consents`, `upload_batches`, `seats`, `seat_pools` and `seat_events` keep their columns: a reply after DigiLocker sign-in is recorded on the notice as before (the actor is in the audit entry), a SEED batch's `created_at` may carry the submission time from the datagen manifest (API_CONTRACT §A4.25), a seat retired by a lower approval version is a `seats` row with status `RELEASED` (that value's first use), and the column mapping a batch used is stored in `upload_batches.counts.column_mapping`.
 
 ### Downgrade
-`downgrade()` restores the 0003 schema exactly: NOT_YET_DUE rows become NOT_APPLICABLE and SOURCE_UNAVAILABLE rows PENDING; CORRECTED cases become UPHELD and CORRECT rows NOTE; the renamed values are renamed back; `checks_status`, `flags_status`, `flags_type` and `case_actions_action` are rebuilt without the added values (Postgres cannot drop an enum value); the new columns, tables and types are dropped.
+`downgrade()` restores the 0003 schema exactly: NOT_YET_DUE rows become NOT_APPLICABLE and SOURCE_UNAVAILABLE rows PENDING; CORRECTED cases become UPHELD and CORRECT rows NOTE; the renamed values are renamed back; `checks_status`, `flags_status`, `flags_type` and `case_actions_action` are rebuilt without the added values (Postgres cannot drop an enum value), and cases of the three new types are removed with their history; `completeness_pct` is renamed back to `integrity_index`, NOT NULL, with null values set to 0; the new columns, tables and types are dropped.
 
 ## mockgov database (`mockgov`, separate service)
 
