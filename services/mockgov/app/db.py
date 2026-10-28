@@ -19,11 +19,12 @@ from sqlalchemy.ext.asyncio import (
 
 from app.models import Base
 
-# Columns added to existing tables since the first release; create_all only creates tables.
+# Columns added to existing tables since the first release. create_all only creates tables;
+# the seed's --reset drops and recreates them, and until then these keep an older database
+# answering (an older ABC record reads an empty issuer).
 UPGRADE_COLUMNS = (
-    ("issuer_type", "varchar(16)"),
-    ("issuer_code", "text"),
-    ("issuer_name", "text"),
+    ("issuer", "text NOT NULL DEFAULT ''"),
+    ("issuer_name", "text NOT NULL DEFAULT ''"),
 )
 
 
@@ -31,6 +32,10 @@ class Database:
     def __init__(self, url: str) -> None:
         self.engine: AsyncEngine = create_async_engine(url, pool_pre_ping=True)
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
+
+    async def drop_all(self) -> None:
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
 
     async def create_all(self) -> None:
         async with self.engine.begin() as conn:

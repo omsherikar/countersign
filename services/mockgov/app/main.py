@@ -15,7 +15,6 @@ from fastapi import FastAPI
 from app.chaos import ChaosState
 from app.config import Settings, get_settings
 from app.db import Database
-from app.digilocker_signin import load_signing_key
 from app.errors import install_error_handlers
 from app.routers import (
     abc,
@@ -39,13 +38,11 @@ DESCRIPTION = (
 
 
 async def startup(app: FastAPI) -> None:
-    """Connect, create any missing tables, load persisted chaos settings and the DigiLocker
-    sign-in key."""
+    """Connect, create any missing tables and load persisted chaos settings."""
     db: Database = app.state.db
     await db.create_all()
     async with db.sessions() as session:
         await app.state.chaos.load(session)
-        app.state.digilocker_key = await load_signing_key(session, app.state.settings)
 
 
 @asynccontextmanager

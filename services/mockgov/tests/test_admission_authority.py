@@ -21,11 +21,11 @@ async def joining(client: AsyncClient, **overrides) -> dict:
 async def test_found_by_name_and_dob(client: AsyncClient, seeded: dict) -> None:
     assert await joining(client) == {
         "found": True,
-        "joined_on": "2026-07-24",
+        "joined_on": "2026-08-02",
         "round": 1,
         "route": "COUNSELLING",
         "category": "GENERAL",
-        "roll_no": "MHCET-2026-004512",
+        "published": True,
     }
 
 
@@ -39,7 +39,7 @@ async def test_found_by_roll_number_even_with_another_spelling(
     client: AsyncClient, seeded: dict
 ) -> None:
     body = await joining(client, name="R. K. Sharma", roll_no=" MHCET-2026-004512 ")
-    assert body["found"] is True and body["roll_no"] == "MHCET-2026-004512"
+    assert body["found"] is True and body["joined_on"] == "2026-08-02"
 
 
 async def test_management_admission_has_no_round(client: AsyncClient, seeded: dict) -> None:
@@ -50,7 +50,7 @@ async def test_management_admission_has_no_round(client: AsyncClient, seeded: di
         "round": None,
         "route": "MANAGEMENT",
         "category": "OBC",
-        "roll_no": "MHAA-2026-000001",
+        "published": True,
     }
 
 
@@ -61,7 +61,7 @@ async def test_not_found_answers(client: AsyncClient, seeded: dict) -> None:
         "round": None,
         "route": None,
         "category": None,
-        "roll_no": None,
+        "published": True,
     }
     assert await joining(client, name="Someone Else Entirely") == not_found
     assert await joining(client, dob="2007-03-22") == not_found
@@ -70,6 +70,12 @@ async def test_not_found_answers(client: AsyncClient, seeded: dict) -> None:
     assert await joining(client, programme="IT") == not_found
     assert await joining(client, institution_code="1-XYZ-0002") == not_found
     assert await joining(client, roll_no="MHCET-2026-999999") == not_found
+
+
+async def test_an_unpublished_state_and_year_says_so(client: AsyncClient, seeded: dict) -> None:
+    for overrides in ({"academic_year": "2024-25"}, {"state": "KA"}):
+        body = await joining(client, **overrides)
+        assert body["found"] is False and body["published"] is False, overrides
 
 
 async def test_state_is_case_insensitive(client: AsyncClient, seeded: dict) -> None:
@@ -92,44 +98,67 @@ async def test_joinings_list_names_every_joining(client: AsyncClient, seeded: di
     )
     assert response.status_code == 200
     assert response.json() == {
+        "institution_code": "1-ABC-0001",
+        "academic_year": "2026-27",
+        "published": True,
         "items": [
-            {
-                "roll_no": "MHAA-2026-000001",
-                "name": "Mohammed Irfan Khan",
-                "joined_on": "2026-08-03",
-                "programme": "CSE",
-                "route": "MANAGEMENT",
-            },
             {
                 "roll_no": "MHCET-2026-004512",
                 "name": "Ravi Kumar Sharma",
-                "joined_on": "2026-07-24",
+                "dob": "2007-03-21",
                 "programme": "CSE",
+                "joined_on": "2026-08-02",
+                "round": 1,
                 "route": "COUNSELLING",
+                "category": "GENERAL",
+                "apaar_last4": "4417",
+            },
+            {
+                "roll_no": None,
+                "name": "Mohammed Irfan Khan",
+                "dob": "2006-11-02",
+                "programme": "CSE",
+                "joined_on": "2026-08-03",
+                "round": None,
+                "route": "MANAGEMENT",
+                "category": "OBC",
+                "apaar_last4": None,
             },
             {
                 "roll_no": "MHAA-2026-000002",
                 "name": "Sneha Patil",
-                "joined_on": "2026-10-04",
+                "dob": "2007-05-09",
                 "programme": "IT",
+                "joined_on": "2026-10-04",
+                "round": None,
                 "route": "NRI",
+                "category": "GENERAL",
+                "apaar_last4": "8812",
             },
         ],
-        "total": 3,
     }
+    assert "123456784417" not in response.text
 
 
 async def test_joinings_list_is_per_college_and_year(client: AsyncClient, seeded: dict) -> None:
-    older = await client.get(
-        "/admission-authority/joinings",
-        params={"institution_code": "1-ABC-0001", "academic_year": "2025-26"},
-    )
-    assert [i["roll_no"] for i in older.json()["items"]] == ["MHCET-2025-000310"]
-    none = await client.get(
-        "/admission-authority/joinings",
-        params={"institution_code": "1-NOPE-0000", "academic_year": "2026-27"},
-    )
-    assert none.json() == {"items": [], "total": 0}
+    async def listing(code: str, year: str) -> dict:
+        response = await client.get(
+            "/admission-authority/joinings",
+            params={"institution_code": code, "academic_year": year},
+        )
+        return response.json()
+
+    older = await listing("1-ABC-0001", "2025-26")
+    assert [i["roll_no"] for i in older["items"]] == ["MHCET-2025-000310"] and older["published"]
+    unpublished = await listing("1-ABC-0001", "2024-25")
+    assert unpublished["items"] == [] and unpublished["published"] is False
+    unknown = await listing("1-NOPE-0000", "2026-27")
+    assert unknown == {
+        "institution_code": "1-NOPE-0000",
+        "academic_year": "2026-27",
+        "published": False,
+        "items": [],
+    }
 
 
 async def test_joinings_list_needs_both_parameters(client: AsyncClient) -> None:

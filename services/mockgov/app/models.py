@@ -66,11 +66,10 @@ class AbcCredit(Base):
     credits: Mapped[int] = mapped_column(Integer, nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     result: Mapped[str] = mapped_column(String(8), nullable=False)
-    # The body that issued the credits: the affiliating UNIVERSITY, or the INSTITUTION itself
-    # for an autonomous college or a deemed university. Null for records loaded without one.
-    issuer_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    issuer_code: Mapped[str | None] = mapped_column(Text, nullable=True)
-    issuer_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The body that issued the credits: a university code such as MSTU, or the AICTE
+    # permanent id of a college that issues its own (an autonomous college).
+    issuer: Mapped[str] = mapped_column(Text, nullable=False)
+    issuer_name: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class DigiLockerMessage(Base):
@@ -86,7 +85,8 @@ class DigiLockerMessage(Base):
 
 class DigiLockerAccount(Base):
     """A synthetic DigiLocker account for the sign-in simulator. `apaar_id` is null when the
-    student has not linked an APAAR (consent refused or pending)."""
+    student has not linked an APAAR (consent refused or pending). `position` keeps the file's
+    order, so the sign-in page lists the demo accounts first."""
 
     __tablename__ = "digilocker_accounts"
 
@@ -95,12 +95,13 @@ class DigiLockerAccount(Base):
     name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     dob: Mapped[date] = mapped_column(Date, nullable=False)
     gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    apaar_id: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    apaar_id: Mapped[str | None] = mapped_column(String(12), nullable=True, unique=True)
     apaar_last4: Mapped[str | None] = mapped_column(String(4), nullable=True, index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
 
 
 class DigiLockerAuthCode(Base):
-    """A one-time authorisation code of the sign-in simulator."""
+    """A one-time authorisation code of the sign-in simulator (valid for 60 seconds)."""
 
     __tablename__ = "digilocker_auth_codes"
 
@@ -109,19 +110,8 @@ class DigiLockerAuthCode(Base):
     client_id: Mapped[str] = mapped_column(Text, nullable=False)
     redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
     nonce: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-
-class DigiLockerSigningKey(Base):
-    """The simulator's id-token signing key (EC P-256), kept so restarts keep it."""
-
-    __tablename__ = "digilocker_signing_keys"
-
-    kid: Mapped[str] = mapped_column(String(64), primary_key=True)
-    private_pem: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class SiiAdmission(Base):
@@ -144,37 +134,40 @@ class AdmissionJoining(Base):
     One state's record format, simulated, served for every state: the student reported and
     joined at this college in this programme. Counselling, TFW and lateral admissions carry the
     entrance exam's roll number; management, NRI and spot admissions the authority's own
-    approval number. International admissions are not here (they are in Study in India).
+    number, or none. International admissions are not here (they are in Study in India).
     """
 
     __tablename__ = "admission_joinings"
     __table_args__ = (
-        UniqueConstraint("roll_no", name="uq_admission_joining_roll_no"),
-        Index(
-            "ix_admission_joining_lookup",
-            "state",
-            "academic_year",
+        # The seed's merge key; a missing roll number counts as one value.
+        UniqueConstraint(
             "institution_code",
+            "academic_year",
             "programme",
             "dob",
+            "name",
+            "roll_no",
+            name="uq_admission_joining",
+            postgresql_nulls_not_distinct=True,
         ),
+        Index("ix_admission_joining_lookup", "state", "academic_year", "programme", "dob"),
         Index("ix_admission_joining_institution", "institution_code", "academic_year"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     state: Mapped[str] = mapped_column(String(2), nullable=False)
     academic_year: Mapped[str] = mapped_column(String(7), nullable=False)
-    roll_no: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
     dob: Mapped[date] = mapped_column(Date, nullable=False)
-    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    roll_no: Mapped[str | None] = mapped_column(Text, nullable=True)
     institution_code: Mapped[str] = mapped_column(Text, nullable=False)
     programme: Mapped[str] = mapped_column(Text, nullable=False)
     joined_on: Mapped[date] = mapped_column(Date, nullable=False)
     round: Mapped[int | None] = mapped_column(Integer, nullable=True)
     route: Mapped[str] = mapped_column(String(16), nullable=False)
     category: Mapped[str] = mapped_column(String(16), nullable=False)
+    apaar_id: Mapped[str | None] = mapped_column(String(12), nullable=True)
 
 
 class ChaosSetting(Base):

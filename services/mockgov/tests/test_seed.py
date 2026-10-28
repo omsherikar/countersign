@@ -100,7 +100,7 @@ async def test_duplicate_key_within_a_file_keeps_the_last_row(
     assert row.programme == "ECE"
 
 
-async def test_reset_truncates_registries_and_inbox(
+async def test_reset_rebuilds_the_tables_and_empties_the_inbox(
     app: FastAPI, settings: Settings, session: AsyncSession, tmp_path: Path
 ) -> None:
     await seed.run(FIXTURES, reset=False, settings=settings)
@@ -173,18 +173,37 @@ def test_cli_reports_a_missing_directory(settings: Settings, tmp_path: Path, cap
     assert "seed failed" in capsys.readouterr().err
 
 
-async def test_an_older_abc_table_gains_the_issuer_columns(
+async def test_an_older_abc_table_answers_until_the_reset_rebuilds_it(
     app: FastAPI, settings: Settings, session: AsyncSession
 ) -> None:
     from sqlalchemy import text
 
     async with app.state.db.engine.begin() as conn:
-        for column in ("issuer_type", "issuer_code", "issuer_name"):
+        for column in ("issuer", "issuer_name"):
             await conn.execute(text(f"ALTER TABLE abc_credits DROP COLUMN {column}"))
     await app.state.db.create_all()
     await seed.run(FIXTURES, reset=False, settings=settings)
     credit = await session.scalar(select(AbcCredit).where(AbcCredit.apaar_id == "123456780004"))
-    assert (credit.issuer_type, credit.issuer_code) == ("INSTITUTION", "1-XYZ-0002")
+    assert credit.issuer == "1-XYZ-0002"
+
+
+async def test_reset_drops_a_table_of_an_older_shape(
+    app: FastAPI, settings: Settings, session: AsyncSession
+) -> None:
+    from sqlalchemy import text
+
+    async with app.state.db.engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE admission_joinings DROP COLUMN apaar_id"))
+    summary = await seed.run(FIXTURES, reset=True, settings=settings)
+    assert summary["admission_joinings"] == {"read": 5, "total": 5}
+    async with app.state.db.engine.begin() as conn:
+        columns = await conn.scalar(
+            text(
+                "SELECT count(*) FROM information_schema.columns "
+                "WHERE table_name = 'admission_joinings' AND column_name = 'apaar_id'"
+            )
+        )
+    assert columns == 1
 
 
 async def test_digilocker_accounts_keep_the_last_four_for_search(
@@ -192,6 +211,6 @@ async def test_digilocker_accounts_keep_the_last_four_for_search(
 ) -> None:
     await seed.run(FIXTURES, reset=False, settings=settings)
     ravi = await session.get(DigiLockerAccount, "DL-RAVI-4417")
-    assert (ravi.apaar_id, ravi.apaar_last4) == ("123456784417", "4417")
+    assert (ravi.apaar_id, ravi.apaar_last4, ravi.position) == ("123456784417", "4417", 1)
     meena = await session.get(DigiLockerAccount, "DL-4HXP-2WZA")
     assert (meena.apaar_id, meena.apaar_last4, meena.name_normalized) == (None, None, "meena iyer")

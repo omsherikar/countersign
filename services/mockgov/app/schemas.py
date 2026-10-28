@@ -54,20 +54,14 @@ class AbcCreditsRequest(BaseModel):
     _check_apaar = field_validator("apaar_id")(_validate_apaar)
 
 
-class AbcIssuer(BaseModel):
-    """Who issued a credit record: the affiliating university, or the institution itself."""
-
-    type: Literal["UNIVERSITY", "INSTITUTION"]
-    code: str
-    name: str
-
-
 class AbcSemester(BaseModel):
     sem: int
     credits: int
     uploaded_at: datetime
     result: Literal["PASS", "FAIL", "PENDING"]
-    issuer: AbcIssuer | None = None
+    # A university code, or the AICTE permanent id of a college that issues its own credits.
+    issuer: str
+    issuer_name: str
 
 
 class AbcCreditsResponse(BaseModel):
@@ -101,25 +95,6 @@ class DigiLockerInboxResponse(BaseModel):
     items: list[DigiLockerInboxItem]
 
 
-class DigiLockerTokenRequest(BaseModel):
-    grant_type: Literal["authorization_code"] = "authorization_code"
-    code: str = Field(min_length=1, max_length=256)
-    client_id: str = Field(min_length=1, max_length=200)
-    client_secret: str = Field(max_length=500)
-    redirect_uri: str = Field(min_length=1, max_length=2000)
-
-
-class DigiLockerTokenResponse(BaseModel):
-    id_token: str
-    access_token: str
-    token_type: Literal["Bearer"]
-    expires_in: int
-
-
-class DigiLockerJwks(BaseModel):
-    keys: list[dict[str, str]]
-
-
 class SiiVerifyRequest(BaseModel):
     passport_no: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -149,22 +124,27 @@ class JoiningVerifyResponse(BaseModel):
     round: int | None
     route: str | None
     category: str | None
-    # The authority's roll or approval number of the matched joining, so a caller can tell
-    # which entries of GET /admission-authority/joinings its own rows account for.
-    roll_no: str | None
+    # False when the authority holds no joining at all for that state and academic year.
+    published: bool
 
 
 class JoiningListItem(BaseModel):
-    roll_no: str
+    roll_no: str | None
     name: str
-    joined_on: date
+    dob: date
     programme: str
+    joined_on: date
+    round: int | None
     route: str
+    category: str
+    apaar_last4: str | None
 
 
 class JoiningListResponse(BaseModel):
+    institution_code: str
+    academic_year: str
+    published: bool
     items: list[JoiningListItem]
-    total: int
 
 
 ChaosSource = Literal[

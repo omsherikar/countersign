@@ -22,9 +22,16 @@ SOURCE_CALLS = {
     "digilocker": ("get", "/digilocker/inbox/123456784417", None),
     "sii": ("post", "/sii/verify", {"passport_no": "N1", "name": "A", "nationality": "BD"}),
     "admission_authority": (
-        "get",
-        "/admission-authority/joinings?institution_code=1-ABC-0001&academic_year=2026-27",
-        None,
+        "post",
+        "/admission-authority/joining",
+        {
+            "state": "MH",
+            "academic_year": "2026-27",
+            "name": "Ravi",
+            "dob": "2007-03-21",
+            "institution_code": "1-ABC-0001",
+            "programme": "CSE",
+        },
     ),
 }
 

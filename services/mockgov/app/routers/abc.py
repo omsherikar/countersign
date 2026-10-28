@@ -4,7 +4,7 @@ from sqlalchemy import exists, select
 from app.chaos import chaos_gate
 from app.db import SessionDep
 from app.models import AbcCredit, ApaarRecord
-from app.schemas import AbcCreditsRequest, AbcCreditsResponse, AbcIssuer, AbcSemester
+from app.schemas import AbcCreditsRequest, AbcCreditsResponse, AbcSemester
 
 router = APIRouter(prefix="/abc", tags=["abc"], dependencies=[Depends(chaos_gate("abc"))])
 
@@ -15,8 +15,8 @@ async def credits(body: AbcCreditsRequest, session: SessionDep) -> AbcCreditsRes
 
     An id is "known" when the APAAR registry has it or when any credits were ever uploaded
     against it, so a registered student with no uploads is known with an empty list. Each
-    semester names its issuer: the affiliating university, or the institution itself for an
-    autonomous college or a deemed university.
+    semester names its issuer: the affiliating university's code, or the AICTE permanent id
+    of a college that issues its own credits.
     """
     known = await session.scalar(
         select(
@@ -40,14 +40,9 @@ async def credits(body: AbcCreditsRequest, session: SessionDep) -> AbcCreditsRes
                 credits=r.credits,
                 uploaded_at=r.uploaded_at,
                 result=r.result,
-                issuer=_issuer(r),
+                issuer=r.issuer,
+                issuer_name=r.issuer_name,
             )
             for r in rows
         ],
     )
-
-
-def _issuer(row: AbcCredit) -> AbcIssuer | None:
-    if not (row.issuer_type and row.issuer_code):
-        return None
-    return AbcIssuer(type=row.issuer_type, code=row.issuer_code, name=row.issuer_name or "")
