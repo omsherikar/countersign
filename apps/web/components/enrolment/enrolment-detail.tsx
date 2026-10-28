@@ -115,6 +115,22 @@ function Recheck({ id, show }: { id: string; show: boolean }) {
   );
 }
 
+/** "28 Oct 2026" over "18:08 IST": two short lines keep the column narrow without breaking the date. */
+function CheckedAt({ value }: { value: string }) {
+  const [day, time] = formatDateTime(value).split(", ");
+  return (
+    <>
+      <span className="block whitespace-nowrap">{day}</span>
+      {time && <span className="block whitespace-nowrap">{time}</span>}
+    </>
+  );
+}
+
+/**
+ * Only the result badge keeps to one line; source, time and detail wrap, so
+ * the table fits its column on desktop and the detail sentence is never cut.
+ * On phones it scrolls inside its own box.
+ */
 function ChecksTable({ checks }: { checks: Check[] }) {
   if (checks.length === 0) return <EmptyState title={t("empty.checks")} />;
   return (
@@ -137,9 +153,9 @@ function ChecksTable({ checks }: { checks: Check[] }) {
               <td>
                 <CheckBadge status={c.status} word={statusWord(c)} />
               </td>
-              <td className="text-ink-muted">{tk(`source.${c.source}`)}</td>
-              <td className="wrap max-w-[7.5rem] py-1.5 text-xs leading-snug text-ink-muted">{c.checked_at ? formatDateTime(c.checked_at) : t("check.never")}</td>
-              <td className="wrap !h-auto min-w-[14rem] py-2 leading-snug">
+              <td className="wrap leading-snug text-ink-muted">{tk(`source.${c.source}`)}</td>
+              <td className="wrap py-1.5 text-xs leading-snug text-ink-muted">{c.checked_at ? <CheckedAt value={c.checked_at} /> : t("check.never")}</td>
+              <td className="wrap !h-auto min-w-[12rem] py-2 leading-snug [overflow-wrap:anywhere]">
                 {c.detail.summary}
                 {c.attempts > 0 && <span className="mt-0.5 block text-xs text-ink-muted">{t("check.attempts", { n: c.attempts })}</span>}
               </td>
