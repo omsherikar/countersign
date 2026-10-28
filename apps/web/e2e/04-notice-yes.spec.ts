@@ -96,17 +96,11 @@ test.describe("A student's Yes", () => {
     await expect(page.getByRole("heading", { level: 1, name: "My proofs" })).toBeVisible();
     const proofs = page.getByRole("region", { name: "Enrolment proof" });
     await expect(proofs.first()).toBeVisible();
-    let shareable = proofs.filter({ has: page.getByRole("button", { name: "Share proof" }) });
+    const shareable = proofs.filter({ has: page.getByRole("button", { name: "Share proof" }) });
 
-    if ((await shareable.count()) === 0) {
-      // An earlier run revoked the proof. Eligibility is looked at again after a recheck (D26),
-      // and a revoked proof does not count, so the officer's recheck issues a new one.
-      note("Ravi's proof was revoked by an earlier run; an officer's recheck issues a new one.");
-      const admin = await pageAs("admin");
-      await apiJson(admin, "POST", `/enrolments/${raviEnrolment}/recheck`);
-      await page.reload();
-      shareable = page.getByRole("region", { name: "Enrolment proof" }).filter({ has: page.getByRole("button", { name: "Share proof" }) });
-    }
+    // An earlier run revoked the proof as an officer would, and an officer's revocation holds:
+    // no proof is issued again on its own (API_CONTRACT Addendum 3 errata 11).
+    test.skip((await shareable.count()) === 0, "Ravi's proof was revoked by an earlier run and stays revoked; run make demo-reset.");
     await expect(shareable).toHaveCount(1);
     await expect(shareable).toContainText(ABC.name);
     await expect(shareable.getByText("Active", { exact: true })).toBeVisible();

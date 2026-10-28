@@ -8,7 +8,7 @@ A college's student upload is a *claim*. Five independent sources then countersi
 
 ## Status
 
-Week 2 of 4 is merged (2026-10-28). A college's upload now runs through the engine: parsing and validation with row warnings, name matching (initials, honorifics, spelling folds, Devanagari), the Seat Ledger, the five checks with a countersign score, duplicate detection within a file, within a college and across colleges, and flags with plain-English evidence. The web app shows all of it: upload with progress and row errors, the countersign strip, enrolment detail with recheck, flags and the officers' read-only case queue, and dashboards ranked by open flags. `make seed` sends every generated upload through the same `run_batch` the upload page uses. Week 2 was verified end to end on a native stack (local Postgres, Redis, mockgov, api, Celery worker and web) because Docker Desktop would not start on the build machine: the small seed (53 files, 10,633 rows) runs in 100 to 120 s, all 76 planted anomalies are caught with the expected severity, no flag is unexplained and none of the 20 refused-consent controls is flagged. Tests: api 306, mockgov 94, datagen 81; the web app lints, typechecks and builds clean. Still open: the compose re-run once Docker Desktop is repaired, CI (GitHub has not started a job because of an account billing problem, not a code failure) and the 50,000-rows-under-2-minutes target for Week 4. Week 3 is next: the student loop, officer actions on flags and student-held credentials. The task boards, the end-of-week verification checklists with their evidence, the Week 2 results and a dated changelog are in [docs/PROGRESS.md](docs/PROGRESS.md); the reasons behind each choice are in `docs/DECISIONS.md` (D14 to D22 for Week 2).
+Week 3 of 4 is merged (2026-10-29). On top of the Week 2 engine, every finished upload now sends each student a notice by email and, with an APAAR, by DigiLocker; the student answers Yes or No on a public page reached by a one-time link (English or Hindi). A Yes countersigns the record, a No fails the Student check and opens a High "Student denied" flag, no reply stays pending. Officers act on flags (request documents, escalate, clear, confirm, assign, reopen, note) and colleges answer document requests with files; history hides internal notes from colleges. AICTE signs an SD-JWT enrolment proof once every check agrees; the student shares chosen fields as a QR that anyone verifies against the published keys and revocation list, and universities print a degree insert with masked APAAR and a signed QR. Students see their consents, who viewed their record and their data requests; the admin verifies the hash-chained audit log. Verified in Docker compose from a clean seed: 84 of 84 planted cases caught with the expected severity, 100 flags with none unexplained, none of the 20 refused-consent controls flagged, 67.9% of records fully countersigned after the simulated replies; Playwright walks the demo path (22 tests). Tests: api 516, mockgov 103, datagen 92. Week 4 adopts the team's final scope: evidence states and record statuses instead of a score, student replies only after DigiLocker sign-in, officer decisions that update the record, seat and attestation together, completeness per college, signals, reports and the evaluation. Boards and checklists are in [docs/PROGRESS.md](docs/PROGRESS.md); reasons are in `docs/DECISIONS.md` (D23 to D33 for Week 3).
 
 ## Run it
 
@@ -16,7 +16,7 @@ Week 2 of 4 is merged (2026-10-28). A college's upload now runs through the engi
 cp .env.example .env
 make up          # postgres, redis, mailpit, api, worker, mockgov, web
 make datagen     # synthetic data, small mode (SIZE=full for 500 colleges)
-make seed        # mockgov registries, then every upload through the engine (about 2 minutes, small)
+make seed        # mockgov registries, every upload through the engine, notices, simulated replies (about 14 minutes, small)
 make test
 ```
 
@@ -97,6 +97,56 @@ Week 2 was verified on a native stack because Docker Desktop would not start on 
 - CI has never run on GitHub (Actions billing); the suites pass locally.
 - `POST /admin/demo/reset` still answers 501; `make demo-reset` is the working path.
 
+## Week 3: run it
+
+```
+make up                  # Mailpit at :8025 holds the notices; on another machine with Redis on 6379 set REDIS_HOST_PORT
+make datagen             # also writes planned student replies and the 2025-26 graduates
+make demo-reset          # both databases and Mailpit wiped, then: uploads, notices, simulated replies (about 14 minutes, small)
+make test                # api 516, mockgov 103, datagen 92
+make e2e                 # the demo path in a browser, see below
+```
+
+After the seed, Ravi Kumar Sharma and Xavier Paul (ABC College CSE) are the two students whose notices are left unanswered for the demo.
+
+### Walk the student loop
+
+1. Open Mailpit (http://localhost:8025), search for Ravi Kumar Sharma, and open the link in his notice. The page shows the claim with the APAAR masked; answer Yes.
+2. Sign in as `student@demo`: My proofs holds an Enrolment proof. Share it, tick Academic year, agree and create the QR. The code under it opens `/verify/{code}` in any browser: Valid, with exactly the three shared fields.
+3. Open the demo DigiLocker inbox (http://localhost:8001/digilocker/ui?apaar_id=815283767032) and follow Xavier Paul's Respond link; answer No with a comment. ABC College gets a High "Student denied" flag; officers see the comment, the registrar does not.
+
+### Work a case
+
+1. As `ro.west@aicte.demo`, open the cases queue and an ABC College flag; Request documents with a note and a due date. The registrar gets an email in Mailpit.
+2. As `registrar@abc.edu.demo`, open the flag under Flags and respond with a note and a PDF.
+3. As `ro.west@aicte.demo`, download the attachment and Clear the flag with a note. The history lists each step; the college sees the clear note but never an internal note.
+4. As `admin@aicte.demo`, an enrolment's page lists its proofs; Revoke takes a reason, and a verifier then sees Revoked. A revoked proof is never issued again on its own.
+
+### Degrees, audit and privacy
+
+- As `coe@univ.demo`, Degree print lists 2025-26 graduates; issue a degree proof, open the print view (masked APAAR and QR) or download the PDF; the QR opens `/verify/d/...` and verifies.
+- As `admin@aicte.demo`, Audit verifies the chain ("Chain intact"). `make audit-tamper SEQ=n` changes one entry (demo mode only); Verify then reports the break at that entry. `make demo-reset` restores it.
+- As `student@demo`, Privacy shows the consents with their exact text, who viewed the record (roles and dates only), and data requests; an Access request downloads everything held, with the APAAR masked.
+
+### Results of the compose run (small seed, 2026-10-29)
+
+| Measure | Result |
+|---|---|
+| Uploads through the engine | 53 files, 10,633 rows in 363 s |
+| Notices | 20,334 sent (10,611 emails, the rest DigiLocker) in 184 s |
+| Simulated replies | 7,210 Yes, 8 No, 3,398 no reply in 189 s |
+| Planted cases caught | 84 of 84 with the expected severity, incl. 8 Student denied |
+| Flags raised | 100, none unexplained |
+| Refused-consent controls flagged | 0 of 20 |
+| Fully countersigned | 67.9% of 10,611 active records |
+| Playwright demo path | 22 passed, about 1.5 minutes |
+
+### Known gaps carried into Week 4
+
+- The small seed now takes about 14 minutes end to end, and uploads alone about 6 minutes; Week 4's evaluation sets 50,000 rows under 2 minutes.
+- A reply through the notice link counts even when it came by email to an address the college supplied; Week 4 moves every reply behind DigiLocker sign-in.
+- CI has never run on GitHub (Actions billing); the suites pass locally.
+
 ## End-to-end tests
 
 Playwright tests in `apps/web/e2e` walk the demo path, one file per flow: every role signs in; ABC College CSE shows 120 approved and 132 admitted with its Excess admission flag; the R. K. Sharma duplicate leads to Ravi Kumar Sharma; Ravi's notice from Mailpit is answered Yes, his Enrolment proof is shared with three fields and verifies, then shows Revoked once AICTE revokes it; a No from the DigiLocker inbox raises a High Student denied flag; an officer requests documents, the registrar answers with a PDF and the officer clears; a degree insert prints and its QR verifies; the audit chain verifies. They run from the host against the running stack, one at a time, with Playwright's bundled headless Chromium.
@@ -107,7 +157,7 @@ make demo-reset   # a clean run starts from a fresh seed
 make e2e          # about 2 minutes once the web has compiled its pages
 ```
 
-A clean run starts from `make demo-reset`, because the tests answer the two notices the seed keeps for the live demo, clear one ABC College flag and issue one degree proof. A second run without a reset still passes: it answers other unanswered ABC College notices found through Mailpit, has an officer's recheck issue Ravi a new proof, and takes the next flag and graduate, printing a `note:` line for each of these. `E2E_BASE_URL`, `E2E_API_URL`, `E2E_MAILPIT_URL` and `E2E_MOCKGOV_URL` move the addresses; a failed test keeps its trace and screenshot under `apps/web/test-results`.
+A clean run starts from `make demo-reset`, because the tests answer the two notices the seed keeps for the live demo, clear one ABC College flag and issue one degree proof. A second run without a reset still passes: it answers other unanswered ABC College notices found through Mailpit, skips sharing Ravi's proof (an officer's revocation holds, so it is not issued again), and takes the next flag and graduate, printing a `note:` line for each of these. `E2E_BASE_URL`, `E2E_API_URL`, `E2E_MAILPIT_URL` and `E2E_MOCKGOV_URL` move the addresses; a failed test keeps its trace and screenshot under `apps/web/test-results`.
 
 ## Layout
 
