@@ -1,31 +1,13 @@
 import * as React from "react";
 import { TriangleAlert } from "lucide-react";
-import { CountersignScore, CHECK_ORDER } from "@/components/brand/CountersignScore";
 import { t, tk } from "@/lib/copy";
 import { formatCount } from "@/lib/format";
-import type { Countersign, InstitutionType } from "@/lib/types";
+import type { InstitutionType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-/**
- * The countersign strip. With a score it is the brand CountersignScore; in
- * Week 1 (score null, no checks) it draws five hollow segments and
- * "Not yet checked", as page spec section 0 asks.
- */
-export function CountersignStrip({ countersign, size = "sm" }: { countersign: Countersign; size?: "sm" | "md" | "lg" }) {
-  if (countersign.score) return <CountersignScore countersign={countersign} size={size} />;
-  const sizeClass = size === "sm" ? "countersign-score--sm" : size === "lg" ? "countersign-score--lg" : undefined;
-  return (
-    <span className={cn("countersign-score", sizeClass)} aria-label={t("strip.not_checked")} role="img">
-      <span className="countersign-score__checks" aria-hidden="true">
-        {CHECK_ORDER.map((c) => (
-          <span key={c} className="countersign-score__check" data-status="UNCHECKED" title={`${tk(`check.${c}`)}: ${t("strip.not_checked")}`} />
-        ))}
-      </span>
-      <span className="countersign-score__empty">{t("strip.not_checked")}</span>
-    </span>
-  );
-}
+/** The live strip lives in components/countersign; re-exported for the Week 1 callers. */
+export { CountersignStrip } from "@/components/countersign/countersign-strip";
 
 /** "12 unseated" in amber with the ledger tooltip; zero renders a plain "0". */
 export function UnseatedCount({ n }: { n: number }) {
