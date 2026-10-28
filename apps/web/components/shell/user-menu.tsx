@@ -20,7 +20,7 @@ function shortName(user: User): string {
   if (user.role === "STUDENT") return user.name.split(" ")[0];
   if (user.role === "INSTITUTION") return "Registrar";
   if (user.role === "UNIVERSITY") return "COE";
-  if (user.role === "RO_OFFICER") return "Regional officer";
+  if (user.role === "RO_OFFICER") return "RO";
   return "Admin";
 }
 
