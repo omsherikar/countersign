@@ -113,6 +113,8 @@ export function FlagsTable({
   const rows = data?.items ?? [];
   const showInstitution = variant === "cases";
   const showAssignee = queue;
+  /** The case queue folds Programme, Evidence and Related into other cells below 1280 px. */
+  const fold = showInstitution;
   const cols = 6 + (showInstitution ? 1 : 0) + (showAssignee ? 1 : 0);
   const filtered = Boolean(
     severity || type || (variant === "cases" && chosenInstitution) || state || programme || q || assignee || response || status !== DEFAULT_STATUS,
@@ -145,7 +147,8 @@ export function FlagsTable({
   const tbody = React.useRef<HTMLTableSectionElement>(null);
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key !== "j" && e.key !== "k") return;
-    const links = Array.from(tbody.current?.querySelectorAll<HTMLAnchorElement>("a[data-row-link]") ?? []);
+    // Each row has one visible row link; the other sits in a column hidden at this width.
+    const links = Array.from(tbody.current?.querySelectorAll<HTMLAnchorElement>("a[data-row-link]") ?? []).filter((a) => a.offsetParent !== null);
     if (links.length === 0) return;
     const at = links.indexOf(document.activeElement as HTMLAnchorElement);
     const next = e.key === "j" ? Math.min(links.length - 1, at + 1) : Math.max(0, at === -1 ? 0 : at - 1);
@@ -263,11 +266,13 @@ export function FlagsTable({
               </th>
               <th scope="col">{t("col.flag_type")}</th>
               {showInstitution && <th scope="col">{t("col.institution")}</th>}
-              <th scope="col" className="code">
+              <th scope="col" className={cn("code", fold && "hidden xl:table-cell")}>
                 {t("col.programme")}
               </th>
-              <th scope="col">{t("col.evidence")}</th>
-              <th scope="col" className="num" title={t("col.related_tip")}>
+              <th scope="col" className={cn(fold && "hidden xl:table-cell")}>
+                {t("col.evidence")}
+              </th>
+              <th scope="col" className={cn("num", fold && "hidden xl:table-cell")} title={t("col.related_tip")}>
                 {t("col.related")}
               </th>
               <th scope="col" className="num" aria-sort={sort === "created_desc" ? "descending" : "none"}>
@@ -303,7 +308,7 @@ export function FlagsTable({
                 <td>
                   <SeverityCell severity={f.severity} />
                 </td>
-                <td className="wrap !h-auto min-w-[11rem] py-2 font-medium leading-snug">
+                <td className={cn("wrap !h-auto py-2 font-medium leading-snug", fold ? "min-w-[15rem] xl:min-w-[11rem]" : "min-w-[11rem]")}>
                   <span className="block">{tk(`flag.${f.type}.name`)}</span>
                   {(f.status !== "OPEN" || f.response_received) && (
                     <span className="mt-1 flex flex-wrap items-center gap-1">
@@ -311,20 +316,27 @@ export function FlagsTable({
                       {f.response_received && <ResponseBadge />}
                     </span>
                   )}
+                  {fold && (
+                    // Below 1280 px the evidence sits under the type, so the queue fits beside the sidebar.
+                    <Link href={`${detailBase}/${f.id}`} data-row-link className="mt-1 block font-normal xl:hidden">
+                      {f.summary}
+                    </Link>
+                  )}
                 </td>
                 {showInstitution && (
-                  <td className="max-w-[15rem] truncate text-ink-muted" title={`${f.institution.name}, ${f.institution.state_name}`}>
+                  <td className="wrap !h-auto min-w-[9rem] py-2 leading-snug text-ink-muted xl:max-w-[15rem]" title={`${f.institution.name}, ${f.institution.state_name}`}>
                     {f.institution.name}
+                    {f.programme && <span className="code mt-0.5 block text-xs text-ink xl:hidden">{f.programme.code}</span>}
                   </td>
                 )}
-                <td className="code">{f.programme?.code ?? ""}</td>
+                <td className={cn("code", fold && "hidden xl:table-cell")}>{f.programme?.code ?? ""}</td>
                 {/* The evidence sentence wraps rather than being cut to one line; a tooltip never reached touch screens. */}
-                <td className="wrap !h-auto min-w-[16rem] py-2 leading-snug">
+                <td className={cn("wrap !h-auto min-w-[16rem] py-2 leading-snug", fold && "hidden xl:table-cell")}>
                   <Link href={`${detailBase}/${f.id}`} data-row-link className="block">
                     {f.summary}
                   </Link>
                 </td>
-                <td className="num">{formatCount(f.related_count)}</td>
+                <td className={cn("num", fold && "hidden xl:table-cell")}>{formatCount(f.related_count)}</td>
                 <td className="num text-ink-muted">{formatDate(f.created_at)}</td>
                 {showAssignee && (
                   <td className={cn("wrap !h-auto min-w-[7rem] py-2 leading-snug", !f.assignee && "text-ink-muted")}>
