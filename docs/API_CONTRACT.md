@@ -1275,3 +1275,31 @@ export interface FlagDetail extends FlagRow {
   history: unknown[]; // always [] in Week 2
 }
 ```
+
+### A2.24 Section E update: datagen output for Week 2
+
+Supersedes the matching lines of section E. Everything not mentioned stays as it is.
+
+**Upload columns.** Every upload CSV and XLSX has the 19 columns of §A2.2, in that order: the 16 of section E, then `status`, `status_date`, `admission_date`.
+
+- Initial files `uploads/<aicte_id>_<year>.csv` (+ `.xlsx`): `status` and `status_date` blank on every row (so re-uploading an initial file after an update never undoes a withdrawal); `admission_date` filled on every row with a date in the cohort's admission window: 1 July of the cohort start year up to that year's cutoff (`2026-09-15` for 2026-27, from `rules.yaml` `cutoff_dates`), or up to 30 September when `rules.yaml` has no cutoff for that year.
+- Update files `uploads/<aicte_id>_<year>_update<n>.csv` (+ `.xlsx`), `n` from 1: small size 3 colleges (ABC College plus two others), full size 20. An update file holds only rows that change something; an existing student's row repeats every identity column of its initial row exactly so it resolves to the same student. Each update file has:
+  - 2 to 4 withdrawals: `status = WITHDRAWN`, `status_date` between `2026-09-16` and `2026-10-20`;
+  - 1 or 2 transfers: `status = TRANSFERRED`, same date range;
+  - late refills in one programme whose first-year REGULAR pool is exactly full in the initial file (datagen tops the cohort up to the pool's capacity if needed): `k` first-years of REGULAR-pool routes are withdrawn in the same file and `k` new first-year students (MANAGEMENT or SPOT, with an APAAR and a registry entry) are added with `admission_date` between `2026-09-16` and `2026-10-20`, after the cutoff. Each refill takes a released seat and must raise LATE_REFILL.
+  - Never: ABC College CSE first-years (the 132 against 120 demo stays exact), the demo student, any row tagged by another planted anomaly, or a programme with a planted EXCESS_ADMISSION or QUOTA_BREACH (its numbers must stay as planted).
+- `make seed` loads every initial file first (sorted by name), then the update files (sorted by college, then `n`).
+
+**Programmes.** `institutions.json` programmes keep `mode` (`PHYSICAL`, `ODL`, `ONLINE`); the seed imports it into `programmes.mode`.
+
+**ground_truth.json.**
+
+- `expected_flag` takes exactly these values: `EXCESS_ADMISSION`, `QUOTA_BREACH`, `LATE_REFILL`, `INVALID_APAAR`, `NAME_MISMATCH`, `DUPLICATE_WITHIN_UPLOAD`, `DUPLICATE_CROSS_INSTITUTION`, `DUAL_ENROLMENT_ALLOWED`, `NO_ACADEMIC_ACTIVITY` (raised in Week 2), `STUDENT_DENIED`, `GHOST_RING` (kept for Weeks 3 and 4), or `null` for a legitimate case that must not be flagged (`CONSENT_REFUSED_NO_APAAR`, and the new `WITHDRAWAL` and `TRANSFER` records).
+- `severity_expected` follows ENGINES.md §10: EXCESS_ADMISSION HIGH; QUOTA_BREACH HIGH when an NRI or INTERNATIONAL pool is exceeded by more than 2, else MEDIUM; LATE_REFILL MEDIUM; INVALID_APAAR HIGH for kind `UNKNOWN` (well-formed, not in the registry) and MEDIUM for `SHORT`, `LONG`, `LETTERS` (malformed); NAME_MISMATCH MEDIUM (planted names score below 75); DUPLICATE_WITHIN_UPLOAD MEDIUM; DUPLICATE_CROSS_INSTITUTION HIGH (shared APAAR); DUAL_ENROLMENT_ALLOWED LOW; NO_ACADEMIC_ACTIVITY MEDIUM.
+- New records: `LATE_REFILL` (rows = the refill rows; extra keys `seat_type`, `cutoff_date`, `released_rows`), `WITHDRAWAL` and `TRANSFER` (rows = the update rows; `expected_flag: null`).
+- `rows[].row_no` becomes the spreadsheet row number (header row 1, first data row 2), the same numbering as the api's `enrolments.source_row_no` and `upload_row_errors.row_no`; `rows[].file` names the initial or the update file. `student_refs` for rows without an APAAR are `<file>#<row_no>` with that numbering.
+- DUPLICATE_CROSS_INSTITUTION and DUAL_ENROLMENT_ALLOWED stay one record per pair; the api raises one flag per institution, and the quick check (verification item 8) accepts either.
+
+**mockgov registries.** Refill students get `apaar_registry` entries; no counselling or ABC rows are needed for them (first-year MANAGEMENT or SPOT). Withdrawn and transferred students keep their registry rows.
+
+**manifest.json** `counts` gains `update_files` and `update_rows`.
