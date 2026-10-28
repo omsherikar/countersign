@@ -382,6 +382,11 @@ export interface SeatListParams {
   academic_year?: string;
 }
 export type EnrolmentListParams = EnrolmentListQuery;
+/** Errata 2: `status` also takes UNRESOLVED (OPEN, DOCS_REQUESTED, ESCALATED), the set flags_open counts. */
+export type FlagStatusFilter = FlagStatus | "UNRESOLVED";
+export interface FlagListParams extends Omit<FlagListQuery, "status"> {
+  status?: FlagStatusFilter;
+}
 export interface UploadListParams {
   page?: number;
   page_size?: number;
