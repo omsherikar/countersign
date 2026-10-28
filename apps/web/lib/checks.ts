@@ -16,7 +16,13 @@ const hasDetail = (c: AnyCheck): c is Check => "detail" in c && typeof c.detail 
 /** The status word a reader sees: check.status.*, or for PENDING the first pending word that applies. */
 export function statusWord(c: AnyCheck): string {
   if (c.status !== "PENDING") return tk(`check.status.${c.status}`);
-  if (c.type === "STUDENT") return t("check.pending.student");
+  if (c.type === "STUDENT") {
+    // Enrolment detail knows where the notice stands (A3.8); lists say "No reply yet".
+    const state = hasDetail(c) ? c.detail.notice_state : undefined;
+    if (state === "NOT_SENT" || state === "UNREACHABLE") return t("check.pending.student_not_sent");
+    if (state === "EXPIRED") return t("check.pending.student_expired");
+    return t("check.pending.student");
+  }
   if (hasDetail(c)) {
     if (c.detail.source_unavailable) return t("check.pending.unavailable");
     if (c.detail.needs_review) return t("check.pending.review");
