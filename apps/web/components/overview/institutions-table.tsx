@@ -46,14 +46,19 @@ function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmi
   if (withAdmitted) cols.push({ key: "admitted", label: t("col.admitted"), num: true, tip: t("col.admitted_tip", { academic_year: academicYear }) });
   cols.push({ key: "enrolments", label: t("col.enrolments"), num: true, sort: "enrolments", tip: t("col.enrolments_tip", { academic_year: academicYear }) });
   if (variant !== "university") {
-    cols.push({ key: "flags_open", label: t("col.flags_open"), num: true }, { key: "integrity", label: t("col.integrity"), num: true });
+    cols.push(
+      { key: "flags_open", label: t("col.flags_open"), num: true, sort: "flags_open_desc", tip: t("table.sort_tip") },
+      { key: "integrity", label: t("col.integrity"), num: true },
+    );
   }
   return cols;
 }
 
 /**
  * "Institutions ranked": server-side search, filters, sort and pages, all
- * kept in the URL. Week 1 ranks by enrolments (descending), ties by name.
+ * kept in the URL. Officers rank by open flags, then students on roll
+ * (sort=flags_open_desc, A2.20); the university, which sees no flags, by
+ * students on roll.
  */
 export function InstitutionsTable({
   variant,
@@ -78,8 +83,11 @@ export function InstitutionsTable({
   const state = params.get("state") ?? "";
   const regionFilter = variant === "aicte" ? (params.get("region") ?? "") : "";
   const type = params.get("type") ?? "";
-  const sort = (params.get("sort") as InstitutionListSort | null) ?? "enrolments";
-  const order = (params.get("order") as "asc" | "desc" | null) ?? (sort === "name" ? "asc" : "desc");
+  const defaultSort: InstitutionListSort = variant === "university" ? "enrolments" : "flags_open_desc";
+  const sort = (params.get("sort") as InstitutionListSort | null) ?? defaultSort;
+  // flags_open_desc carries its own direction; the A.6 keys take `order`.
+  const oneWay = sort === "flags_open_desc" || sort === "enrolments_desc" || sort === "name_asc";
+  const order = oneWay ? "desc" : ((params.get("order") as "asc" | "desc" | null) ?? (sort === "name" ? "asc" : "desc"));
   const page = Math.max(1, Number(params.get("page") ?? 1) || 1);
 
   const query: InstitutionListParams = {
@@ -90,7 +98,7 @@ export function InstitutionsTable({
     region: (regionFilter || undefined) as Region | undefined,
     type: (type || undefined) as InstitutionType | undefined,
     sort,
-    order,
+    order: oneWay ? undefined : order,
   };
   const list = useInstitutions(query);
   // Admitted appears once the api sends it; until then the table shows seats and students on roll only.
@@ -109,6 +117,10 @@ export function InstitutionsTable({
   const onSearch = React.useCallback((value: string) => set({ q: value, page: null }), [set]);
 
   function toggleSort(key: InstitutionListSort) {
+    if (key === "flags_open_desc") {
+      set({ sort: key === defaultSort ? null : key, order: null, page: null });
+      return;
+    }
     if (sort === key) set({ sort: key, order: order === "asc" ? "desc" : "asc", page: null });
     else set({ sort: key, order: key === "name" ? "asc" : "desc", page: null });
   }
