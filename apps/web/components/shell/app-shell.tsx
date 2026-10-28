@@ -83,7 +83,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
   const student = role === "STUDENT";
 
   return (
-    <div className="min-h-dvh bg-paper">
+    <div className="flex min-h-dvh flex-col bg-paper">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-paper-raised focus:px-3 focus:py-2"
@@ -142,10 +142,11 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
           </nav>
         )}
       </header>
-      <div className="flex">
+      <div className="flex flex-1">
         {!student && (
-          <aside className="sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-[220px] shrink-0 overflow-y-auto border-r border-line bg-sidebar md:block">
-            <nav aria-label="Main" className="p-3">
+          // The column carries the background and rule for the whole page height; only the nav inside it sticks.
+          <aside className="hidden w-[220px] shrink-0 border-r border-line bg-sidebar md:block">
+            <nav aria-label="Main" className="sticky top-14 max-h-[calc(100dvh-3.5rem)] overflow-y-auto p-3">
               <NavList items={items} />
             </nav>
           </aside>
