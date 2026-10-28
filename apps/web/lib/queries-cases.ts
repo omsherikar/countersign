@@ -158,3 +158,12 @@ export function useResendNotice(enrolmentId: string) {
     onSettled: () => void qc.invalidateQueries({ queryKey: keys.enrolment(enrolmentId) }),
   });
 }
+
+/** POST /credentials/{id}/revoke (AICTE only); the enrolment refetches so its proofs list follows. */
+export function useRevokeCredential(enrolmentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => api.post<unknown>(`/credentials/${id}/revoke`, { reason }),
+    onSettled: () => void qc.invalidateQueries({ queryKey: keys.enrolment(enrolmentId) }),
+  });
+}

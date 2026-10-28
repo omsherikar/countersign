@@ -25,6 +25,7 @@ import { ReadLoggedNote } from "@/components/common/ledger-bits";
 import { CountersignStrip } from "@/components/countersign/countersign-strip";
 import { useMe } from "@/components/providers/root-provider";
 import { NoticeBlock } from "@/components/enrolment/notice-block";
+import { ProofsBlock } from "@/components/enrolment/proofs-block";
 
 export type EnrolmentVariant = "aicte" | "ro" | "college" | "university";
 
@@ -304,6 +305,7 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
               </section>
 
               {variant !== "university" && <NoticeBlock d={d} officer={officer} />}
+              {variant !== "university" && <ProofsBlock d={d} />}
             </div>
 
             <aside aria-labelledby="flags-heading" className="min-w-0 lg:col-span-4">
