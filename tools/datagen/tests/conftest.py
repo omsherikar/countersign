@@ -31,10 +31,14 @@ class Generated:
             return [json.loads(line) for line in fh if line.strip()]
 
     def file(self, relative: str) -> list[dict]:
-        """Rows of any upload file, by its path relative to the output directory."""
+        """Rows of any upload file, by its path relative to the output directory, keyed by
+        template column (a college's own headers mapped back through column_mappings.json)."""
         if relative not in self._files:
+            aid = Path(relative).name.split("_")[0]
+            own = self.json("column_mappings.json").get(aid, {})
             with open(self.path / relative, encoding="utf-8", newline="") as fh:
-                self._files[relative] = list(csv.DictReader(fh))
+                rows = [{own.get(k, k): v for k, v in row.items()} for row in csv.DictReader(fh)]
+            self._files[relative] = rows
         return self._files[relative]
 
     def row(self, relative: str, row_no: int) -> dict:
@@ -50,8 +54,14 @@ class Generated:
             return fh.readline().rstrip("\n").split(",")
 
     def all_uploads(self) -> dict[str, list[dict]]:
+        """Every college's initial file; an overdue college has none."""
+        overdue = set(self.json("manifest.json")["overdue_colleges"])
         inst = self.json("institutions.json")["institutions"]
-        return {i["aicte_permanent_id"]: self.upload(i["aicte_permanent_id"]) for i in inst}
+        return {
+            i["aicte_permanent_id"]: self.upload(i["aicte_permanent_id"])
+            for i in inst
+            if i["aicte_permanent_id"] not in overdue
+        }
 
     def update_files(self) -> list[str]:
         return sorted(f"uploads/{p.name}" for p in (self.path / "uploads").glob("*_update*.csv"))

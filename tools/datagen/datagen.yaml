@@ -66,3 +66,52 @@ graduates:
   other_universities:  3
   provisional:         [3, 5]
   status_dates:        ["2026-06-15", "2026-07-31"]
+
+# Credits issuers (ABC): this share of colleges is autonomous and issues its own credits
+# (XYZ Institute of Technology and every deemed university among them, ABC College never);
+# every other college's credits are issued by its affiliating university.
+autonomous_share: 0.30
+
+# The state admission authority's joinings (mockgov/admission_joinings.jsonl) and the
+# cases planted against them. `reporting_deadline` applies when rules.yaml has no
+# reporting.deadline for the year; other years default to 30 September of their start year.
+joining:
+  reporting_deadline: {"2026-27": "2026-09-30"}
+  joined_within_days: [0, 6]
+  late_joiners:         {small: 3,  full: 25}   # clean first-years who joined after the deadline
+  never_joined:         {small: 6,  full: 60}   # NOT_IN_JOINING_RECORD, the sample card included
+  omitted_colleges:     {small: 3,  full: 25}   # MISSING_FROM_UPLOAD, one record per college
+  omitted_per_college:  [2, 6]
+
+# Eligibility markers on upload rows (tfw_income_certified, nri_sponsored, ciwg; yes or no,
+# blank when not reported) and the rows planted against them (API_CONTRACT A4.4).
+eligibility:
+  ciwg_rows:            {small: 2,  full: 12}   # CIWG students on CIWG-reserved seats
+  nri_status:           {small: 1,  full: 6}    # ELIGIBILITY_BREACH: NRI seat, nri_sponsored no
+  tfw_income:           {small: 1,  full: 6}    # ELIGIBILITY_BREACH: TFW seat, certificate no
+  international_ciwg:   {small: 1,  full: 4}    # ELIGIBILITY_BREACH: nationality IN, not ciwg
+  tfw_not_reported:     {small: 2,  full: 10}   # TFW row without the certificate: Seat PENDING
+
+# Colleges planted for the anomaly model (signals, never a status) and history.json.
+signals:
+  admission_spike:      {small: 1,  full: 5}    # first-years far above last year's admissions
+  nri_management_share: {small: 1,  full: 5}    # NRI and management share far above peers
+  retention:            [0.90, 0.98]            # last year's admissions = second-years / this
+
+# Records planted to check the record status rule (statuses.py): clean records countersigned
+# by their joining line alone, and second-years whose only confirmed enrolment row is their
+# own college's credits (their state has published no joining record for that year).
+statuses:
+  clean_independent:    {small: 5,  full: 20}
+  self_issued_only:     {small: 3,  full: 12}
+
+# Upload files as colleges submit them (manifest `uploads`, column_mappings.json): when each
+# file arrived (initial files before the reporting deadline except the late colleges'; the
+# overdue colleges send nothing), and the colleges whose files use their own headers.
+submissions:
+  on_time:              ["2026-09-16", "2026-09-29"]
+  late:                 ["2026-10-03", "2026-10-20"]
+  updates:              ["2026-10-21", "2026-10-27"]
+  late_colleges:        {small: 2,  full: 10}
+  overdue_colleges:     {small: 1,  full: 5}
+  mapped_colleges:      {small: 3,  full: 15}   # XYZ Institute of Technology among them

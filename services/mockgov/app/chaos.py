@@ -18,7 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.errors import SourceDown
 from app.models import ChaosSetting
 
-SOURCES: tuple[str, ...] = ("apaar", "counselling", "abc", "digilocker", "sii")
+SOURCES: tuple[str, ...] = (
+    "apaar",
+    "counselling",
+    "abc",
+    "digilocker",
+    "sii",
+    "admission_authority",
+)
 
 DOWN_MESSAGES = {
     "apaar": "APAAR registry unavailable.",
@@ -26,6 +33,7 @@ DOWN_MESSAGES = {
     "abc": "Academic Bank of Credits unavailable.",
     "digilocker": "DigiLocker unavailable.",
     "sii": "Study in India registry unavailable.",
+    "admission_authority": "State admission authority unavailable.",
 }
 
 

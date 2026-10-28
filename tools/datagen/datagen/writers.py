@@ -14,6 +14,7 @@ from typing import Any
 from openpyxl import Workbook
 
 from . import geo
+from .digilocker import AccountBuilder
 from .graduates import records as graduate_records
 from .graduates import registry_records as graduate_registry_records
 from .institutions import ABC_ID, XYZ_ID, public_institution
@@ -98,14 +99,20 @@ def normalize_zip(path: Path) -> None:
     os.replace(tmp, path)
 
 
-def write_xlsx(path: Path, rows: list[dict]) -> None:
+def headers_for(world: World, aicte_id: str) -> list[str]:
+    """The template columns, under the college's own headers when it uses some."""
+    own = world.header_maps.get(aicte_id, {})
+    return [own.get(column, column) for column in UPLOAD_COLUMNS]
+
+
+def write_xlsx(path: Path, rows: list[dict], headers: list[str] = UPLOAD_COLUMNS) -> None:
     wb = Workbook(write_only=True)
     wb.properties.created = FIXED_XLSX_TIME
     wb.properties.modified = FIXED_XLSX_TIME
     wb.properties.creator = "datagen"
     wb.properties.lastModifiedBy = "datagen"
     ws = wb.create_sheet("students")
-    ws.append(UPLOAD_COLUMNS)
+    ws.append(headers)
     for row in rows:
         # A blank stays an empty cell, as in a sheet a registrar fills in by hand.
         ws.append([None if row[c] == "" else row[c] for c in UPLOAD_COLUMNS])
@@ -113,10 +120,10 @@ def write_xlsx(path: Path, rows: list[dict]) -> None:
     normalize_zip(path)
 
 
-def write_csv(path: Path, rows: list[dict]) -> None:
+def write_csv(path: Path, rows: list[dict], headers: list[str] = UPLOAD_COLUMNS) -> None:
     with open(path, "w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh, lineterminator="\n")
-        writer.writerow(UPLOAD_COLUMNS)
+        writer.writerow(headers)
         for row in rows:
             writer.writerow([row[c] for c in UPLOAD_COLUMNS])
 
@@ -186,7 +193,46 @@ def finalize_ground_truth(world: World) -> list[dict]:
     return out
 
 
-def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
+DEMO_ROLES = (
+    "DEMO_STUDENT", "SECOND_DEMO_NOTICE", "PROVISIONAL_CLAIM", "SOMEONE_ELSE", "SAMPLE_CARD",
+)  # fmt: skip
+
+
+def demo_digilocker_accounts(
+    world: World, planner: ReplyPlanner, accounts: AccountBuilder
+) -> list[dict]:
+    """The accounts the live demo signs in with, each with the upload row it stands for."""
+    if not world.cfg.scenarios:
+        return []
+    rows = dict(planner.demo_rows())
+    rows.update(world.demo_rows)
+    sample = next((r for r in world.ground_truth if r.get("scenario") == "not_me"), None)
+    if sample is not None:
+        rows["SAMPLE_CARD"] = sample["_rows"][0]
+    out = []
+    for role in DEMO_ROLES:
+        row = rows.get(role)
+        account_id = accounts.account_of(row) if row is not None else None
+        if account_id is None:
+            continue
+        account = accounts.get(account_id)
+        out.append(
+            {
+                "role": role,
+                "digilocker_id": account_id,
+                "name": account["name"],
+                "dob": account["dob"],
+                "apaar_id": account["apaar_id"],
+                "file": row["_file"],
+                "row_no": row["row_no"],
+            }
+        )
+    return out
+
+
+def write_all(
+    world: World, out: Path, *, xlsx: bool = True, submissions=None, perf: int | None = None
+) -> dict:
     import time
 
     out.mkdir(parents=True, exist_ok=True)
@@ -205,12 +251,19 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         },
     )
     dump_json(out / "users.json", users_payload(world))
+    dump_json(
+        out / "column_mappings.json",
+        {aid: {header: column for column, header in own.items()}
+         for aid, own in sorted(world.header_maps.items())},
+    )  # fmt: skip
     world.timings["write_institutions_users"] = time.perf_counter() - t
 
     t = time.perf_counter()
     files: list[tuple[str, list[dict]]] = []
     for inst in world.institutions:
         aid = inst["aicte_permanent_id"]
+        if aid in world.overdue:
+            continue  # an overdue college sent no file
         rows = world.rows_by_inst[aid]
         rows.sort(key=row_sort_key(inst))
         files.append((upload_filename(aid, year), rows))
@@ -225,14 +278,15 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
             materialise(row)
             row["row_no"] = i
             row["_file"] = name
-        write_csv(out / name, rows)
+        write_csv(out / name, rows, headers_for(world, name.split("/")[1].split("_")[0]))
     world.timings["write_csv"] = time.perf_counter() - t
 
     world.xlsx_written = False
     if xlsx:
         t = time.perf_counter()
         for name, rows in files + updates:
-            write_xlsx(out / name.replace(".csv", ".xlsx"), rows)
+            headers = headers_for(world, name.split("/")[1].split("_")[0])
+            write_xlsx(out / name.replace(".csv", ".xlsx"), rows, headers)
         world.timings["write_xlsx"] = time.perf_counter() - t
         world.xlsx_written = True
 
@@ -245,6 +299,7 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     dump_jsonl(out / "mockgov" / "counselling.jsonl", counselling)
     dump_jsonl(out / "mockgov" / "abc_credits.jsonl", abc)
     dump_jsonl(out / "mockgov" / "sii.jsonl", sii)
+    dump_jsonl(out / "mockgov" / "admission_joinings.jsonl", world.joining_records)
     world.timings["write_mockgov"] = time.perf_counter() - t
 
     t = time.perf_counter()
@@ -252,10 +307,22 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     planner = ReplyPlanner(world, files, {r["apaar_id"] for r in registry})
     replies = planner.plan()
     dump_jsonl(out / "notice_replies.jsonl", replies)
+    accounts = AccountBuilder(world, registry)
+    accounts.build()
+    demo_accounts = demo_digilocker_accounts(world, planner, accounts)
+    accounts.put_first([d["digilocker_id"] for d in demo_accounts])
+    dump_jsonl(out / "mockgov" / "digilocker_accounts.jsonl", accounts.accounts)
+    sample = next((r for r in world.ground_truth if r.get("scenario") == "sample_card"), None)
     world.timings["write_graduates_replies"] = time.perf_counter() - t
 
     ground_truth = finalize_ground_truth(world)
+    sample_card = (
+        {"file": sample["rows"][0]["file"], "row_no": sample["rows"][0]["row_no"]}
+        if sample
+        else None
+    )
     dump_json(out / "ground_truth.json", ground_truth)
+    dump_json(out / "history.json", world.history)
 
     by_type: dict[str, int] = {}
     for rec in ground_truth:
@@ -271,16 +338,24 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "upload_files": len(files),
         "update_files": len(updates),
         "update_rows": sum(len(rows) for _, rows in updates),
-        "students": len(world.all_rows),
+        "students": sum(len(rows) for _, rows in files),
         "apaar_registry": len(registry),
         "counselling": len(counselling),
         "abc_credits": len(abc),
         "sii": len(sii),
+        "admission_joinings": len(world.joining_records),
+        "admission_joinings_late": sum(
+            r["joined_on"] > world.cfg.reporting_deadline(r["academic_year"])
+            for r in world.joining_records
+        ),
+        "missing_from_upload": len(world.omitted_rows),
+        "digilocker_accounts": len(accounts.accounts),
         "graduates": len(world.graduates),
         "notice_replies": len(replies),
         "notice_replies_yes": sum(r["reply"] == "YES" for r in replies),
         "notice_replies_no": sum(r["reply"] == "NO" for r in replies),
         "notice_replies_none": sum(r["reply"] == "NONE" for r in replies),
+        "history_institutions": len(world.history.get("institutions", [])),
         "ground_truth": len(ground_truth),
         "ground_truth_by_type": dict(sorted(by_type.items())),
     }
@@ -296,7 +371,23 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "counts": counts,
         # Notices the live demo answers by hand; notice_replies.jsonl leaves them unanswered.
         "demo_unanswered_notices": planner.unanswered,
+        "reporting_deadline": {year: world.cfg.reporting_deadline(year)},
+        # When each file arrived; the seed sets its batch's upload time from it.
+        "uploads": submissions.submitted([n for n, _ in files], [n for n, _ in updates])
+        if submissions
+        else [],
+        "late_colleges": list(world.late),
+        "overdue_colleges": list(world.overdue),
+        "demo_digilocker_accounts": demo_accounts,
+        # The deck's sample record (ABC College CSE), or null without the named scenarios.
+        "sample_card": sample_card,
     }
+    if perf:
+        from .perf import PerfBuilder
+
+        t = time.perf_counter()
+        manifest["perf"] = PerfBuilder(world, perf).write(out, write_csv, dump_json, dump_jsonl)
+        world.timings["perf"] = time.perf_counter() - t
     dump_json(out / "manifest.json", manifest)
     summary = dict(manifest)
     summary.update(

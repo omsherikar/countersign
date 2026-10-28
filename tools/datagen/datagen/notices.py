@@ -3,15 +3,18 @@
 Once a batch is processed the api sends every ACTIVE enrolment a notice ("ABC College says
 you joined B.Tech CSE. Is that right?") by email, and on DigiLocker when the student has an
 APAAR. The seed then applies these planned answers through the same service the notice page
-uses (DECISIONS D31):
+uses (DECISIONS D31); they stand for answers given after DigiLocker sign-in (API_CONTRACT
+A4.13), and `channel` stays the notice the student answers:
 
 - every planted STUDENT_DENIED row (`will_deny`) answers NO, on DigiLocker when the row has
-  an APAAR the registry holds, otherwise by email; three of them leave a short comment;
+  an APAAR the registry holds, otherwise by email; three of them leave a short comment, the
+  sample card's ("I never joined this college.") always among them;
 - about 70% of the clean rows answer YES, on a channel the student has;
-- every other row stays unanswered (NONE): rows of other planted cases, rows a later update
-  file withdraws or transfers, and the notices the live demo answers by hand (Ravi Kumar
-  Sharma, his duplicate row "R. K. Sharma", and one more ABC CSE first-year named in the
-  manifest).
+- every other row stays unanswered (NONE): rows of other planted cases and of the
+  record-status checks (CLEAN_INDEPENDENT, SELF_ISSUED_ONLY, PROVISIONAL_UNCLAIMED), rows a
+  later update file withdraws or transfers, and the notices the live demo answers by hand
+  (Ravi Kumar Sharma, his duplicate row "R. K. Sharma", and one more ABC CSE first-year named
+  in the manifest).
 
 One line per row of each initial upload file, in file and row order. Rows the api holds back
 as upload errors never become enrolments and have no line; update files have none either
@@ -36,7 +39,7 @@ YES_DAYS = (0, 12)
 NO_DAYS = (0, 5)
 # Rows of these ground-truth records are legitimate students, so they answer like any other.
 LEGITIMATE = {"CONSENT_REFUSED_NO_APAAR"}
-NOT_ME_COMMENT = "I never applied to this college."
+NOT_ME_COMMENT = "I never joined this college."
 COMMENTS = (
     "This is not me. I study at another college.",
     "I did not take admission here and have never been to this college.",

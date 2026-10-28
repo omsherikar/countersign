@@ -89,5 +89,5 @@ def test_public_shape_drops_internal_keys():
     assert not any(k.startswith("_") for k in pub)
     assert set(pub) == {
         "aicte_permanent_id", "name", "type", "state_code", "university_code",
-        "address_city", "established_year", "programmes",
+        "address_city", "established_year", "autonomous", "programmes",
     }  # fmt: skip

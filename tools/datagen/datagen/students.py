@@ -1,7 +1,8 @@
 """Student rows (what a college uploads) and the generation world they live in.
 
-Every row is a dict with the nineteen upload columns plus internal keys prefixed `_`
-that drive registry emission and anomaly bookkeeping. Internal keys never reach a file.
+Every row is a dict with the upload columns (the nineteen of the contract, then the three
+optional eligibility markers) plus internal keys prefixed `_` that drive registry emission and
+anomaly bookkeeping. Internal keys never reach a file.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ import math
 import random
 import re
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -18,15 +21,18 @@ from faker import Faker
 
 from . import geo
 from .config import Config
-from .institutions import InstitutionBuilder, approved_intake
+from .institutions import InstitutionBuilder, approved_intake, assign_autonomy, credit_issuer
 from .matching import name_key
 from .names import NameGenerator
 
-UPLOAD_COLUMNS = [
+CONTRACT_COLUMNS = [
     "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
     "passport_no", "programme_code", "academic_year", "year_of_study", "admission_route",
     "counselling_ref", "category", "consent_status", "status", "status_date", "admission_date",
 ]  # fmt: skip
+# Optional category-eligibility markers (eligibility.py), after the contract's columns.
+ELIGIBILITY_COLUMNS = ["tfw_income_certified", "nri_sponsored", "ciwg"]
+UPLOAD_COLUMNS = CONTRACT_COLUMNS + ELIGIBILITY_COLUMNS
 
 DEMO_APAAR = "123456784417"
 DEMO_NAME = "Ravi Kumar Sharma"
@@ -145,6 +151,18 @@ class World:
         self.update_files: dict[str, list[dict]] = {}
         # graduates.jsonl records (graduates.py): people who are not on the roll.
         self.graduates: list[dict] = []
+        # history.json (signals.py): last year's first-year admissions per college.
+        self.history: dict = {}
+        # joining.py: students with a joining record whom their college did not upload, and
+        # mockgov/admission_joinings.jsonl.
+        self.omitted_rows: list[dict] = []
+        self.joining_records: list[dict] = []
+        # statuses.py: rows behind the PROVISIONAL_CLAIM and SOMEONE_ELSE demo accounts.
+        self.demo_rows: dict[str, dict] = {}
+        # submissions.py: colleges that sent no file, sent it late, or use their own headers.
+        self.overdue: list[str] = []
+        self.late: list[str] = []
+        self.header_maps: dict[str, dict[str, str]] = {}
         self._name_keys: dict[tuple[str, str], str] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]
@@ -256,6 +274,9 @@ class World:
             "status": "",
             "status_date": "",
             "admission_date": "",
+            "tfw_income_certified": "",
+            "nri_sponsored": "",
+            "ciwg": "",
             "_inst": inst["aicte_permanent_id"],
             "_prog": prog,
             "_adm_year": admission_year,
@@ -564,11 +585,44 @@ class World:
         self.resolve_identity_conflicts()
         self.assign_admission_dates()
 
+    @contextmanager
+    def using_rng(self, rng: random.Random) -> Iterator[None]:
+        """Draw from `rng` instead of the run's stream, so steps added after the original
+        generation leave every value the run's stream produces unchanged."""
+        saved = self.rng, self.names.rng
+        self.rng = self.names.rng = rng
+        try:
+            yield
+        finally:
+            self.rng, self.names.rng = saved
+
+    def settle(self, rows: list[dict], rng: random.Random) -> None:
+        """Rows added after finalise(): re-draw the date of birth of any that looks like an
+        existing student (only new rows move, they rank last) and date their admissions."""
+        if not rows:
+            return
+        with self.using_rng(rng):
+            self.resolve_identity_conflicts()
+            for row in rows:
+                start, end = admission_window(self.cfg.rules, row["_cohort_start"])
+                last_normal = end - dt.timedelta(days=LATE_DAYS)
+                row["admission_date"] = self.random_date(start, last_normal).isoformat()
+
+    def leaving_rows(self) -> set[int]:
+        """ids of the initial rows an update file withdraws or transfers."""
+        return {
+            id(u["_initial"])
+            for rows in self.update_files.values()
+            for u in rows
+            if u.get("_initial") is not None
+        }
+
     # --------------------------------------------------------------- driver
 
     def build_institutions(self) -> None:
         self.universities = geo.universities()
         self.institutions = InstitutionBuilder(self.rng, self.cfg).build()
+        assign_autonomy(self.institutions, self.seed, self.cfg.autonomous_share)
         for inst in self.institutions:
             self.inst_by_id[inst["aicte_permanent_id"]] = inst
             self.rows_by_inst[inst["aicte_permanent_id"]] = []
@@ -658,7 +712,7 @@ class World:
     def registry_records(self) -> list[dict[str, Any]]:
         seen: set[str] = set()
         out = []
-        for row in self.all_rows + self.update_only_rows:
+        for row in self.all_rows + self.update_only_rows + self.omitted_rows:
             apaar = row["apaar_id"]
             if not apaar or row["_registry"] == "absent" or apaar in seen:
                 continue
@@ -671,7 +725,7 @@ class World:
 
     def counselling_records(self) -> list[dict[str, Any]]:
         out = []
-        for row in self.all_rows:
+        for row in self.all_rows + self.omitted_rows:
             if not row["_roll_no"]:
                 continue
             inst = self.inst_by_id[row["_inst"]]
@@ -692,9 +746,13 @@ class World:
         return out
 
     def abc_records(self) -> list[dict[str, Any]]:
+        """Credits of every year a student completed, each naming its issuer: the college's
+        affiliating university, or the college itself when it is autonomous."""
         out = []
         seen: set[tuple[str, str, int]] = set()
         start = academic_year_start(self.cfg.academic_year)
+        names = {u["code"]: u["name"] for u in self.universities}
+        issuers = {aid: credit_issuer(inst, names) for aid, inst in self.inst_by_id.items()}
         for row in self.all_rows:
             apaar = row["apaar_id"]
             if not apaar or row["_registry"] == "absent" or row["year_of_study"] < 2:
@@ -730,6 +788,7 @@ class World:
                             "credits": credits,
                             "uploaded_at": uploaded,
                             "result": result,
+                            **issuers[row["_inst"]],
                         }
                     )
         return out

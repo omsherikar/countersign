@@ -59,6 +59,9 @@ class AbcSemester(BaseModel):
     credits: int
     uploaded_at: datetime
     result: Literal["PASS", "FAIL", "PENDING"]
+    # A university code, or the AICTE permanent id of a college that issues its own credits.
+    issuer: str
+    issuer_name: str
 
 
 class AbcCreditsResponse(BaseModel):
@@ -105,7 +108,48 @@ class SiiVerifyResponse(BaseModel):
     academic_year: str | None
 
 
-ChaosSource = Literal["apaar", "counselling", "abc", "digilocker", "sii", "all"]
+class JoiningVerifyRequest(BaseModel):
+    state: str = Field(min_length=2, max_length=2)
+    academic_year: str = Field(pattern=r"^\d{4}-\d{2}$")
+    name: str = Field(min_length=1)
+    dob: date
+    roll_no: str | None = None
+    institution_code: str = Field(min_length=1)
+    programme: str = Field(min_length=1)
+
+
+class JoiningVerifyResponse(BaseModel):
+    found: bool
+    joined_on: date | None
+    round: int | None
+    route: str | None
+    category: str | None
+    # False when the authority holds no joining at all for that state and academic year.
+    published: bool
+
+
+class JoiningListItem(BaseModel):
+    roll_no: str | None
+    name: str
+    dob: date
+    programme: str
+    joined_on: date
+    round: int | None
+    route: str
+    category: str
+    apaar_last4: str | None
+
+
+class JoiningListResponse(BaseModel):
+    institution_code: str
+    academic_year: str
+    published: bool
+    items: list[JoiningListItem]
+
+
+ChaosSource = Literal[
+    "apaar", "counselling", "abc", "digilocker", "sii", "admission_authority", "all"
+]
 
 
 class ChaosEntry(BaseModel):

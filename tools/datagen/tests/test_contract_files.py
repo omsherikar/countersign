@@ -8,6 +8,7 @@ from openpyxl import load_workbook
 from datagen.config import load_datagen_config
 from datagen.students import UPLOAD_COLUMNS
 
+ELIGIBILITY_COLUMNS = ["tfw_income_certified", "nri_sponsored", "ciwg"]
 CONTRACT_COLUMNS = [
     "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
     "passport_no", "programme_code", "academic_year", "year_of_study", "admission_route",
@@ -29,27 +30,35 @@ def test_every_contract_file_exists(small):
     for name in [
         "institutions.json", "users.json", "ground_truth.json", "manifest.json", "summary.json",
         "mockgov/apaar_registry.jsonl", "mockgov/counselling.jsonl",
-        "mockgov/abc_credits.jsonl", "mockgov/sii.jsonl",
+        "mockgov/abc_credits.jsonl", "mockgov/sii.jsonl", "mockgov/admission_joinings.jsonl",
+        "mockgov/digilocker_accounts.jsonl",
+        "history.json",
     ]:  # fmt: skip
         assert (small.path / name).is_file(), name
     insts = small.json("institutions.json")["institutions"]
+    overdue = set(small.json("manifest.json")["overdue_colleges"])
     for inst in insts:
         aid = inst["aicte_permanent_id"]
-        assert (small.path / "uploads" / f"{aid}_2026-27.csv").is_file()
-        assert (small.path / "uploads" / f"{aid}_2026-27.xlsx").is_file()
+        sent = aid not in overdue
+        assert (small.path / "uploads" / f"{aid}_2026-27.csv").is_file() is sent
+        assert (small.path / "uploads" / f"{aid}_2026-27.xlsx").is_file() is sent
     updates = small.update_files()
     assert updates
     for name in updates:
         assert re.fullmatch(r"uploads/[^_]+_2026-27_update1\.csv", name)
         assert (small.path / name.replace(".csv", ".xlsx")).is_file()
-    assert len(list((small.path / "uploads").glob("*.csv"))) == len(insts) + len(updates)
-    assert len(list((small.path / "uploads").glob("*.xlsx"))) == len(insts) + len(updates)
+    files = len(insts) - len(overdue) + len(updates)
+    assert len(list((small.path / "uploads").glob("*.csv"))) == files
+    assert len(list((small.path / "uploads").glob("*.xlsx"))) == files
 
 
 def test_csv_columns_match_contract(small):
-    assert UPLOAD_COLUMNS == CONTRACT_COLUMNS
-    for aid in ["1-ABC-0001", "1-XYZ-0002"]:
-        assert small.upload_columns(aid) == CONTRACT_COLUMNS
+    """The contract's nineteen columns in order, then the optional eligibility markers; a
+    college with its own headers uses them in the same order."""
+    assert UPLOAD_COLUMNS == CONTRACT_COLUMNS + ELIGIBILITY_COLUMNS
+    assert small.upload_columns("1-ABC-0001") == UPLOAD_COLUMNS
+    own = small.json("column_mappings.json")["1-XYZ-0002"]
+    assert [own.get(h, h) for h in small.upload_columns("1-XYZ-0002")] == UPLOAD_COLUMNS
 
 
 def test_xlsx_mirrors_csv(small):
@@ -57,22 +66,26 @@ def test_xlsx_mirrors_csv(small):
     wb = load_workbook(small.path / "uploads" / "1-ABC-0001_2026-27.xlsx", read_only=True)
     ws = wb["students"]
     values = list(ws.iter_rows(values_only=True))
-    assert list(values[0]) == CONTRACT_COLUMNS
+    assert list(values[0]) == UPLOAD_COLUMNS
     assert len(values) - 1 == len(rows)
     first = values[1]
     assert first[0] == "123456784417"
     assert first[1] == "Ravi Kumar Sharma"
     assert str(first[11]) == "1"
     assert first[18] == rows[0]["admission_date"]
+    mappings = small.json("column_mappings.json")
     for name in small.update_files():
         csv_rows = small.file(name)
         wb = load_workbook(small.path / name.replace(".csv", ".xlsx"), read_only=True)
         values = list(wb["students"].iter_rows(values_only=True))
-        assert list(values[0]) == CONTRACT_COLUMNS
+        own = mappings.get(name.split("/")[1].split("_")[0], {})
+        assert [own.get(h, h) for h in values[0]] == UPLOAD_COLUMNS
         assert len(values) - 1 == len(csv_rows)
         for cells, row in zip(values[1:], csv_rows, strict=True):
+            # A read-only sheet leaves out trailing empty cells, as the api's reader expects.
+            cells = list(cells) + [None] * (len(UPLOAD_COLUMNS) - len(cells))
             assert [("" if c is None else str(c)) for c in cells] == [
-                row[c] for c in CONTRACT_COLUMNS
+                row[c] for c in UPLOAD_COLUMNS
             ]
 
 
@@ -101,11 +114,14 @@ def test_institutions_json_shape(small):
     inst = data["institutions"][0]
     assert set(inst) == {
         "aicte_permanent_id", "name", "type", "state_code", "university_code",
-        "address_city", "established_year", "programmes",
+        "address_city", "established_year", "autonomous", "programmes",
     }  # fmt: skip
     prog = inst["programmes"][0]
     assert {"code", "name", "level", "discipline", "shift", "approvals"} <= set(prog)
-    assert {"academic_year", "approved_intake"} == set(prog["approvals"][0])
+    assert {"academic_year", "approved_intake", "versions"} == set(prog["approvals"][0])
+    assert {"version", "approved_intake", "effective_from", "source"} == set(
+        prog["approvals"][0]["versions"][0]
+    )
     assert inst["aicte_permanent_id"] == "1-ABC-0001"
     assert inst["name"] == "ABC College of Engineering"
     assert inst["state_code"] == "MH"
@@ -155,7 +171,10 @@ def test_mockgov_jsonl_shapes(small):
     assert any(c["allotment_ref"] == "MHCET-2026-R1-004512" for c in cou)
 
     abc = small.jsonl("abc_credits.jsonl")
-    assert set(abc[0]) == {"apaar_id", "academic_year", "sem", "credits", "uploaded_at", "result"}
+    assert set(abc[0]) == {
+        "apaar_id", "academic_year", "sem", "credits", "uploaded_at", "result", "issuer",
+        "issuer_name",
+    }  # fmt: skip
     assert all(a["uploaded_at"].endswith("Z") for a in abc)
     assert all(a["result"] in {"PASS", "FAIL", "PENDING"} for a in abc)
     assert len({(a["apaar_id"], a["academic_year"], a["sem"]) for a in abc}) == len(abc)
@@ -170,13 +189,19 @@ def test_mockgov_jsonl_shapes(small):
 
 def test_manifest_and_summary(small):
     manifest = small.json("manifest.json")
-    assert set(manifest) == {"size", "seed", "generated_at", "counts", "demo_unanswered_notices"}
+    assert set(manifest) == {
+        "size", "seed", "generated_at", "counts", "demo_unanswered_notices", "reporting_deadline",
+        "demo_digilocker_accounts", "sample_card", "uploads", "late_colleges",
+        "overdue_colleges",
+    }  # fmt: skip
+    assert manifest["reporting_deadline"] == {"2026-27": "2026-09-30"}
     assert manifest["size"] == "small" and manifest["seed"] == 42
     counts = manifest["counts"]
     assert counts["institutions"] == 50
     assert counts["students"] == sum(len(r) for r in small.all_uploads().values())
     assert counts["apaar_registry"] == len(small.jsonl("apaar_registry.jsonl"))
     assert counts["upload_files"] == len(small.all_uploads())
+    assert counts["institutions"] == len(small.all_uploads()) + len(manifest["overdue_colleges"])
     assert counts["update_files"] == len(small.update_files())
     assert counts["update_rows"] == sum(len(small.file(f)) for f in small.update_files())
     summary = small.json("summary.json")
