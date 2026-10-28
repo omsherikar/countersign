@@ -17,7 +17,8 @@ from app.models.enums import (
     RowErrorLevel,
 )
 
-# Template order: the 16 columns of section E, then status, status_date, admission_date.
+# Template order: the 16 columns of section E, then status, status_date, admission_date,
+# then the three eligibility markers of API_CONTRACT §A4.16 (22 columns).
 UPLOAD_COLUMNS: tuple[str, ...] = (
     "apaar_id",
     "name",
@@ -38,7 +39,12 @@ UPLOAD_COLUMNS: tuple[str, ...] = (
     "status",
     "status_date",
     "admission_date",
+    "tfw_income_certified",
+    "nri_sponsored",
+    "ciwg",
 )
+# the eligibility markers (D41): yes, no or blank (not reported)
+ELIGIBILITY_COLUMNS: tuple[str, ...] = ("tfw_income_certified", "nri_sponsored", "ciwg")
 REQUIRED_COLUMNS: tuple[str, ...] = (
     "name",
     "dob",
@@ -54,6 +60,9 @@ FIELD_WORDS: dict[str, str] = {
     "year_of_study": "Year of study",
     "admission_route": "Admission route",
     "category": "Category",
+    "tfw_income_certified": "TFW income certificate",
+    "nri_sponsored": "NRI sponsored",
+    "ciwg": "CIWG",
 }
 
 DECLARATION_TEXT = (
@@ -167,6 +176,10 @@ class CleanRow:
     status_raw: str = ""
     status_date: date | None = None
     admission_date: date | None = None
+    # what the college reported for each eligibility marker; None when blank (D41)
+    eligibility: dict[str, bool | None] = field(
+        default_factory=lambda: dict.fromkeys(ELIGIBILITY_COLUMNS)
+    )
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property

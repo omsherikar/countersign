@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.cohort import cohort_year, start_year
 from app.engine.upload.mask import mask_value, masked_row
 from app.engine.upload.types import (
+    ELIGIBILITY_COLUMNS,
     FIELD_WORDS,
     REQUIRED_COLUMNS,
     CleanRow,
@@ -48,6 +49,9 @@ _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
 
 GENDERS = {"M": Gender.M, "F": Gender.F, "O": Gender.O, "U": Gender.U}
+# eligibility markers (API_CONTRACT §A4.16): any case; anything else is not reported
+MARKER_VALUES = {"YES": True, "Y": True, "TRUE": True, "1": True}
+MARKER_VALUES |= {"NO": False, "N": False, "FALSE": False, "0": False}
 GENDERS |= {"MALE": Gender.M, "FEMALE": Gender.F, "OTHER": Gender.O}
 UPLOAD_STATUSES = (EnrolmentStatus.ACTIVE, EnrolmentStatus.WITHDRAWN, EnrolmentStatus.TRANSFERRED)
 
@@ -192,6 +196,17 @@ class _Row:
         if value is None or (allowed is not None and value not in allowed):
             self.add(ERROR, column, "BAD_ENUM", BAD_ENUM_MESSAGES[column])
             return None
+        return value
+
+    def marker(self, column: str) -> bool | None:
+        """yes or no; blank is not reported, and anything else is a warning, not reported."""
+        raw = self.get(column)
+        if not raw:
+            return None
+        value = MARKER_VALUES.get(raw.upper())
+        if value is None:
+            message = f"{FIELD_WORDS[column]} must be yes or no; recorded as not reported"
+            self.add(WARNING, column, "BAD_ENUM", message)
         return value
 
     def optional_date(self, column: str, upload_day: date) -> date | None:
@@ -342,6 +357,9 @@ def validate_row(raw: RawRow, ctx: ValidationContext) -> tuple[CleanRow | None, 
     status_date = row.optional_date("status_date", ctx.upload_date)
     admission_date = row.optional_date("admission_date", ctx.upload_date)
 
+    # eligibility markers (D41): stored as reported, checked by the Seat Ledger
+    eligibility = {column: row.marker(column) for column in ELIGIBILITY_COLUMNS}
+
     # APAAR and consent (ENGINES.md §5 rules 3 and 4)
     apaar_raw = row.get("apaar_id")
     problem = apaar_problem(apaar_raw)
@@ -404,6 +422,7 @@ def validate_row(raw: RawRow, ctx: ValidationContext) -> tuple[CleanRow | None, 
             status_raw=row.get("status"),
             status_date=status_date,
             admission_date=admission_date,
+            eligibility=eligibility,
             raw=row.masked,
         ),
         row.issues,
