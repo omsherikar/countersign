@@ -1,8 +1,7 @@
 /**
  * Strings for officer case actions and history, the college response, the
  * audit page, the data requests queue and notice resends, keyed by the ids in
- * docs/ux/05-copy-deck.md. Ids that copy.ts already holds appear here only
- * when the deck changed their text; this object is spread last, so it wins.
+ * docs/ux/05-copy-deck.md. Ids copy.ts already holds are edited there.
  */
 export const casesCopy = {
   /* ---- Case actions, sheets, status lines and history (deck section 6) ---- */
@@ -61,7 +60,6 @@ export const casesCopy = {
   "college.due_line": "Reply by {due_date}",
   "college.respond_note_hint": "Required. Say what you are sending and how it answers the request.",
   "college.respond_note_required": "Write a reply before you send.",
-  "college.respond_files": "Attach documents (PDF, PNG or JPEG, up to 3 files, 5 MB each)",
   "college.respond_add_file": "Add file",
   "college.respond_remove_file": "Remove {filename}",
   "college.respond_file_count": "{n} of 3 files",
@@ -94,7 +92,6 @@ export const casesCopy = {
   "audit_action.SEED": "Seeded",
 
   /* ---- Student check words and sentences (deck sections 3 and 15) ---- */
-  "check.pending.student": "No reply yet",
   "check.pending.student_not_sent": "Notice not sent yet",
   "check.pending.student_expired": "No reply (expired)",
   "check.detail.STUDENT.pending_sent": "Notice sent on {sent_date}; no reply yet.",
@@ -129,11 +126,9 @@ export const casesCopy = {
   "flags.filter.assignee_none": "Unassigned",
   "flags.filter.response": "Response",
   "flags.filter.response_received": "Response received",
-  "flag.readonly_college": "An officer reviews every flag. If they ask for documents, you can respond here.",
 
   /* ---- Audit page (deck section 12) ---- */
   "audit.lead": "Every change, and every view of student records, in order. Each entry carries the hash of the one before, so a changed entry shows up when the chain is verified.",
-  "audit.col.seq": "Entry",
   "audit.col.entity_id": "Entity id",
   "audit.filter.entity_type": "Entity",
   "audit.filter.action": "Action",
@@ -198,7 +193,6 @@ export const casesCopy = {
 
   /* ---- Shell and dashboard (deck sections 1 and 3) ---- */
   "nav.data_requests": "Data requests",
-  "kpi.countersigned_tip": "Share of checked enrolments where every check that applies is countersigned, the student's own reply included. Waiting for a reply keeps an enrolment out of this share; it never counts against the college.",
 
   /* ---- Web-only strings, not in the deck yet ---- */
   "case.note_label_internal": "Note (officers only)",
@@ -209,4 +203,5 @@ export const casesCopy = {
   "college.respond_progress": "Sending, {pct}%",
   "admin.requests.count_any": "{total} requests",
   "admin.requests.resolve_for": "Resolve the request from {student_name}",
+  "enrolment.notice.consent_off_undated": "The student turned off new notices, so no new notice can be sent.",
 } as const;
