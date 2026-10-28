@@ -70,11 +70,20 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 | kpi.institutions | Institutions |
 | kpi.programmes | Programmes |
 | kpi.approved_seats | Approved seats |
-| kpi.enrolments | Enrolments |
+| kpi.admitted | Admitted |
+| kpi.enrolments | Students on roll |
 | kpi.flags_open | Open flags |
+| kpi.flags_open_tip | Flags that are open, waiting for documents or escalated, for {academic_year}. |
 | kpi.countersigned | Countersigned |
 | kpi.countersigned_value | {pct}% of enrolments fully countersigned |
+| kpi.countersigned_tip | Share of checked enrolments where every check that applies is countersigned. The last check is the student's own reply, which starts in Week 3, so this reads 0% until then. |
+| kpi.clear | No source disagrees |
+| kpi.clear_value | {pct}% of enrolments |
+| kpi.clear_tip | Share of checked enrolments where no source disagrees with the college's upload. A check that is still pending does not count against an enrolment. |
 | kpi.not_computed | Not yet computed |
+| app.hint.intake | {academic_year} intake |
+| app.hint.all_years | All years of study |
+| app.all_years_line | {n} students on roll across all years of study |
 | section.institutions_ranked | Institutions ranked |
 | section.by_state | By state |
 | section.by_region | By region |
@@ -97,17 +106,19 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 | col.type | Type |
 | col.programmes | Programmes |
 | col.approved_seats | Approved seats |
-| col.enrolments | Enrolments |
+| col.enrolments | On roll |
+| col.enrolments_tip | Every active student on the {academic_year} roll, all years of study. Not comparable with approved seats, which are one year's intake. |
 | col.flags_open | Open flags |
 | col.integrity | Integrity Index |
 | col.code | Code |
 | col.programme | Programme |
 | col.level | Level |
 | col.shift | Shift |
+| col.mode | Mode |
 | col.approved | Approved |
 | col.approved_tip | Approved intake for {academic_year} |
 | col.admitted | Admitted |
-| col.admitted_tip | Active enrolments uploaded by the college |
+| col.admitted_tip | Active students admitted against the {academic_year} intake, every admission route. Lateral entrants count with the batch they join. |
 | col.seated | Seated |
 | col.unseated | Unseated |
 | col.student | Student |
@@ -182,6 +193,10 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 | source.failed | Sources: could not check |
 | source.will_retry | Checks against it stay pending, not failed |
 
+Seats against admissions (API_CONTRACT §A2.18). Approved seats are one year's intake, so the only figure ever set beside them, in a row, a tile group, a sentence or a ratio, is `admitted` for the same year ([kpi.admitted], [col.admitted]), hinted [app.hint.intake]. `enrolments` is every student on roll in every year of study: it is labelled [kpi.enrolments] or [col.enrolments], always carries [app.hint.all_years] or [col.enrolments_tip], and is never divided by, subtracted from or placed "against" approved seats. No screen shows a fill percentage; seats are compared as counts (Approved, Admitted, Seated, Unseated). On `/college`, where the tiles are about one intake, the roll appears only as the line [app.all_years_line].
+
+Percentages. `countersigned_pct` and `clear_pct` arrive rounded to one decimal; print them as sent, dropping a trailing ".0" (0.0 prints "0%", 91.4 prints "91.4%"). Null prints [kpi.not_computed]. The two tiles always appear together, Countersigned first.
+
 Pending words. A PENDING check shows the first word that applies: [check.pending.student] for the Student check, in every view; [check.pending.unavailable] when `detail.source_unavailable`; [check.pending.review] when `detail.needs_review`; [check.pending.results] when `detail.awaiting_semester`; otherwise [check.status.PENDING]. Enrolment lists and `/students/me` carry no `detail` (API_CONTRACT §A2.10), so there any pending check other than Student reads "Pending". PENDING is hollow and never red, whatever its word.
 
 In `strip.score_pending`, `{pending}` counts pending checks other than Student; when that is 0 the strip shows `strip.score` alone. (Every active enrolment's Student check stays pending until student notices start in Week 3; counting it would print the same words on every row.) `strip.aria`, `strip.segment_tip` and `strip.segment_tip_full` use the same status words. `strip.segment_tip` is for lists (type and status only); `strip.segment_tip_full` is for enrolment detail. `check.na_reason.*` is the n/a tooltip in lists; on enrolment detail the check's `detail.summary` replaces it.
@@ -201,6 +216,9 @@ In `strip.score_pending`, `{pending}` counts pending checks other than Student; 
 | level.POST_DIPLOMA | Post diploma |
 | shift.FIRST | First |
 | shift.SECOND | Second |
+| mode.PHYSICAL | Physical |
+| mode.ODL | Open and distance learning |
+| mode.ONLINE | Online |
 | consent.LINKED | Linked |
 | consent.REFUSED | Refused |
 | consent.PENDING | Pending |
@@ -645,6 +663,7 @@ Wallet
 | student.heading | My enrolment |
 | student.card_lead | {institution_name} says you joined {programme_name} |
 | student.strip_caption | {passes} of {applicable} sources agree |
+| student.check_student_pending | The last check is your own reply. You will be asked to confirm this enrolment when student notices start in Week 3. |
 | privacy.student_line | Only you can see your email and mobile here. Officers see masked ids only. |
 | privacy.how_link | How my data is used |
 
