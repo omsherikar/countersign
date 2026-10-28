@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.core.config import get_settings
 
@@ -123,6 +124,21 @@ class GhostRing(BaseModel):
     min_component_single_college: int
 
 
+class Reporting(BaseModel):
+    """The joining-record reporting deadline per joining year (D39, D40)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    deadline: dict[str, date] = Field(
+        default_factory=dict, validation_alias=AliasChoices("deadline", "deadlines")
+    )
+    source: str | None = None
+
+    def deadline_for(self, academic_year: str) -> date:
+        """The year's deadline, else 30 September of its start year."""
+        return self.deadline.get(academic_year) or date(int(academic_year[:4]), 9, 30)
+
+
 class IntegrityIndex(BaseModel):
     weights: dict[str, float]
 
@@ -141,6 +157,7 @@ class Rules(BaseModel):
     notices: Notices
     ghost_ring: GhostRing | None = None
     integrity_index: IntegrityIndex | None = None
+    reporting: Reporting = Field(default_factory=Reporting)
 
 
 def load_rules(path: str | Path | None = None) -> Rules:
