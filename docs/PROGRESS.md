@@ -3,17 +3,76 @@
 | | |
 |---|---|
 | Project | Countersign (SIH 2026, AICTE PS 26263) |
-| Week | 1 of 4 complete apart from CI green, which GitHub has not started over account billing. Week 1 scope: repo, compose, schema, auth, datagen, mockgov, adapters, first dashboards. Week 2 is next. |
-| Last updated | 2026-10-28T15:39:00+05:30 (Asia/Kolkata) |
+| Week | 2 of 4 merged on `main` and verified end to end on a native stack (2026-10-28). Still open for Week 2: the compose re-run (Docker Desktop does not start on the build machine), CI (GitHub has not started a job over account billing) and the countersign strip on freshly uploaded rows, which the browser run did not record. Week 2 scope: uploads and validation, name matching, the Seat Ledger, the five checks and the countersign score, duplicates, flags with evidence, and their pages. Week 3 is next: the student loop, officer actions on flags and student-held credentials. |
+| Last updated | 2026-10-28T18:24:00+05:30 (Asia/Kolkata) |
 
 ## How to read this file
 
-- The task board lists every Week 1 task in build order. Status moves TODO, IN PROGRESS, IN REVIEW, MERGED, DONE. MERGED means the code is on `main`; DONE means it is on `main` and its end-to-end check (browser acceptance for T12, the full demo for T13) also passed.
-- Evidence is a commit on `main` (short sha) or a branch name, plus test counts when a suite exists. No evidence, no status upgrade.
-- The verification checklist is the Week 1 exit bar. A box is ticked only after the command was run and the output matched.
-- "What the demo can show today" is what a visitor could see right now from a clean checkout, not what is planned.
-- Results marked *(reported)* come from the lead's runs on 2026-10-28 and were not re-run for this update: the integration run around 13:50 IST, and the close-out runs just before this update (`make test` in compose, web lint, typecheck and build, and the browser acceptance through the web container). Everything else was re-checked at 15:39 IST against `git log`, `git log --merges`, `docker compose ps`, both `/healthz` endpoints, `GET :3000/login`, sign-ins through the web proxy and `gh run view` on the latest CI run.
-- Decisions and their reasons live in `docs/DECISIONS.md`; the shared contract is `docs/ARCHITECTURE.md`, `docs/API_CONTRACT.md` and `docs/DATA_MODEL.md`.
+- The task boards list the work of each week by owner. Status moves TODO, IN PROGRESS, IN REVIEW, MERGED, DONE. MERGED means the code is on `main`; DONE means it is on `main` and the end-of-week verification items it serves also passed.
+- Evidence is a commit on `main` (short sha) or a branch name, plus test counts when a suite exists. No evidence, no status upgrade. A merge listed as "N commits" counts the commits the branch added (`git rev-list --count M^1..M^2`).
+- The verification checklists are the exit bar for each week. A box is ticked only after the check was run and the output matched.
+- "What the demo can show today" is what a visitor could see right now, not what is planned.
+- Results marked *(reported)* come from the lead's runs on 2026-10-28 and were not re-run for this update. Week 2's end-to-end run used a native stack (local Postgres 17, local Redis, mockgov, api, a Celery worker with `--pool=solo`, and web on `:3000`) because Docker Desktop failed to start after the disk filled. Everything else was re-checked at 18:24 IST against `git log`, `git log --merges`, `git rev-list`, the `origin/main` reflog, `gh run view` on the latest CI run, `docker info` and `df`.
+- Decisions and their reasons live in `docs/DECISIONS.md` (D14 to D22 for Week 2); the shared contract is `docs/ARCHITECTURE.md`, `docs/API_CONTRACT.md` (with Addendum 2 and its errata), `docs/DATA_MODEL.md` and `docs/ENGINES.md`.
+
+## Week 2 task board
+
+| Area | Owner | Status | Evidence | Notes |
+|---|---|---|---|---|
+| Architecture: DECISIONS D14 to D22, DATA_MODEL changes for migration 0002, `docs/ENGINES.md`, API_CONTRACT Addendum 2 and errata | architecture | MERGED | on main: `eb745e9` (D14 to D22); `a2fffe7`, `b17d38c` (data model); `d36f54f`, `914d21b`, `e8f1f66` (ENGINES.md); `8600075`, `2113fc5`, `39381f1`, `de566c3`, `07632a9`, `80eda02`, `10627ac` (Addendum 2); `20b702f`, `220d332` (ARCHITECTURE Week 2 modules and merge order); `5eebac0`, `c4831a1` (errata), `a251dfd` | Docs only, on main directly. The errata settle pending wording, the unresolved flag filter, admitted against intake, redaction for universities, and no config file names in evidence. Evidence facts carry an audience so a registrar never sees another institution's name (`5eebac0`). |
+| UX: copy deck and Week 2 page specs aligned with the contract | ux | MERGED | merge `7ed2504` (`ux/copy-deck-sync`, 16 commits, `--no-ff`); on main `09b0ce6` | Copy deck: upload statuses and row messages, flag names, evidence summaries and rule sources as the engines write them, pending reasons, recheck strings. Later-pages specs for the upload form, batch page, countersign strip, enrolment detail, flag queue and dashboards; review checklist and flows updated. `09b0ce6`: a pending check promises a recheck, not an automatic retry. |
+| Pipeline: migration 0002, upload endpoints, parsing and validation, row errors, Celery task with progress, `run_batch`, re-upload semantics, seed through the engine | backend-pipeline | MERGED | foundation merge `c835361` (4 commits: migration 0002, dependencies, engine contracts); merge `dc8b3b7` (`api/upload-pipeline`, 13 commits, `--no-ff`); on main `23aa30f`, `c2a0794` | Upload endpoints for files and JSON rows, templates, progress and `errors.csv` (`c88f300`); upload spool volume and single-task worker in compose (`cf42e46`); the seed sends every datagen upload through `run_batch` (`8f60552`), which uses the engine suite by default (`5bddfa8`); one bulk insert per chunk (`6d33dc2`). From verification: a task that crashes before `run_batch` now fails its batch, and unfinished batches are requeued when the worker starts (`23aa30f`); compose runs the worker with the solo pool (`c2a0794`). Small seed 100 to 120 s *(reported)*. DONE once `make seed` runs in compose (verification item 1). |
+| Engines: name matching, Seat Ledger, five checks, duplicates, flags writer, countersign score, flag and check read endpoints, dashboard counts | backend-engines | DONE | merge `c4df97f` (`api/engines`, 18 commits, `--no-ff`); merge `4a4d694` (`api/engines`, 1 commit: `41c378f`); on main `c7b9bb8`; mockgov matcher kept in step `10060cc`, `8e95d7f` | Enrolment detail and recheck endpoints (`f702a9e`), flags endpoints (`267340c`), counts from engine output (`2e6c921`), every flag's evidence checked against the schema and a per-user recheck limit (`46343d4`). From verification: STUDYING no longer judges a lateral entrant on year-1 credits; a year-2 lateral entrant has no completed year at the college, so the check is NA (`41c378f`). mockgov folds Muhammad, Mohamed and Muhammed into Mohammed and drops Km and Sri as honorifics, as the api matcher does (`10060cc`, `8e95d7f`; mockgov 92 to 94 tests). Verification items 2 to 8 passed *(reported)*. |
+| Datagen: `status`, `status_date` and `admission_date` columns, update files (withdrawals, transfers, refills after the cutoff), ground truth aligned with the engine rules | datagen | DONE | merge `7ac3bec` (`datagen/update-uploads`, 10 commits, `--no-ff`); on main `1acaff4` | Names judged with the api's full matcher (`66e9181`); faster planting and identity checks, and a quota breach whose programme has too few first-years to move tries another programme (`6a9a3fa`). From verification: no academic activity is never planted on a year-2 lateral entrant (`1acaff4`). Row-level ground truth check passed, item 8 *(reported)*. |
+| Frontend: upload with progress, row errors, upload history, countersign strip, enrolment detail, flags table and flag detail, case queues, overview flags and countersign tiles, institutions ranked by open flags | frontend | MERGED | merge `6961d3d` (`frontend/uploads-and-flags`, 58 commits, `--no-ff`) | Upload form with templates, declaration and send progress (`2bb6339`); batch page with status rail and polled progress (`134919c`); row errors with level filter and `errors.csv` (`1b12b99`); upload history (`86ee45d`); countersign strip as one control with a popover of the five checks (`3687a72`); enrolment detail with sentences, sources, seat, flags and recheck (`e5b99d4`); flags table and flag detail (`f5f06ac`, `69afb8c`); case queue routes for officers (`073637e`); overview tiles and flags by type (`18d59df`, `10d0f7b`); institutions ranked by open flags (`ded38a2`). Lint, typecheck and build clean *(reported)*. The browser upload passed; DONE once the strip is seen on freshly uploaded rows (item 9). |
+| Monitor: integration of the merges and the end-to-end verification run | monitor | IN PROGRESS | fixes that came out of the run: `41c378f` (in merge `4a4d694`), `1acaff4`, `23aa30f`, `c2a0794` | Native-stack verification done *(reported)*, four bugs found and fixed (see below). Left: the compose re-run once Docker Desktop is repaired, and CI. |
+
+History note: on 2026-10-28 one commit's message was rewritten to remove an attribution line, and `main` was force-pushed with the user's approval *(approval reported)*. The `origin/main` reflog shows the forced update at 17:59 IST: `6ee6792` (with `0eb01cf`) was replaced by `4a4d694` (with `41c378f`), same subjects and identical trees (`b0255d4`); only the attribution line differs. Every sha in this file is on `main` after the rewrite.
+
+### Bugs found and fixed during the Week 2 verification
+
+| Bug | Fix | Commit |
+|---|---|---|
+| Lateral entrants were judged on year-1 credits they never earned at the college. | STUDYING counts a lateral entrant's completed years from year 2, so a year-2 lateral entrant gets NA. | `41c378f`, merge `4a4d694` |
+| Datagen planted one no-academic-activity case on a year-2 lateral entrant, a case the corrected engine does not flag. | Datagen never plants that anomaly on a year-2 lateral entrant. | `1acaff4` |
+| The Celery prefork pool spawns on macOS, and spawn broke task start. | The upload worker runs with the solo pool; it handles one upload at a time anyway. | `c2a0794` |
+| A task that crashed before `run_batch` left the batch QUEUED, so the college got 409 UPLOAD_IN_PROGRESS for that year until someone edited the database. | The batch is marked FAILED, and unfinished batches are requeued when the worker starts. | `23aa30f` |
+
+## Verification at end of Week 2
+
+- [ ] 1. `make demo-reset` then `make seed` runs every upload through the engine; time recorded.
+  - [x] Native stack *(reported)*: the seed sent 53 upload files, 10,633 rows, through `run_batch` with live mockgov HTTP checks in 100 to 120 s, inside the 3-minute target for small (D22).
+  - [ ] Compose: not run. Docker Desktop has not started since the disk filled ("Docker Desktop is unable to start"); at 18:24 IST `docker info` gets no answer and the system disk has about 1 GiB free.
+- [x] 2. ABC College CSE 2026-27: 120 approved, 132 admitted, 120 seated (114 Regular, 6 NRI), 12 unseated, and one EXCESS_ADMISSION flag whose summary reads "132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat." *(reported)*
+- [x] 3. "R. K. Sharma" raises DUPLICATE_WITHIN_UPLOAD linking upload rows 2 and 122, Ravi Kumar Sharma *(reported)*.
+- [x] 4. The legal dual enrolment shows DUAL_ENROLMENT_ALLOWED at LOW *(reported)*. The cross-college duplicate at HIGH is covered by the row-level ground truth check in item 8: datagen plants DUPLICATE_CROSS_INSTITUTION at HIGH, and every planted case was caught with its expected severity *(reported)*.
+- [x] 5. The XYZ second-year with two zero-credit semesters (planted scenario 4 in `tools/datagen/datagen/anomalies.py`) is among the 76 planted cases caught with the expected flag and severity, NO_ACADEMIC_ACTIVITY at MEDIUM, which the engine raises only with STUDYING FAIL *(reported; not looked at separately on screen)*.
+- [x] 6. APAAR down: IDENTITY stayed PENDING with no flag; a recheck while APAAR was still down stayed PENDING; a recheck after the chaos reset turned it PASS and the score went from 2 of 4 to 3 of 4 *(reported)*.
+- [x] 7. Withdrawals in the update files release seats, and a refill after the cutoff raises LATE_REFILL: at ABC, `IT-R-005` (3 Oct) and `IT-R-016` (20 Oct) were admitted after the 15 Sep cutoff into released seats and both raised LATE_REFILL *(reported)*.
+- [x] 8. Ground truth, row by row against `ground_truth.json`: 76 of 76 planted cases caught with the expected severity; 92 flags raised in all, none unexplained; 0 of the 20 refused-consent negative controls flagged *(reported)*. Full precision and recall stay Week 4 work.
+- [ ] 9. Web, as the ABC registrar: upload a CSV, watch progress, see row errors, the new flags and the countersign strip.
+  - [x] Upload through the browser and Celery *(reported)*: the batch moved through Queued, Validating, Processing and Done; 2 rows accepted, 2 seated, 1 flag; the malformed APAAR showed as a row warning with the value masked.
+  - [ ] The countersign strip on the newly uploaded rows is not recorded for this run; to be looked at on the next browser pass.
+
+### Week 2 results
+
+| Measure | Result | Target or expectation | Met |
+|---|---|---|---|
+| Small seed through `run_batch`, live mockgov HTTP checks | 53 files, 10,633 rows in 100 to 120 s | under 3 minutes (D22) | yes |
+| Throughput | about 11 ms per row, so roughly 8 to 10 minutes for 50,000 rows | 50,000 rows under 2 minutes (Week 4 eval target) | not yet |
+| Planted cases caught, row level against `ground_truth.json` | 76 of 76, each with the expected severity | every planted case | yes |
+| Flags raised | 92, 0 unexplained | none unexplained | yes |
+| Refused-consent negative controls flagged | 0 of 20 | 0 | yes |
+| ABC CSE 2026-27 seats | 120 approved, 132 admitted, 120 seated (114 Regular, 6 NRI), 12 unseated, one EXCESS_ADMISSION | as planted | yes |
+| "R. K. Sharma" | DUPLICATE_WITHIN_UPLOAD, rows 2 and 122 | links to Ravi Kumar Sharma | yes |
+| Refills after the 15 Sep cutoff at ABC | `IT-R-005` (3 Oct), `IT-R-016` (20 Oct), LATE_REFILL each | LATE_REFILL | yes |
+| Dual enrolment | DUAL_ENROLMENT_ALLOWED, LOW | LOW | yes |
+| APAAR outage | IDENTITY PENDING, no flag; recheck while down PENDING; recheck after reset PASS; score 2 of 4 to 3 of 4 | never FAIL on an outage | yes |
+| Registrar browser upload through Celery | Queued, Validating, Processing, Done; 2 accepted, 2 seated, 1 flag; malformed APAAR as a masked row warning | as specified | yes |
+| Dashboard | `countersigned_pct` 0, `clear_pct` 99 | countersigned stays below full while STUDENT is pending (D21) | yes |
+| Tests on merged main | api 306, mockgov 94 (2 new name tests), datagen 81 passed; web lint, typecheck and build clean | all pass | yes |
+
+All results in this table are *(reported)*. The suites on main hold 247, 78 and 72 test functions (counted at 18:24 IST); parametrised cases account for the larger totals.
 
 ## Week 1 task board
 
@@ -50,29 +109,29 @@ Test counts (`make test` in compose, 2026-10-28 just before this update, *report
 
 ## What the demo can show today
 
-The demo works end to end in the browser. From a clean checkout, the README "Week 1: run it" steps bring up postgres, redis, mailpit, api, worker, mockgov and web, generate small-mode data with planted anomalies and seed both databases. At `localhost:3000` a visitor can:
+The Week 2 demo runs end to end in the browser on the native stack *(reported)*; the compose path from a clean checkout (README "Week 2: run it") has not been re-run since the Week 2 merges because Docker Desktop is down. After `make datagen` and `make seed`, every upload file has been through the engine: enrolments carry their five checks and a score, seats are assigned from the pools, and flags are open with evidence. At `localhost:3000` a visitor can do everything in the Week 1 list, plus:
 
-- Sign in as any demo role and land on that role's home. Signed out, a role page goes to the login page; a page for another role sends the user back to their own home with a notice.
-- As the AICTE admin, see the national KPIs, the government sources panel, the state grid grouped by regional office and the ranked institutions table with search, filters, sort and pages.
-- As `ro.west`, see the regional overview and only the 7 Western-region institutions.
-- Open ABC College of Engineering: the programmes table shows CSE 2026-27 at 120 approved, 132 admitted and 132 unseated, with its seat pools and their rule sources; the Enrolments tab lists 605 active enrolments with masked ids, consent and the countersign strip; the seats tab pages through seats by approval year.
-- As the ABC registrar, see only ABC College, its seat ledger, its enrolments and the upload page listing the expected file columns.
-- As the student, see the masked identity and enrolment cards; as the university, the affiliates page.
-- On the system page, ping the five government sources, verify the audit chain and take a source down with the chaos controls.
-- Open `/verify` without signing in.
+- As the AICTE admin, see open flags, the countersigned share (0%, because the STUDENT check waits for the Week 3 student loop) and the share where no source disagrees with the college (99%), a flags-by-type chart whose bars open the case queue, and institutions ranked by open flags.
+- Open ABC College of Engineering: CSE 2026-27 at 120 approved, 132 admitted, 120 seated (114 Regular, 6 NRI) and 12 without a seat, with one Excess admission flag reading "132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat."
+- In any enrolments table, read the countersign strip (one control with a popover of the five checks), flag chips, and filters by check, result, flags and seat. Open an enrolment for each check's sentence and source, its seat, its flags and a recheck button.
+- Open a flag for its evidence: a one-sentence summary, facts with their sources, the rule and the enrolments it names, for example "R. K. Sharma" linked to Ravi Kumar Sharma (rows 2 and 122), or the two refills after the 15 Sep cutoff at ABC. Officers have a read-only case queue.
+- As the ABC registrar, upload a CSV or XLSX from the templates with the declaration, watch the batch move through Queued, Validating, Processing and Done, read row warnings with masked values and download `errors.csv`, see the year's upload history, and see the college's most severe open flags on the seat ledger.
+- On the system page, take APAAR down: new IDENTITY checks stay Pending ("Awaiting source") with no flag; after a chaos reset, Recheck pending checks turns them Pass.
 
-The API (`localhost:8000/docs`) and mockgov (`localhost:8001`) still answer the same checks by `curl`, and `design/preview.html` renders every design element in light and dark.
-
-Not in the demo yet: uploads, validation, name matching, seat assignment, countersigning and duplicate detection. The upload page and `/verify` are placeholders until Week 2.
+Not in the demo yet: the student loop (the STUDENT check stays pending), officer actions on flags (Week 2 flags are read-only) and student-held credentials, all Week 3. The public `/verify` page is still a placeholder. `POST /admin/demo/reset` still answers 501; `make demo-reset` is the working path.
 
 ## Blockers / risks
 
-- CI green is the one open Week 1 item. The repository is on GitHub (private) and `main` is pushed, but GitHub refused to start any CI job because of an account billing or spending-limit problem (annotation on run 40669694546). No job has run, so the workflow itself is unproven on GitHub, although the same suites pass in compose. Settling billing or raising the Actions spending limit, then re-running the latest workflow, closes it.
-- Known gaps carried into Week 2 (README): no seats are assigned, so every enrolment shows as unseated (ABC CSE: 132 unseated) until the Seat Ledger lands; the TFW 50% condition is not evaluated and the pool is always built; seed-import audit entries are per batch, not per row. Also `POST /admin/demo/reset` is a 501 stub; `make demo-reset` is the working path.
+- Docker Desktop does not start on the build machine since the disk filled (its dialog: "Docker Desktop is unable to start"); at 18:24 IST `docker info` gets no answer and the system disk has about 1 GiB free. The user needs to repair it: Troubleshoot, then Restart, or Clean / Purge data. Purging loses nothing that matters, because the demo database is synthetic and reseeds. Until then `make up`, `make seed` and `make test` in compose are unproven for the Week 2 merges, including the solo pool change in `docker-compose.yml`.
+- CI has never run. GitHub refuses to start every job over account billing; re-checked at 18:24 IST on run 40690508521 (`c2a0794`): "The job was not started because recent account payments have failed or your spending limit needs to be increased." Settling billing or raising the Actions spending limit, then re-running the latest workflow, closes it.
+- Speed: about 11 ms per row with live HTTP checks against mockgov, so 50,000 rows take roughly 8 to 10 minutes. The Week 4 eval target is under 2 minutes, so this is not met yet.
+- Rules not applied yet: the TFW pool's "filled at least 50% last year" condition (the pool is always built) and the lateral-entry vacancy rule.
+- Only one roll year is supported.
 - Region table entries marked *verify* in ARCHITECTURE §8 (DL under NORTH_WEST, RJ under WEST_CENTRAL) must be checked against the AICTE site before the panel demo.
 
 ## Changelog
 
+- 2026-10-28 18:24 IST: Week 2 merged and verified on a native stack. Merged: `ux/copy-deck-sync` (`7ed2504`, 16 commits); upload pipeline foundation (`c835361`, 4 commits) then `api/upload-pipeline` (`dc8b3b7`, 13 commits); `api/engines` (`c4df97f`, 18 commits, and `4a4d694`, 1 commit, lateral entrants checked only on years they attended); `datagen/update-uploads` (`7ac3bec`, 10 commits); `frontend/uploads-and-flags` (`6961d3d`, 58 commits); all `--no-ff`. On main: DECISIONS D14 to D22 (`eb745e9`), migration 0002 data model (`a2fffe7`, `b17d38c`), `docs/ENGINES.md` (`d36f54f`, `914d21b`, `e8f1f66`), API_CONTRACT Addendum 2 (`8600075` to `10627ac`) and errata (`c4831a1`), mockgov name folds (`10060cc`, `8e95d7f`), datagen lateral fix (`1acaff4`), worker robustness (`23aa30f`) and the compose solo pool (`c2a0794`). Tests: api 306, mockgov 94, datagen 81; web lint, typecheck and build clean *(reported)*. Docker Desktop failed after the disk filled, so verification ran natively: small seed 53 files, 10,633 rows in 100 to 120 s; 76 of 76 planted cases caught with the expected severity, 92 flags, none unexplained, 0 of 20 negative controls flagged *(reported)*. Verification items 2 to 8 ticked; items 1 and 9 half ticked (compose re-run and the strip on new rows open). Four bugs found and fixed. One commit's message was rewritten to drop an attribution line and `main` force-pushed with the user's approval (17:59 IST). Engines and datagen DONE; architecture, ux, pipeline and frontend MERGED.
 - 2026-10-28 15:39 IST: Week 1 complete apart from CI green. `frontend/week1` merged as `b1dd4e8` (46 commits, `--no-ff`): the Next.js web app with role shells and every Week 1 page. `api/week1-fixes` merged as `8062b89` (5 commits, `--no-ff`): cohort-based admitted counts, per-year seats, first-field 422 message, 75 s keep-alive, `LOGIN_RATE_LIMIT` setting. On main: login footer copy (`4a133f6`), hidden dev indicator (`4ff4cc2`), compose keep-alive (`3c0bff8`), seat year on web rows (`a19b4fd`), institution detail totals with the matching Enrolments badge (`ee842c6`, `6ff8a54`). Tests: api 76, mockgov 92, datagen 45 passing; web lint, typecheck and build clean. Browser acceptance through the web container passed, so verification items 1 to 7 are all ticked. T12 and T13 DONE. Private remote `https://github.com/omsherikar/countersign` added and `main` pushed; CI has not run because GitHub refused to start the jobs over account billing. The frontend critical-path risk is closed.
 - 2026-10-28 14:37 IST: Backend complete. `mockgov` (`2cbb0d5`, 22 commits, 92 tests), `design/system` (`9bb9490`, 18 commits), `datagen` (`d3af32a`, 8 commits, 45 tests) and `api/week1` (`f660128`, 15 commits, 64 tests) merged with `--no-ff`; UX spec (`edb16e3`), API contract addendum (`3298998`), ownership update (`7c52295`), README Week 1 section (`80a1b58`) and fixes `ec7a844` and `62da222` on main. T1 to T11 MERGED; T12 in progress on `frontend/week1`; T13 partly done. Integration run ticked verification items 1 to 3 and 5 to 7 and the API half of item 4; seed and registry counts re-checked in the live databases. The earlier blocker about builder branches not being visible is resolved.
 - 2026-10-28: First board. T1 (`766cd16`) and T2 (`c0f314d`) merged; shared contract (`8b3e87f`) merged. T3 to T13 in progress, no branches visible yet. Verification list copied from the Week 1 plan, nothing ticked. README status paragraph points here.
