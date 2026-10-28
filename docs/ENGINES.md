@@ -1,6 +1,6 @@
-# Engines (internal Python contract, Weeks 2 and 3)
+# Engines (internal Python contract, Weeks 2 to 4)
 
-This file is the only thing the api's code areas may assume about each other's Python code. Sections 1 to 15 are Week 2; section 16 adds Week 3. `API_CONTRACT.md` (Addendum 2) is the wire contract, `DATA_MODEL.md` ("Migration 0002") is the schema and `DECISIONS.md` D14 to D22 are the rules being implemented. If a function, field or behaviour another branch needs is not written here, add it here first.
+This file is the only thing the api's code areas may assume about each other's Python code. Sections 1 to 15 are Week 2; section 16 adds Week 3; section 17 adds Week 4. `API_CONTRACT.md` (Addendum 2) is the wire contract, `DATA_MODEL.md` ("Migration 0002") is the schema and `DECISIONS.md` D14 to D22 are the rules being implemented. If a function, field or behaviour another branch needs is not written here, add it here first.
 
 Two branches build in parallel:
 
@@ -1196,3 +1196,666 @@ Until an area's code is merged, the others build against these signatures with f
 - The wallet is custodial: holder keys are on the server, encrypted; a real deployment keeps them on the student's device.
 - There is no index on `audit_log.entity_id`; the access log scans by entity id, fine at demo size.
 - The QR SVG and the PDF are generated per request and not cached.
+
+## 17. Week 4: evidence states, record statuses, decisions, sign-in, completeness, signals, reports and evaluation
+
+The wire contract is `API_CONTRACT.md` Addendum 4, the schema `DATA_MODEL.md` "Migration 0004" (with the models, enums and a stub of `app/engine/status.py` already on `main`), the rules DECISIONS D34 to D49, and the words the api writes the copy deck (`docs/ux/05-copy-deck.md` §5, §6, §13, §15, §21, §27). Sections 1 to 16 still hold where this section does not change them. This section fixes the Python packages, the signatures one area calls in another, who opens and commits transactions, and what each area must prove, so the seven areas below can be built side by side. If a function another area needs is not written here, add it here first.
+
+### 17.1 Areas and ownership
+
+Areas: **backend-evidence** (rows, provenance, independence, the evidence rule everywhere, the joining record adapter, eligibility, approval versions in the ledger), **backend-identity** (DigiLocker sign-in, the claim, notices behind sign-in, seed replies, attestations and certificate integration), **backend-decisions** (decisions with their record, seat and attestation effects, enrolment versions, corrections, column mapping, completeness and reconciliation), **backend-signals-reports** (signals, dashboard and institution aggregates, reports), **eval-perf** (`tools/eval`, the 50,000-row target), **frontend-records** (record card, statuses, lists, dashboards, completeness, the college dashboard, column mapping, history) and **frontend-cases** (decision sheets, signals panel, reports pages, DigiLocker sign-in pages, attestation wording, certificate integration). Already in place on `main`: migration 0004 with the models and enums (DATA_MODEL), `app/engine/status.py` as a stub with the signatures of §17.2, and the seed data (`tools/datagen/**`, `services/mockgov/**`, API_CONTRACT §A4.25).
+
+| Path (under `services/api/` unless rooted) | Area | Notes |
+|---|---|---|
+| `app/engine/status.py`, new `app/engine/status_text.py` | evidence | §17.2; replaces the stub, keeps its signatures |
+| `app/engine/contracts.py` | evidence | §17.3: `CHECK_ORDER`, `CheckOutcome` fields, `RecheckResult`, `DECIDED_FLAG_STATUSES` |
+| `app/engine/checks/` (all evaluators, `base.py`, `__init__.py` with `_Writer`, `rerun`, `recheck_pending`) | evidence | §17.3; `student.py` and `app/notices/student_check.py` sentences too |
+| `app/engine/evidence.py` | evidence | row texts from copy deck §15; NOT_IN_JOINING_RECORD and ELIGIBILITY_BREACH templates from §5 |
+| new `app/engine/eligibility.py` | evidence | §17.5, pure |
+| `app/engine/ledger.py`, `app/engine/seatpools.py`, `app/core/cohort.py` (`joining_year`) | evidence | §17.5 |
+| new `app/approvals/` (`__init__.py`, `service.py`), `app/routers/approvals.py`, `app/schemas/approvals.py` | evidence | §17.5, API_CONTRACT §A4.17 |
+| `app/adapters/**` | evidence | §17.4: the `admission_authority` source in all three implementations, ABC `issuer`, ping; the DigiLocker OAuth methods are identity's (§17.6) and live in the same files |
+| `app/engine/upload/validate.py`, `upsert.py` (three eligibility columns, `eligibility` compared and stored) | evidence | API_CONTRACT §A4.16; decisions adds its two calls (§17.8, §17.9) |
+| `app/routers/enrolments.py`, `app/routers/_enrolment_rows.py`, `app/schemas/enrolments.py`; in `app/routers/institutions.py` the `/enrolments` and `/recheck` handlers | evidence | API_CONTRACT §A4.5, §A4.6 |
+| `app/db/session.py` (`get_session` settles before commit), `app/core/deps.py` (`current_user` puts the user id in `session.info`), the `_chunk` commit of `app/engine/pipeline.py` | evidence | §17.2, one call each |
+| `rules.yaml` | evidence | `reporting`, `eligibility`, `signals.anomaly` (values from API_CONTRACT §A4.1), `integrity_index` removed |
+| new `app/auth/` (`__init__.py`, `digilocker.py`); `app/routers/auth.py` (DigiLocker routes, the student password refusal); `app/schemas/auth.py` | identity | §17.6, API_CONTRACT §A4.12 |
+| `app/core/config.py` and `../../.env.example`: `DIGILOCKER_CLIENT_ID`, `DIGILOCKER_CLIENT_SECRET`, `DIGILOCKER_AUTHORIZE_URL`, `DIGILOCKER_ISSUER` | identity | the only settings Week 4 adds |
+| `app/notices/` (`service.py`: the session rule, `viewer`, `respond_as_student`), `app/routers/notices.py`, `app/routers/students.py`, `app/schemas/students.py`, `app/schemas/notices.py` | identity | API_CONTRACT §A4.13 |
+| `app/credentials/` (`__init__.py`, `issuer.py`, `holder.py`, `degree.py`, `verifier.py`), `app/routers/university.py`, `app/routers/verify.py`, their schemas; the export changes in `app/privacy/service.py` | identity | §17.13, API_CONTRACT §A4.14, §A4.15 |
+| `app/seed/replies.py`; the seeded `student@demo` keeps no usable password | identity | |
+| new `app/cases/decisions.py`; `app/cases/transitions.py`, `app/cases/service.py`; `app/routers/cases.py`, `app/routers/flags.py`, `app/schemas/flags.py` | decisions | §17.7, API_CONTRACT §A4.8 to §A4.11 |
+| new `app/engine/versions.py`; its calls in `upsert.py` | decisions | §17.8 |
+| new `app/engine/upload/mapping.py`; the mapping hook in `parse.py` and `app/routers/uploads.py`; new `app/routers/column_mapping.py` | decisions | §17.9, API_CONTRACT §A4.16 |
+| new `app/engine/completeness.py`, `app/routers/completeness.py`, the worker task `countersign.refresh_completeness` | decisions | §17.10, API_CONTRACT §A4.18 |
+| in `app/seed/importer.py`: column mappings before uploads, `submitted_at` on SEED batches, SEED versions | decisions | the approval versions in the importer are evidence's |
+| new `app/signals/` (`__init__.py`, `rings.py`, `anomaly.py`, `service.py`), `app/routers/signals.py`, `app/schemas/signals.py` | signals-reports | §17.11, API_CONTRACT §A4.19 |
+| new `app/reports/` (`__init__.py`, `registry.py`, `queries.py`, `render.py`), `app/routers/reports.py` | signals-reports | §17.12, API_CONTRACT §A4.21 |
+| `app/routers/dashboard.py`, `app/routers/_stats.py`; in `app/routers/institutions.py` the list and detail handlers; `app/schemas/dashboard.py`, `app/schemas/institutions.py` | signals-reports | API_CONTRACT §A4.20 |
+| `pyproject.toml`, `uv.lock`: `networkx>=3.4`, `scikit-learn>=1.5` (with `numpy`) | signals-reports | no other Week 4 dependency |
+| new `app/seed/derived.py`; the `seed` and `demo-reset` lines of the `Makefile` | signals-reports | §17.15 |
+| `tools/eval/**`; the `eval` line of the `Makefile`; eval plumbing in `docker-compose.yml`; throughput changes in `app/engine/pipeline.py` (other than the `_chunk` settle call) and the mockgov worker count | eval-perf | §17.14 |
+| `apps/web/**`: record card, `/…/enrolments`, dashboards, completeness pages, college dashboard, column mapping step and page, history; pasting API_CONTRACT §A4.24 into `lib/types.ts` (once, first) | frontend-records | |
+| `apps/web/**`: case decision sheets and history, signals pages and panel, reports pages, `/auth/digilocker/return`, `/student/claim`, the notice page gate, the login student card, wallet and verifier wording, `/university/certificates*`; the `/api` proxy's redirect pass-through | frontend-cases | |
+| `app/main.py` | every backend area | §17.15 |
+| `app/models/**`, `alembic/**`, `app/core/audit.py`, `crypto.py`, `errors.py`, `ratelimit.py` | nobody | in place; change only by agreement |
+| `tests/evidence/`, `tests/identity/`, `tests/decisions/`, `tests/signals/`, `tests/reports/` | the matching area | each area keeps its tests and its own `conftest.py` |
+
+Shared files have one owner and small, named edits by others; the expected conflicts are `app/main.py`, `app/seed/importer.py`, `app/engine/upload/upsert.py` and `app/routers/institutions.py`. Each area keeps its edits inside its own functions or handlers there, and the order of the calls is settled once, at merge.
+
+### 17.2 The evidence rule: `app/engine/status.py`
+
+```python
+# app/engine/status.py
+@dataclass(frozen=True, slots=True)
+class RowFact:
+    type: CheckType
+    state: CheckStatus
+    independent: bool
+    resolved: bool                      # checks.resolved is set
+    resolved_at: datetime | None
+    needs_review: bool                  # detail.needs_review
+    basis: str                          # detail.basis
+    finding: str | None
+    source_line: str
+    case_type: FlagType | None          # detail.case_type
+    observed_at: datetime | None
+    supplied_by: str
+    self_issued: bool                   # detail.self_issued (Credits)
+
+@dataclass(frozen=True, slots=True)
+class CaseFact:
+    id: uuid.UUID
+    type: FlagType
+    severity: Severity
+    status: FlagStatus                  # only unresolved cases are passed in
+    opened_at: datetime
+    docs_kind: str | None               # of the latest REQUEST_DOCS
+    docs_due_on: date | None
+    response_received: bool
+    last_response_at: datetime | None
+    escalated_at: datetime | None
+
+@dataclass(frozen=True, slots=True)
+class RecordContext:                    # what some sentences need beyond rows and cases
+    today: date                         # IST
+    sent_at: datetime | None            # latest delivered notice
+    issuer_name: str | None             # for next_step.credits
+    next_sem: int | None
+    decided_case_types: frozenset[FlagType]   # decided cases naming the record (next_step.case_reopen)
+
+@dataclass(frozen=True, slots=True)
+class StatusResult:
+    record_status: RecordStatus
+    status_reason: str
+    next_step: str | None
+    deciding: str                       # "ROW:STUDENT", "CASE:<uuid>", "RULE", "EVIDENCE:ADMISSION": for tests and logs
+
+def decide(rows: Sequence[RowFact], cases: Sequence[CaseFact], ctx: RecordContext) -> StatusResult: ...
+    # pure; API_CONTRACT §A4.3 exactly; no database, no clock (ctx.today), no I/O
+
+def left_active(status: EnrolmentStatus, status_date: date, by_decision: bool, today: date) -> tuple[str | None, str | None]: ...
+    # (status_reason, next_step) for an enrolment that is not ACTIVE: (None, next_step.withdrawn) or (None, None)
+
+def mark(session: AsyncSession, enrolment_ids: Iterable[uuid.UUID]) -> None: ...
+    # adds the ids to session.info["status_dirty"]; cheap, synchronous, safe to call many times
+
+async def refresh(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], *,
+    actor_id: uuid.UUID | None = None, issue: bool = True, audit_sink: list[AuditEntry] | None = None,
+) -> StatusTally: ...
+    # loads rows and unresolved naming cases for the ids (two queries per 500 ids), calls decide,
+    # writes record_status, status_reason, next_step, record_status_at (on change), audits changes,
+    # revokes with STUDENT_DISPUTE when a record becomes DISPUTED, and (issue=True) calls
+    # credentials.issue_if_eligible for every record that is COUNTERSIGNED; flushes, never commits
+
+async def settle(session: AsyncSession, *, issue: bool = True) -> StatusTally: ...
+    # pops session.info["status_dirty"] and refreshes them, repeating until it is empty;
+    # actor from session.info["actor_id"] (set by deps.current_user), else None
+
+async def commit(session: AsyncSession, *, issue: bool = True) -> None: ...   # settle, then session.commit()
+
+@dataclass(slots=True)
+class StatusTally:
+    refreshed: int = 0
+    changed: int = 0
+    became: dict[str, int] = field(default_factory=dict)
+    countersigned: list[uuid.UUID] = field(default_factory=list)
+    disputed: list[uuid.UUID] = field(default_factory=list)
+
+# python -m app.engine.status --refresh-all [--academic-year 2026-27]   (after alembic upgrade, and by make eval)
+```
+
+- **The one place.** `decide` is the only code that turns rows and cases into a status. `refresh` is the only code that writes `record_status`, `status_reason` and `next_step`. `status_text.py` holds the copy deck §21 sentences and their placeholders; `decide` fills them.
+- **Always in the same transaction.** Every writer of rows, cases or enrolments calls `mark` for the enrolments it touched: `checks._Writer.finish` (rows), `flags.raise_flag` (the flag's `enrolment_id` and `related_enrolment_ids`), `cases.service.apply_action` and `college_response` (the case's named records), `decisions.*`, `upsert` (created and updated enrolments), `auth.digilocker.claim`, `approvals.service.add_version`, `signals.service.open_case`. Every transaction owner settles before it commits: `get_session` (`await status.settle(session)` before `session.commit()`), `run_batch`'s `_chunk` (`settle(session, issue=False)`), `send_notices_for_batch` and `deliver_notices` chunks, `app.seed.replies` chunks, `app.seed.derived`, the worker's completeness task and the CLI. A writer that forgets `mark` is caught by the test of §17.18 that compares every stored status with `decide` after the demo seed.
+- **Attestations.** `refresh` revokes inside the same transaction (`credentials.revoke_for_enrolment(session, id, "STUDENT_DISPUTE", None)`) for a record that becomes DISPUTED. Issuance runs when `issue` is true; `run_batch` passes false, and `send_notices_for_batch` step 5 issues for the batch's COUNTERSIGNED records afterwards, so an upload never signs SD-JWTs (§17.13).
+- **Bulk.** `refresh` works on 500 ids per query: one query for the five rows of each id, one for the unresolved cases naming them (the `names_enrolment` rule of `_enrolment_rows.py`, against the record's own institution), one for the `RecordContext` facts; it updates changed rows with one `UPDATE ... FROM (VALUES ...)`.
+
+### 17.3 Rows: states, provenance and independence
+
+```python
+# app/engine/contracts.py (changed)
+CHECK_ORDER: tuple[CheckType, ...] = (CheckType.IDENTITY, CheckType.SEAT, CheckType.ADMISSION,
+                                      CheckType.STUDYING, CheckType.STUDENT)   # the deck's row order
+DECIDED_FLAG_STATUSES = (FlagStatus.UPHELD, FlagStatus.CORRECTED, FlagStatus.WITHDRAWN)
+
+@dataclass(frozen=True, slots=True)
+class CheckOutcome:
+    type: CheckType
+    status: CheckStatus                 # the evidence state
+    source: str
+    detail: dict[str, Any]              # summary, finding, source_line, basis, ...
+    flags: tuple[FlagIntent, ...] = ()
+    calls: tuple[str, ...] = ()
+    unavailable: tuple[str, ...] = ()
+    supplied_by: str = ""
+    observed_at: datetime | None = None # None: the writer keeps the stored one, or uses now (below)
+    independent: bool = False
+
+@dataclass(slots=True)
+class RecheckResult:
+    enrolments: int = 0
+    rechecked: int = 0
+    outcomes: dict[str, int] = field(default_factory=dict)   # by CheckStatus value
+    flags: FlagTally = field(default_factory=FlagTally)
+```
+
+- `CheckSubject` (`checks/base.py`) gains: `joining_year: str`, `reporting_deadline: date`, `approval_id: uuid.UUID | None`, `approval_version: int | None`, `eligibility: Mapping[str, bool | None]`, `digilocker_claimed: bool` (a STUDENT user with `digilocker_sub` is bound to a student without a linked APAAR), `provisional_id: str | None`, `affiliating_university_name: str | None`. `load_subjects` fills them in the same chunked queries.
+- **The writer** (`_Writer.write`): `supplied_by`, `independent` from the outcome; `observed_at` is null when `supplied_by` is `""`, else the outcome's value when given, else the stored value when the state and `supplied_by` are unchanged, else now; `detail.source_line` is rendered after `observed_at` is known (the `{date}` of the line); `resolved` is cleared when the state changes and kept otherwise; then `status.mark`. The audit entry per enrolment stays as §12, with the new state names.
+- **Evaluators** follow API_CONTRACT §A4.4 basis by basis; `evidence.py` holds the §15 texts (`finding`, `source_line`, `summary`) and the §5 case templates; `student_check.derive` returns the STUDENT row with `supplied_by` "Student via DigiLocker sign-in" for answered notices.
+- **`rerun`**, new in `checks/__init__.py`, the one way other areas re-evaluate chosen rows:
+
+```python
+async def rerun(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], adapters: AdapterSet | None, *,
+    types: Sequence[CheckType] = CHECK_ORDER, actor_id: uuid.UUID | None = None,
+    concurrency: int = DEFAULT_CHECK_CONCURRENCY,
+) -> ChecksResult: ...   # adapters may be None when only SEAT and STUDENT are asked for (no calls)
+```
+
+  Callers: decisions (CORRECT: all five), approval versions and the ledger's backlog seating (SEAT), the claim (IDENTITY), completeness (none). `recheck_pending` re-runs IDENTITY, SEAT, ADMISSION and STUDYING rows that are PENDING, NOT_YET_DUE or SOURCE_UNAVAILABLE.
+
+### 17.4 The joining record adapter
+
+```python
+# app/adapters/base.py (changed)
+SourceName = Literal["apaar", "counselling", "admission_authority", "abc", "digilocker", "sii"]
+
+@dataclass(slots=True, frozen=True)
+class JoiningResult:
+    found: bool
+    joined_on: date | None = None
+    round: int | None = None
+    route: str | None = None
+    category: str | None = None
+    published: bool = True              # absent in a reply means published
+
+@dataclass(slots=True, frozen=True)
+class Joining:
+    roll_no: str | None
+    name: str
+    dob: date
+    programme: str
+    joined_on: date
+    round: int | None
+    route: str
+    category: str
+    apaar_last4: str | None
+
+@dataclass(slots=True, frozen=True)
+class JoiningList:
+    published: bool
+    items: list[Joining]
+
+@runtime_checkable
+class AdmissionAuthorityAdapter(Protocol):
+    async def joining(self, *, state: str, academic_year: str, name: str, dob: date,
+                      institution_code: str, programme: str, roll_no: str | None = None) -> JoiningResult: ...
+    async def joinings(self, *, institution_code: str, academic_year: str) -> JoiningList: ...
+    async def ping(self) -> None: ...
+
+@dataclass(slots=True, frozen=True)
+class Semester:                         # gains the issuer
+    sem: int
+    credits: int
+    uploaded_at: str | None
+    result: str
+    issuer: str | None = None
+    issuer_name: str | None = None
+
+# AdapterSet gains `admission_authority: AdmissionAuthorityAdapter`; SOURCES gains "admission_authority".
+```
+
+`InMemoryAdmissionAuthority` keeps joinings in a dict keyed by (state, academic year) with a `down` switch; `MockGovAdmissionAuthority` calls API_CONTRACT C.9 and C.10 with the shared client (timeouts and `SourceUnavailable` as the other sources); `RealAdmissionAuthority` raises `RealAdapterDisabled`. `GET /admin/adapters/ping` and the chaos passthrough gain the source. The ADMISSION evaluator sends `name` as `name_normalised`, `academic_year` as `joining_year`, `institution_code` as the AICTE permanent id and no `roll_no`; `published` false with today on or before the deadline is NOT_YET_DUE, after it PENDING (`NOT_PUBLISHED_LATE`); not found after the deadline is CONTRADICTED with a NOT_IN_JOINING_RECORD intent.
+
+`app/core/cohort.py` gains `joining_year(academic_year: str, year_of_study: int, route: AdmissionRoute) -> str` (the cohort year, or for LATERAL the year the entrant was in year 2) and `reporting_deadline(academic_year: str, rules: Rules) -> date`.
+
+### 17.5 The Seat Ledger: eligibility and approval versions
+
+```python
+# app/engine/eligibility.py (pure)
+@dataclass(frozen=True, slots=True)
+class EligibilityVerdict:
+    state: Literal["FITS", "BREACH", "NOT_REPORTED"]
+    rule: str | None                    # INTERNATIONAL_CIWG, NRI_STATUS, TFW_INCOME
+    reported_word: str | None           # copy deck eligibility.word.*
+    clause: str | None
+
+def check(seat_type: SeatType, nationality: str, eligibility: Mapping[str, bool | None], rules: Rules) -> EligibilityVerdict: ...
+def is_ciwg(route: AdmissionRoute, nationality: str | None, eligibility: Mapping[str, bool | None]) -> bool: ...
+    # replaces ledger.is_ciwg: INTERNATIONAL route, nationality IN, eligibility["ciwg"] is True
+
+# app/engine/seatpools.py (added)
+@dataclass(frozen=True, slots=True)
+class PoolResize:
+    seat_type: SeatType
+    old_capacity: int
+    new_capacity: int
+    assigned: int
+def pool_changes(approval: Approval, new_intake: int, assigned: Mapping[SeatType, int], rules: Rules) -> list[PoolResize]: ...
+async def apply_resize(session: AsyncSession, approval: Approval, changes: Sequence[PoolResize]) -> tuple[int, int]: ...
+    # (seats added, seats removed): new FREE seats with the next numbers, CIWG reservation recomputed;
+    # removals take FREE seats, highest numbers first; a removed seat with seat events stays as RELEASED
+
+# app/approvals/service.py
+async def versions(session: AsyncSession, user: User, approval_id: uuid.UUID) -> dict[str, Any]: ...
+async def add_version(
+    session: AsyncSession, user: User, approval_id: uuid.UUID, *,
+    approved_intake: int, effective_from: date, source: str,
+) -> dict[str, Any]: ...
+    # locks the approval (FOR UPDATE); 409 APPROVAL_BELOW_ASSIGNED when pool_changes finds a pool below
+    # its ASSIGNED seats; else inserts the version, updates the approval, apply_resize, ledger.assign_seats
+    # for the ACTIVE cohort enrolments of the programme (the backlog), checks.rerun(types=[SEAT]),
+    # flags.refresh_seat_flags for its pools, status.mark; audit as API_CONTRACT §A4.17
+def covers(approval: Approval, pool: SeatType, unseated: int) -> bool: ...   # for UPHOLD_NEEDS_VERSION (§17.7)
+```
+
+The ledger itself keeps `assign_seats` and its order; it reads `is_ciwg` from `eligibility.py` and never assigns a RELEASED (retired) seat. The SEAT evaluator calls `eligibility.check` for a seated enrolment and cites `approval_version` in `supplied_by`, `source_line` and `summary`. The seed importer writes `approval_versions` from `institutions.json` and builds pools from the current version.
+
+### 17.6 DigiLocker sign-in: `app/auth/digilocker.py`
+
+```python
+STATE_COOKIE = "cs_dl_state"            # 10 minutes
+CLAIM_COOKIE = "cs_dl_claim"            # 15 minutes
+CLAIM_TRIES = (5, timedelta(minutes=15))
+
+@dataclass(frozen=True, slots=True)
+class DigiLockerIdentity:               # from the verified id token
+    sub: str
+    name: str
+    birthdate: date
+    gender: str | None
+    apaar_id: str | None                # in memory only; never stored, never logged
+
+@dataclass(frozen=True, slots=True)
+class PendingClaim:
+    sub: str
+    name: str
+    birthdate: date
+    next: str
+
+def safe_next(raw: str | None) -> str: ...                       # a path under /student, else "/student"
+def start_redirect(next_path: str, settings: Settings, adapters: AdapterSet) -> tuple[str, str]: ...
+    # (Location, cs_dl_state cookie value)
+async def callback(
+    session: AsyncSession, adapters: AdapterSet, *, code: str | None, state: str | None,
+    error: str | None, state_cookie: str | None, request_id: str | None,
+) -> CallbackOutcome: ...
+    # SignedIn(user, next) | NeedsClaim(cookie value, next) | Failed(code, next); never raises for a bad request
+async def bind(session: AsyncSession, identity: DigiLockerIdentity, student: Student) -> User: ...
+    # the student's STUDENT user (created when missing) with digilocker_sub; audit CREATE or UPDATE on user
+def read_claim(cookie: str | None) -> PendingClaim | None: ...
+async def claim(session: AsyncSession, pending: PendingClaim, provisional_id: str, *, request_id: str | None) -> ClaimOutcome: ...
+    # API_CONTRACT §A4.12 steps 1 to 3; on success bind, checks.rerun(types=[IDENTITY]), status.mark
+async def notice_viewer(session: AsyncSession, notice: Notification, user: User | None, pending: PendingClaim | None) -> dict[str, Any]: ...
+    # {"signed_in", "name", "match"} for GET /notices/{token}
+```
+
+- The DigiLocker adapter (`app/adapters/*`, written by identity) gains `authorize_url(*, state, nonce, redirect_uri) -> str` and `async exchange_code(*, code, redirect_uri, nonce) -> DigiLockerIdentity` (token call, HS256 verification with the client secret, `iss`, `aud`, `exp`, `nonce`). `InMemoryDigiLocker` accepts codes it minted itself; `RealDigiLocker` raises `RealAdapterDisabled`.
+- `app/routers/auth.py` gains the four routes; `login` refuses STUDENT accounts with the existing 401. Rate limits use `app.core.ratelimit.limiter` with their own strings; the claim limit keys on the pending claim's `sub`.
+- `notices.service.respond` gains a `user: User | None` argument: no user is `401 SIGNIN_REQUIRED`, another student or role `403 NOTICE_IDENTITY_MISMATCH`, then `apply_reply(..., via="digilocker-sign-in", actor_id=user.id)`. New `respond_as_student(session, user, enrolment_id, response, comment)` for `POST /students/me/enrolments/{id}/respond`, which finds or writes the notice of API_CONTRACT §A4.13 and calls `apply_reply`.
+
+### 17.7 Decisions: `app/cases/decisions.py`
+
+```python
+@dataclass(frozen=True, slots=True)
+class CaseRule:
+    covers: CheckType | None
+    scope: Literal["RECORD", "MULTI_RECORD", "INSTITUTION"]
+    correct: bool
+    withdraw: bool
+    uphold_needs_version: bool          # EXCESS_ADMISSION, QUOTA_BREACH
+
+CASE_RULES: Mapping[FlagType, CaseRule]                       # API_CONTRACT §A4.10
+REASON_CODES: Mapping[CaseActionKind, tuple[str, ...]]        # §A4.9
+DOCS_KINDS: tuple[str, ...]                                   # ADMISSION, JOINING, IDENTITY, ELIGIBILITY, CREDITS, OTHER
+CORRECTABLE: Mapping[str, FieldSpec]                          # §A4.9 fields, with validators shared with upload validate
+
+def available(flag: Flag, action: CaseActionKind) -> bool: ...
+async def named_records(session: AsyncSession, flag: Flag) -> list[Enrolment]: ...   # at the case's institution
+async def outstanding(session: AsyncSession, flag: Flag) -> list[uuid.UUID]: ...
+
+@dataclass(slots=True)
+class Effects:                                                # API_CONTRACT §A4.9 `effects`
+    case_status: FlagStatus
+    records: list[dict[str, Any]] = field(default_factory=list)
+    version: int | None = None
+    changes: list[dict[str, Any]] = field(default_factory=list)
+    rows_resolved: int = 0
+    rows_rerun: int = 0
+    seats_released: list[dict[str, str]] = field(default_factory=list)
+    seats_assigned: list[dict[str, str]] = field(default_factory=list)
+    attestations_revoked: list[dict[str, str]] = field(default_factory=list)
+    attestations_issued: list[dict[str, str]] = field(default_factory=list)
+    approval: dict[str, Any] | None = None
+
+async def uphold(session, flag: Flag, user: User, row: CaseAction, *, approval_version: int | None) -> Effects: ...
+async def correct(session, flag: Flag, user: User, row: CaseAction, *, enrolment_id: uuid.UUID,
+                  fields: Mapping[str, Any], adapters: AdapterSet) -> Effects: ...
+async def withdraw(session, flag: Flag, user: User, row: CaseAction, *, enrolment_ids: Sequence[uuid.UUID]) -> Effects: ...
+async def clear_resolutions(session, flag: Flag) -> int: ...   # REOPEN
+```
+
+- `cases.service.apply_action` keeps its role, scope, table and note rules and gains `reason_code`, `docs_kind`, `withdrawn_enrolment_ids`, `correction`, `approval_version`, `dry_run` and `adapters`. After the case row is written it dispatches UPHOLD, CORRECT and WITHDRAW to this module, sets the case's status from the multi-record rule, calls `status.mark` for the named records and returns `ActionResult` with `effects`.
+- **Dry run.** The router opens a SAVEPOINT (`session.begin_nested()`), runs `apply_action`, runs `status.settle` inside it so `effects.records` carries the new statuses, reads the effects, and rolls the savepoint back; the outer transaction then commits nothing (no audit, no email, no attestation). Adapter calls of a CORRECT dry run do happen.
+- `withdraw` per record: a DECISION version (`versions.record`), `status` WITHDRAWN and `status_date` today, `ledger.assign_seats(session, [id] + backlog, actor_id=user.id)` with release reason `withdrawn by decision`, `credentials.revoke_for_enrolment(session, id, "CLAIM_WITHDRAWN", user.id)`, `checks.rerun(types=[SEAT])` for records the ledger seated, `flags.refresh_seat_flags` for the touched pools.
+- `correct`: validate, apply, `versions.record`, `ledger.assign_seats`, `checks.rerun(session, [id], adapters)` (all five), `refresh_seat_flags`.
+- `uphold`: for a case with `uphold_needs_version`, `approvals.service.covers` must hold for the given version, else `409 UPHOLD_NEEDS_VERSION`; sets `resolved` on the covered rows of §A4.10 (`case_id`, `case_action_seq`, `reason_code`, `by_id`, `at`).
+- `transitions.py` gets the §A4.8 table (UPHOLD, CORRECT and WITHDRAW in the CLEAR and CONFIRM cells); `OFFICER_ACTIONS` order is UPHOLD, CORRECT, WITHDRAW, REQUEST_DOCS, ESCALATE, NOTE, ASSIGN, REOPEN; `NOTE_SHOWN_TO_COLLEGE` adds CORRECT and WITHDRAW. `FLAG_NAMES`, the reason words and the `docs_kind` words follow copy deck §5 and §6; the REQUEST_DOCS email uses `docs_kind.*.words`.
+
+### 17.8 Enrolment versions: `app/engine/versions.py`
+
+```python
+VERSIONED_FIELDS: tuple[str, ...] = (
+    "name", "dob", "apaar_masked", "consent_status", "year_of_study", "admission_route", "counselling_ref",
+    "category", "admission_date", "status", "status_date", "tfw_income_certified", "nri_sponsored", "ciwg",
+)
+
+def snapshot(enrolment: Enrolment, student: Student) -> dict[str, Any]: ...      # JSON values; APAAR only masked
+def diff(before: Mapping[str, Any] | None, after: Mapping[str, Any]) -> dict[str, list[Any]]: ...  # {field: [before, after]}
+
+@dataclass(frozen=True, slots=True)
+class VersionWrite:
+    enrolment_id: uuid.UUID
+    changes: Mapping[str, list[Any]]
+    source: VersionSource
+    batch_id: uuid.UUID | None = None
+    case_action_seq: int | None = None
+    actor_id: uuid.UUID | None = None
+
+async def record(session: AsyncSession, write: VersionWrite) -> EnrolmentVersion | None: ...   # None when no change
+async def record_many(session: AsyncSession, writes: Sequence[VersionWrite]) -> int: ...
+    # one INSERT ... SELECT per chunk: version = coalesce(max(version), 0) + 1 per enrolment
+async def history(session: AsyncSession, enrolment_id: uuid.UUID, *, page: PageParams, user: User) -> Page: ...
+async def latest(session: AsyncSession, enrolment_id: uuid.UUID, limit: int = 20) -> list[dict[str, Any]]: ...
+```
+
+`upsert` takes `snapshot` before and after each created or updated row and passes the diffs to `record_many` once per chunk (source UPLOAD, or SEED for seed batches; version 1 for a new enrolment); an unchanged row writes nothing, so §13 still holds. Version numbers are safe because every writer holds the enrolment row lock (upsert chunk, decisions `FOR UPDATE`).
+
+### 17.9 Column mapping: `app/engine/upload/mapping.py`
+
+```python
+SYNONYMS: Mapping[str, str]     # normalised header -> template column: "student_name": "name", "date_of_birth": "dob",
+                                # "d_o_b": "dob", "apaar": "apaar_id", "apaar_no": "apaar_id", "course": "programme_code",
+                                # "course_code": "programme_code", "branch": "programme_code", "year": "year_of_study",
+                                # "admission_type": "admission_route", "quota": "admission_route", "caste_category": "category",
+                                # "mobile_no": "mobile", "phone": "mobile", "e_mail": "email", "passport": "passport_no",
+                                # "tfw": "tfw_income_certified", "nri": "nri_sponsored"
+
+@dataclass(frozen=True, slots=True)
+class HeaderMap:
+    columns: dict[int, str]             # cell index -> template column
+    mapped: list[tuple[str, str]]       # (their header, column) used through the saved mapping
+    unknown: list[str]
+    missing: list[str]                  # required columns not reached
+    duplicates: list[str]
+
+def apply(headers: Sequence[str], mapping: Mapping[str, str]) -> HeaderMap: ...
+def suggest(unknown: Sequence[str]) -> list[tuple[str, str]]: ...   # synonyms first, then rapidfuzz ratio >= 85
+def validate(mapping: Mapping[str, str], headers: Sequence[str] | None) -> None: ...
+    # ApiError 422 VALIDATION_ERROR, MAPPING_DUPLICATE or MAPPING_INCOMPLETE
+async def load(session: AsyncSession, institution_id: uuid.UUID) -> dict[str, str]: ...
+async def save(session: AsyncSession, institution_id: uuid.UUID, mapping: Mapping[str, str], user: User) -> dict[str, Any]: ...
+```
+
+`parse_upload` and `parse_rows` take `mapping: Mapping[str, str] | None = None` and raise `UploadFileError("UPLOAD_HEADER_UNMAPPED", ..., details)` when §A4.16 says so; the uploads router checks the header synchronously with the institution's saved mapping, as it does today without one, and the batch stores `counts.column_mapping`.
+
+### 17.10 Completeness: `app/engine/completeness.py`
+
+```python
+@dataclass(frozen=True, slots=True)
+class UploadedFact:
+    enrolment_id: uuid.UUID
+    programme_code: str
+    dob: date
+    name_normalised: str
+
+@dataclass(slots=True)
+class Reconciliation:
+    joined: int
+    uploaded_and_joined: int
+    missing: int
+    uploaded_not_joined: int
+    missing_students: list[dict[str, Any]]   # name, roll_no, programme_code, joined_on, round, route, apaar_last4
+    published: bool
+    source_unavailable: bool
+    first_upload_at: datetime | None
+
+def match(joinings: Sequence[Joining], uploaded: Sequence[UploadedFact]) -> list[tuple[Joining, uuid.UUID | None]]: ...
+    # pure: same programme and dob, match_names >= 90, one to one, best score first
+def deadline_state(deadline: date, first_upload_at: datetime | None, today: date) -> DeadlineState: ...   # pure
+async def reconcile(
+    session: AsyncSession, adapters: AdapterSet, institution_id: uuid.UUID, academic_year: str, *,
+    actor_id: uuid.UUID | None = None,
+) -> Reconciliation: ...
+    # one joinings call; writes institution_scores; raises or refreshes MISSING_FROM_UPLOAD through raise_flag
+async def reconcile_all(factory, adapters, academic_year: str, *, concurrency: int = 8) -> dict[str, int]: ...
+async def read(session: AsyncSession, user: User, institution_id: uuid.UUID, academic_year: str) -> dict[str, Any]: ...
+# python -m app.engine.completeness --academic-year 2026-27 [--institution 1-ABC-0001]
+```
+
+The worker chains `countersign.refresh_completeness(institution_id, academic_year)` after `countersign.send_notices` for a DONE batch. Dashboards and reports read `institution_scores` and never call the authority.
+
+### 17.11 Signals: `app/signals/`
+
+```python
+# app/signals/rings.py
+@dataclass(frozen=True, slots=True)
+class Member:
+    enrolment_id: uuid.UUID
+    student_id: uuid.UUID
+    institution_id: uuid.UUID
+    mobile_hmac: bytes | None
+    email: str | None                   # lower case
+    address_hmac: bytes | None
+    mobile_last4: str | None
+
+@dataclass(frozen=True, slots=True)
+class Ring:
+    members: tuple[Member, ...]
+    institution_ids: frozenset[uuid.UUID]
+    shared: tuple[tuple[str, str, int], ...]   # (kind, masked value, students sharing it)
+
+def find_rings(members: Sequence[Member], *, min_cross: int, min_colleges: int, min_single: int) -> list[Ring]: ...
+    # networkx.Graph: one node per student, an edge per shared mobile, email or address;
+    # connected_components; >= min_cross across >= min_colleges colleges, or >= min_single in one college
+async def load_members(session: AsyncSession, academic_year: str) -> list[Member]: ...
+
+# app/signals/anomaly.py
+FEATURES = ("admission_growth", "nri_share", "management_share", "contradiction_rate", "contact_sharing_rate")
+
+@dataclass(frozen=True, slots=True)
+class InstitutionFeatures:
+    institution_id: uuid.UUID
+    values: Mapping[str, float]
+    records: int
+
+@dataclass(frozen=True, slots=True)
+class Outlier:
+    institution_id: uuid.UUID
+    score: float                        # IsolationForest.score_samples (lower is more unusual)
+    features: tuple[dict[str, Any], ...]  # name, value, peer_low, peer_high, peer_median, robust_z, stands_out
+
+def score(rows: Sequence[InstitutionFeatures], *, contamination: float, n_estimators: int, random_state: int) -> list[Outlier]: ...
+    # pure apart from scikit-learn: fit_predict on the matrix; outliers are rows predicted -1;
+    # robust_z = (value - median) / (1.4826 * MAD); stands_out when |robust_z| >= 2 (at least the top one)
+async def load_features(session: AsyncSession, academic_year: str, *, min_records: int) -> list[InstitutionFeatures]: ...
+
+# app/signals/service.py
+async def run(session: AsyncSession, academic_year: str, *, actor_id: uuid.UUID | None = None) -> dict[str, Any]: ...
+async def list_signals(session: AsyncSession, user: User, query: SignalQuery) -> Page: ...
+async def detail(session: AsyncSession, user: User, signal_id: uuid.UUID) -> dict[str, Any]: ...
+async def open_cases(session: AsyncSession, user: User, signal_id: uuid.UUID, *,
+                     institution_ids: Sequence[uuid.UUID], note: str, severity: Severity | None) -> list[Flag]: ...
+async def dismiss(session: AsyncSession, user: User, signal_id: uuid.UUID, *, note: str) -> dict[str, Any]: ...
+```
+
+- Features, per institution, over ACTIVE enrolments of the year: `admission_growth` (first-years admitted this year over second-years on the roll, the previous cohort); `nri_share` and `management_share` (NRI, and MANAGEMENT plus SPOT, first-years over all first-years); `contradiction_rate` (records with an unresolved-contradicted row over records); `contact_sharing_rate` (students sharing a mobile, email or address hash with another student over students). Institutions with fewer than `signals.anomaly.min_records` (20) records are left out of training and scoring. `peer_low` and `peer_high` are the 25th and 75th percentiles.
+- `run` reads only; it writes `signals` rows (upsert by `dedupe_key`, never deleting, never touching `status`, `case_flag_id`, `facts.cases` or `facts.dismissal`) and nothing else. Signals never call `status.mark`.
+- `open_cases` raises each case through `flags.raise_flag` (the officer as actor), writes the NOTE row through `cases.service`, updates the signal and calls `status.mark` for the named records, all in the request's transaction.
+
+### 17.12 Reports: `app/reports/`
+
+```python
+# app/reports/registry.py
+@dataclass(frozen=True, slots=True)
+class ReportScope:
+    kind: Literal["NATIONAL", "REGION", "STATE"]
+    region_id: uuid.UUID | None
+    state_id: uuid.UUID | None
+    label: str                          # "All India", "Western Region", "Maharashtra"
+    slug: str                           # "national", "WEST", "MH"
+
+@dataclass(frozen=True, slots=True)
+class ReportSpec:
+    name: str
+    title: str
+    columns: tuple[str, ...]
+    formats: tuple[str, ...]
+    rows: Callable[[AsyncSession, ReportScope, str], Awaitable[list[dict[str, Any]]]]
+
+REPORTS: Mapping[str, ReportSpec]
+def scope_for(user: User, *, region: str | None, state: str | None) -> ReportScope: ...
+
+# app/reports/queries.py: by_state, by_institution_type, cases_by_type_and_outcome, countersign_coverage, completeness, summary
+# app/reports/render.py (pure)
+def to_csv(spec: ReportSpec, rows: Sequence[Mapping[str, Any]]) -> bytes: ...
+def to_xlsx(spec: ReportSpec, rows: Sequence[Mapping[str, Any]], scope: ReportScope, academic_year: str) -> bytes: ...
+def to_pdf(spec: ReportSpec, rows: Sequence[Mapping[str, Any]], scope: ReportScope, academic_year: str) -> bytes: ...
+def summary_pdf(data: Mapping[str, Any], scope: ReportScope, academic_year: str) -> bytes: ...
+```
+
+Queries read `enrolments.record_status`, `flags`, `checks` and `institution_scores` with SQL aggregates (no per-row Python), the same counts `_stats.py` gives the dashboard, so a report and the dashboard always agree. The renderers are pure (openpyxl, reportlab).
+
+### 17.13 Attestations
+
+- `issuer.eligibility` becomes: ACTIVE, `record_status` COUNTERSIGNED, no unrevoked ENROLMENT credential, and no earlier ENROLMENT credential revoked with a holding code (`ADMIN`, `FLAG_CONFIRMED`, `CLAIM_WITHDRAWN`). `SYSTEM_RELEASES` becomes `("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "STUDENT_DISPUTE")`.
+- `revoke_for_enrolment` accepts `CLAIM_WITHDRAWN` and `STUDENT_DISPUTE` as codes. Callers: the ledger (withdrawal, transfer, unchanged), `decisions.withdraw`, `status.refresh` (DISPUTED).
+- `issue_if_eligible` callers: `status.refresh` (issue=True) and `send_notices_for_batch` step 5, which now issues for the batch's COUNTERSIGNED records. The recheck routers and the case service no longer call it themselves: their `settle` does.
+- `CredentialKind.COMPLETION`, `COMPLETION_VCT = "countersign:completion:v1"`; `kind_of` reads `countersign:degree:v1` as COMPLETION. `degree.py` keeps its functions; the router paths and file names change to API_CONTRACT §A4.15 (`/issue`, `/block.pdf`, `/verify/completion/{short_id}`); the claim `countersigned` lists the CONFIRMED rows.
+
+### 17.14 Evaluation: `tools/eval`
+
+```
+tools/eval/
+  pyproject.toml            no dependencies beyond the api image's
+  eval/__init__.py
+  eval/__main__.py          python -m eval run --generated DIR --out DIR [--skip-perf]
+  eval/truth.py             load ground_truth.json and the manifest; resolve rows to enrolments
+  eval/detection.py         recall per type, severity match, expected record statuses, deadline states
+  eval/false_alarms.py      the known-clean set
+  eval/timing.py            per upload and the 50,000-row run
+  eval/effort.py            cases per 1,000 records, facts and records per case
+  eval/signals.py           ring and anomaly precision and recall
+  eval/access.py            cross-college requests through the ASGI app
+  eval/report.py            eval_report.md and eval.json
+  tests/
+```
+
+`make eval`: datagen (`--size small --seed 2026 --perf 50000`) into `/data/generated`; `make demo-reset`; `python -m eval run --generated /data/generated --out /eval/out` in the api container with `./tools/eval` mounted at `/eval` and on `PYTHONPATH`. It writes `tools/eval/out/eval_report.md` and `tools/eval/out/eval.json` (the directory is git-ignored) and exits 1 when a target is missed. It leaves the eval data seeded (the demo data plus the throughput college); run `make demo-reset` before a demo.
+
+Metrics, every one labelled synthetic in both files:
+
+| metric | definition | target |
+|---|---|---|
+| detection recall | per `expected_flag` type: ground-truth records with a case of that type naming their rows (record cases), their programme and pool (EXCESS_ADMISSION, QUOTA_BREACH), or their institution and year (MISSING_FROM_UPLOAD), over planted; overall over all types | 95% or more overall |
+| severity match | found cases whose severity equals `severity_expected`, over found | reported |
+| record status | records with `expected_record_status` whose status matches, over those records | reported (the sample card must read DISPUTED) |
+| deadline states | planted LATE and OVERDUE colleges with that `deadline_state` | reported |
+| false alarms | known-clean records (accepted rows no ground-truth record names, throughput college excluded) named by any case or reading UNDER_REVIEW or DISPUTED, over known-clean records | under 5% |
+| processing time per upload | `finished_at - started_at` of the seed batches: median, 95th percentile, maximum, rows per second | reported |
+| 50,000 rows | wall time of `run_batch` on `perf/9-PERF-0001_2026-27.csv` against mockgov, with stage timings | under 120 s |
+| review effort | unresolved cases per 1,000 ACTIVE records; evidence facts per case; records per case | reported |
+| signals | a planted ring is found when a GHOST_RING signal holds 80% or more of its members; ring precision (signals matching a planted ring over ring signals) and recall; anomaly recall (planted institutions with an ANOMALY signal) and precision | reported |
+| cross-college access | one INSTITUTION user is created per institution for the run; each requests, for every other institution, `GET /institutions/{id}`, `/institutions/{id}/enrolments`, `/institutions/{id}/completeness`, and one `/enrolments/{id}`, `/enrolments/{id}/history`, `/flags/{id}` and `/uploads/{id}` of it when it has one; refused means 403 or 404 | every attempt refused |
+
+`eval.json`: `{"generated_at", "synthetic": true, "dataset": {"size", "seed", "institutions", "records"}, "targets": {...}, "detection": {"overall_recall", "by_type": {"<TYPE>": {"planted", "found", "recall", "severity_match"}}}, "record_status": {"checked", "matched"}, "deadlines": {...}, "false_alarms": {"clean_records", "flagged", "rate"}, "timing": {"uploads": {"count", "median_ms", "p95_ms", "max_ms", "rows_per_second"}, "perf_50k": {"rows", "seconds", "rows_per_second", "stages_ms"} | null}, "effort": {"cases_per_1000", "facts_per_case", "records_per_case"}, "signals": {"rings": {...}, "anomalies": {...}}, "access": {"attempts", "refused", "leaks": [...]}, "passed": {"recall", "false_alarms", "throughput", "access"}}`. `eval_report.md` prints the same with copy deck §29 headings.
+
+Throughput work belongs here, within these limits: `run_batch` keeps its stages and transaction rules (§4); allowed levers are bulk statements (subjects, rows, versions, statuses per 500), `CHECKS_CONCURRENCY` and the shared HTTP client's connection limits, mockgov's uvicorn worker count in compose, and skipping work an unchanged row does not need. A new mockgov batch endpoint is allowed only once it is written into API_CONTRACT section C.
+
+### 17.15 Seed, worker, routers and the Makefile
+
+- `make seed` and `make demo-reset`: mockgov seed (`--reset` drops and recreates its tables); `python -m app.seed.cli` (approval versions, column mappings, uploads with `submitted_at`, notices per batch); `python -m app.seed.replies`; `python -m app.seed.derived --from /data/generated` (new: `completeness.reconcile_all` for the year, then `signals.service.run`, each in its own transaction, settling statuses).
+- Worker: `countersign.run_batch` → `countersign.send_notices` → `countersign.refresh_completeness`. Concurrency stays 1.
+- New routers and their registration (the import line and the loop are resolved once, in this order): `approvals`, `column_mapping`, `completeness`, `reports`, `signals` join; the order is `healthz, auth, issuer, notices, verify, privacy, dashboard, institutions, column_mapping, completeness, enrolments, approvals, flags, cases, signals, reports, users, uploads, students, credentials, university, meta, admin`. Inside `completeness`, `/institutions/{id}/completeness.csv` is declared before `/institutions/{id}/completeness`; inside `reports`, `/reports/{name}.{format}` is one route with a path regex.
+- The `/api` proxy (web) passes 302 with `Location` and `Set-Cookie` and does not follow redirects.
+
+### 17.16 Transactions
+
+| work | session and commit | inside it |
+|---|---|---|
+| any request handler | `get_session`: settle, then commit when the handler returns; an error rolls everything back | flush only; `status.mark` |
+| `POST /flags/{id}/actions` with `dry_run` | the request's session; the action and its settle in a SAVEPOINT that is rolled back | |
+| DigiLocker callback and claim | the request's session; cookies set on the response | `bind`, `rerun(IDENTITY)` |
+| `run_batch` | as §4.3; each chunk settles with `issue=False` before its commit | |
+| `send_notices_for_batch`, `deliver_notices`, `refresh_completeness` (worker) | own sessions per chunk or per institution, settle before commit | `issue_if_eligible` flushes only |
+| `app.seed.replies`, `app.seed.derived`, the status, completeness and signals CLIs | one transaction per 500 lines, per institution, or per run | |
+
+### 17.17 Who calls whom
+
+- Every row writer → `status.mark`; every transaction owner → `status.settle` → `status.refresh` → `decide`; → `credentials.revoke_for_enrolment` (DISPUTED) and `credentials.issue_if_eligible` (COUNTERSIGNED).
+- `run_batch` → upsert (→ `versions.record_many`, `status.mark`) → ledger (→ `eligibility.is_ciwg`, `credentials.revoke_for_enrolment`) → `run_checks` (→ evaluators, `admission_authority.joining`, `eligibility.check`) → duplicates → `refresh_seat_flags`; worker → `send_notices_for_batch` → `refresh_completeness` → `completeness.reconcile` → `raise_flag(MISSING_FROM_UPLOAD)`.
+- `POST /flags/{id}/actions` → `cases.service.apply_action` → `decisions.uphold` (→ `approvals.service.covers`) | `decisions.correct` (→ `versions.record`, ledger, `checks.rerun`, `refresh_seat_flags`) | `decisions.withdraw` (→ `versions.record`, ledger, `credentials.revoke_for_enrolment`, `checks.rerun(SEAT)`).
+- `POST /approvals/{id}/versions` → `approvals.service.add_version` → `seatpools.apply_resize`, ledger, `checks.rerun(SEAT)`, `refresh_seat_flags`.
+- `GET /auth/digilocker/callback` → `auth.digilocker.callback` → adapter `exchange_code` → `bind`; `POST /auth/digilocker/claim` → `claim` → `bind`, `checks.rerun(IDENTITY)`.
+- `POST /notices/{token}/respond` and `POST /students/me/enrolments/{id}/respond` → `notices.service` → `apply_reply` → `checks.refresh_student`.
+- `POST /signals/{id}/open-case` → `signals.service.open_cases` → `raise_flag`, `cases.service` NOTE row, `status.mark`.
+- Uploads router → `mapping.load` → `parse_upload(mapping=...)`; `PUT /institutions/{id}/column-mapping` → `mapping.save`.
+- Dashboards and reports → `_stats.py` and `reports.queries` (read only).
+
+Until an area's code is merged, the others build against these signatures with fakes: `status.decide` returning AWAITING_EVIDENCE, `mark` and `settle` as no-ops, `versions.record_many` returning 0, an `InMemoryAdmissionAuthority` with a fixed list, `decisions.*` returning empty `Effects`.
+
+### 17.18 Tests each area owes
+
+| area | test |
+|---|---|
+| evidence | `decide` against every row of API_CONTRACT §A4.3, including: one contradiction outranks four confirmations; an upheld row alone never gives COUNTERSIGNED; self-issued credits alone give AWAITING_EVIDENCE with `only_self`; a review-level name upheld counts as identity confirmed; DISPUTED needs both the contradicted Student row and an unresolved STUDENT_DENIED case |
+| evidence | after the demo seed, every ACTIVE enrolment's stored status equals `decide` on its stored rows and cases (catches a writer that forgot `mark`) |
+| evidence | the deck's sample card from the seed: Identity Confirmed, Seat Confirmed citing v2, Joining record Contradicted "State admission authority · {date}", Credits Not yet due, Student Contradicted "I never joined", status DISPUTED, next step from the case |
+| evidence | joining record: found, pending before the deadline, not published (NOT_YET_DUE), not published after the deadline (PENDING), contradicted after it with one NOT_IN_JOINING_RECORD; authority down gives SOURCE_UNAVAILABLE and never a case |
+| evidence | the migration's state mapping (PASS, FAIL, NA by reason, PENDING with and without `source_unavailable`) and that `observed_at` and `source_line` do not move on an unchanged re-upload |
+| evidence | eligibility: each rule's breach, the TFW blank PENDING, a CIWG-marked Indian national taking a reserved seat and an unmarked one refused it |
+| evidence | approval versions: raising seats the backlog and the Seat rows cite the new version; lowering below assigned is 409 and changes nothing |
+| identity | the OAuth round trip against the in-memory and the mockgov DigiLocker; a state mismatch, a cancel and a bad token each land on the return page with the right code and sign nobody in |
+| identity | bind by APAAR (the seeded Ravi account gets `digilocker_sub`); a refused-consent student claims by provisional id and the record becomes COUNTERSIGNED when its joining record is found; CLAIM_NO_MATCH is identical for an unknown id and a wrong date of birth; CLAIM_NOT_NEEDED and CLAIM_ALREADY_CLAIMED only after a match; the sixth try in 15 minutes is 429 |
+| identity | a notice link cannot record an answer without sign-in (401); another student gets 403 and `match` SOMEONE_ELSE; the student password login is 401 |
+| identity | attestations: issued when COUNTERSIGNED without a student reply; revoked with STUDENT_DISPUTE when DISPUTED and issued again after the dispute is upheld; CLAIM_WITHDRAWN holds; completion paths and the old verify path answer |
+| decisions | WITHDRAW in one transaction: enrolment WITHDRAWN, seat released and given to the backlog, attestation revoked, version stored, audit entries; a dry run returns the same effects and stores nothing |
+| decisions | CORRECT stores a version and re-runs the rows and the ledger; UPHOLD leaves the row CONTRADICTED with `resolved` and the case UPHELD; REOPEN clears the markers; every decision without a reason is 422 REASON_REQUIRED |
+| decisions | multi-record: withdrawing 2 of 12 excess records keeps the case open with 10 outstanding; UPHOLD without a covering version is 409 UPHOLD_NEEDS_VERSION |
+| decisions | column mapping: a file with saved headers maps automatically; unknown headers with a missing required column give UPLOAD_HEADER_UNMAPPED with suggestions; versions on create, change and no change |
+| decisions | completeness: a college that left students out shows them (names, roll numbers) with a score below 100 and one MISSING_FROM_UPLOAD case; deadline states for an on-time, a late and an overdue college |
+| signals-reports | the planted 40-student ring across 3 colleges is one GHOST_RING signal; planted anomalies are ANOMALY signals with their features; no row, case or status changed by a run; open-case puts the named records UNDER_REVIEW; a regional officer sees out-of-region members only as a count |
+| signals-reports | each report in CSV, XLSX and PDF for AICTE and for a regional officer (scoped rows only); the dashboard's status counts equal the report's and the enrolment list's `status_counts` |
+| eval-perf | `make eval` on the small seed passes its four targets; the eval's own unit tests on the metric functions with hand-made ground truth |
+
+### 17.19 Known limits in Week 4
+
+- There is still no scheduler: a row waiting for the reporting deadline moves only at the next recheck or upload of that record (the seed runs after the 2026-27 deadline, so its rows are already past it).
+- One state's joining record format is simulated and served for every state; the joinings list is the one mockgov route that returns names.
+- One DigiLocker account binds to one student record; a person with two student rows (APAAR at one college, a provisional id at another) can claim only one.
+- A claim is checked against the record's name and date of birth at claim time; a later upload that changes them does not undo the claim.
+- An officer's correction can be overwritten by a later upload of the same row (last writer wins, as D14); both versions stay in the history.
+- A CORRECT dry run calls the sources for real (then rolls back).
+- Signals are recomputed only on `make seed`, `make eval` and `POST /signals/run`; anomaly features compare a college with all colleges of the year, not with a chosen peer group.
+- `institution_scores` keeps its Week 1 column name `integrity_index` for the completeness percentage.

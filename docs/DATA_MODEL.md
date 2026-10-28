@@ -1,6 +1,6 @@
 # Data model (api database `countersign`)
 
-All tables carry `id UUID PK default gen_random_uuid()`, `created_at timestamptz default now()`, `updated_at timestamptz` (trigger or ORM onupdate) unless marked append-only (then only `id`/`seq` and `at`). Enums are Postgres `ENUM` types named `<table>_<column>` with the UPPER_SNAKE values from `ARCHITECTURE.md` §9. FKs are `ON DELETE RESTRICT` except where noted. Migration `0001_initial` creates everything below. Migration `0002` (Week 2) changes the columns listed under "Migration 0002" near the end of this file; where the two disagree, 0002 wins. Migration `0003` (Week 3) is listed under "Migration 0003" after it; the per-table reference below already shows the 0003 columns of `flags`, `case_actions`, `notifications`, `credentials`, `consents` and `data_requests` and the four new tables.
+All tables carry `id UUID PK default gen_random_uuid()`, `created_at timestamptz default now()`, `updated_at timestamptz` (trigger or ORM onupdate) unless marked append-only (then only `id`/`seq` and `at`). Enums are Postgres `ENUM` types named `<table>_<column>` with the UPPER_SNAKE values from `ARCHITECTURE.md` §9. FKs are `ON DELETE RESTRICT` except where noted. Migration `0001_initial` creates everything below. Migration `0002` (Week 2) changes the columns listed under "Migration 0002" near the end of this file; where the two disagree, 0002 wins. Migration `0003` (Week 3) is listed under "Migration 0003" after it; the per-table reference below already shows the 0003 columns of `flags`, `case_actions`, `notifications`, `credentials`, `consents` and `data_requests` and the four new tables. Migration `0004` (Week 4) is listed under "Migration 0004" after that; the per-table reference below already shows its columns and values, and the four new tables (`approval_versions`, `institution_column_mappings`, `enrolment_versions`, `signals`).
 
 ## Geography and institutions
 
@@ -43,6 +43,16 @@ Why: degree-awarding body; UNIVERSITY role scope; Week 3 degree QR.
 
 Index: `(region_id)`, `(state_id)`, `(university_id)`, trigram-free `lower(name)`.
 
+### `institution_column_mappings` (0004)
+| column | type | notes |
+|---|---|---|
+| institution_id | uuid PK, FK institutions | one mapping per institution |
+| mapping | jsonb NOT NULL | `{their header as written: template column}`, e.g. `{"Student Name": "name", "D.O.B.": "dob"}`; matched after the header normalisation of API_CONTRACT §A2.2 |
+| updated_at | timestamptz | |
+| updated_by_id | FK users | the registrar or AICTE officer who saved it |
+
+Why: a college maps its own column names once and later files are mapped automatically (D42).
+
 ### `programmes`
 | column | type | notes |
 |---|---|---|
@@ -59,10 +69,23 @@ Index: `(region_id)`, `(state_id)`, `(university_id)`, trigram-free `lower(name)
 |---|---|---|
 | programme_id | FK programmes | |
 | academic_year | text | `2026-27`; unique with programme_id |
-| approved_intake | int | |
+| approved_intake | int | the current version's intake (0004: always equal to `approval_versions.approved_intake` of `current_version`) |
 | cutoff_date | date nullable | last admission date from rules.yaml; LATE_REFILL after this |
+| current_version | int NOT NULL default 1 | 0004: the version the Seat Ledger and the Seat row use |
 
 Why: the official number the claim is checked against.
+
+### `approval_versions` (0004)
+| column | type | notes |
+|---|---|---|
+| approval_id | FK approvals | |
+| version | int | 1, 2, ...; unique with approval_id |
+| approved_intake | int | the intake this version approves |
+| effective_from | date | when the version applies |
+| source | text | where it comes from, e.g. "AICTE EoA 2026-27" or "AICTE EoA 2026-27, revised" |
+| created_at | timestamptz | when it was recorded; the officer who added it is in the audit entry |
+
+Why: approvals change during the year; the Seat row cites the version it was checked against (DECISIONS D41). Rows are never updated or deleted.
 
 ## Seat Ledger
 
@@ -142,8 +165,27 @@ Why: identity is resolved through HMACs so matching works without ever indexing 
 | upload_batch_id | FK upload_batches nullable | null for Week 1 seed |
 | source_row_no | int nullable | row in the upload file |
 | uploaded_at | timestamptz | |
+| record_status | enum enrolments_record_status NOT NULL default AWAITING_EVIDENCE | 0004: AWAITING_EVIDENCE, COUNTERSIGNED, UNDER_REVIEW, DISPUTED (D35); meaningful only while `status` is ACTIVE, kept as last computed otherwise |
+| status_reason | text nullable | 0004: one sentence naming the deciding row or case; for a record that left ACTIVE, why it left ("Withdrawn by decision on 30 Oct 2026.") |
+| next_step | text nullable | 0004: one sentence; null when COUNTERSIGNED or not ACTIVE |
+| record_status_at | timestamptz nullable | 0004: when `record_status` last changed |
+| eligibility | jsonb NOT NULL default `'{}'` | 0004: what the college reported: `{"tfw_income_certified": true \| false \| null, "nri_sponsored": ..., "ciwg": ...}`; a missing key or null means not reported (D41) |
 
-Unique: `(student_id, institution_id, programme_id, academic_year)`. Index: `(institution_id, academic_year, status)`, `(programme_id, academic_year)`, `(student_id)`.
+Unique: `(student_id, institution_id, programme_id, academic_year)`. Index: `(institution_id, academic_year, status)`, `(programme_id, academic_year)`, `(student_id)`, 0004 `(institution_id, academic_year, record_status)`.
+
+### `enrolment_versions` (0004, append-only)
+| column | type | notes |
+|---|---|---|
+| enrolment_id | FK enrolments | |
+| version | int | 1 for the creation, then +1 per change; unique with enrolment_id |
+| changes | jsonb NOT NULL | `{field: [before, after]}`; version 1 has `[null, value]` for every versioned field (ENGINES §17.8) |
+| source | text NOT NULL | `UPLOAD`, `DECISION` or `SEED` |
+| batch_id | FK upload_batches nullable | UPLOAD and SEED versions |
+| case_action_seq | bigint FK case_actions.seq nullable | DECISION versions: the CORRECT or WITHDRAW row |
+| actor_id | FK users nullable | the uploader or the officer; null for SEED |
+| at | timestamptz NOT NULL | |
+
+Why: every change to an enrolment is kept with who made it and on what authority, and is shown as the record's history (D42). Versions never hold a mobile number, an email address, an address or a full APAAR; the APAAR appears only as `apaar_masked`.
 
 ## Upload pipeline
 
@@ -177,27 +219,31 @@ Unique: `(student_id, institution_id, programme_id, academic_year)`. Index: `(in
 |---|---|---|
 | enrolment_id | FK enrolments ON DELETE CASCADE | |
 | type | enum check_type | IDENTITY, ADMISSION, SEAT, STUDYING, STUDENT |
-| status | enum check_status | PASS, FAIL, PENDING, NA |
-| detail | jsonb | human-readable evidence (`{"summary": "...", "facts": [...]}`) |
-| source | text | `APAAR`, `COUNSELLING`, `SEAT_LEDGER`, `ABC`, `STUDENT_NOTICE` |
+| status | enum checks_status | 0004: CONFIRMED, CONTRADICTED, PENDING, NOT_YET_DUE, NOT_APPLICABLE, SOURCE_UNAVAILABLE (the evidence state, D34; on the wire `state`) |
+| detail | jsonb | human-readable evidence: `summary`, and from 0004 `finding`, `source_line` and `basis` (API_CONTRACT §A4.2) |
+| source | text | `APAAR`, `ADMISSION_AUTHORITY`, `SEAT_LEDGER`, `ABC`, `SII`, `DIGILOCKER`, `STUDENT_NOTICE` (`COUNSELLING` only on rows written before 0004) |
 | checked_at | timestamptz nullable | |
-| attempts | int | retries on PENDING |
+| attempts | int | evaluations that met an unavailable source |
+| supplied_by | text NOT NULL default `''` | 0004: the source in words, shown verbatim ("APAAR registry", "AICTE approval v2, 2026-27 (Seat Ledger, derived)", ...); empty when no source was consulted |
+| observed_at | timestamptz nullable | 0004: when that source supplied the fact |
+| independent | bool NOT NULL default false | 0004: the fact does not come from the institution that made the claim (D38) |
+| resolved | jsonb nullable | 0004: set by an officer's decision on a CONTRADICTED (or review-level PENDING) row: `{"outcome": "UPHELD", "case_id", "case_action_seq", "by_id", "at", "reason_code"}`; cleared when the row's state changes or the case is reopened |
 
-Unique: `(enrolment_id, type)`. Why: one row per source per enrolment; score = PASS / non-NA.
+Unique: `(enrolment_id, type)`. Why: one row per fact per enrolment; the record status is computed from these rows and the unresolved cases (D35).
 
 ### `flags`
 | column | type | notes |
 |---|---|---|
-| type | enum flag_type | ARCHITECTURE §9 |
+| type | enum flags_type | ARCHITECTURE §9; 0004 adds NOT_IN_JOINING_RECORD, ELIGIBILITY_BREACH, MISSING_FROM_UPLOAD |
 | severity | enum severity | LOW, MEDIUM, HIGH |
-| status | enum flag_status | OPEN, DOCS_REQUESTED, CLEARED, ESCALATED, CONFIRMED |
+| status | enum flags_status | 0004: OPEN, DOCS_REQUESTED, ESCALATED, UPHELD (was CLEARED), CORRECTED, WITHDRAWN (was CONFIRMED) |
 | institution_id | FK institutions | |
 | programme_id | FK programmes nullable | |
 | enrolment_id | FK enrolments nullable | |
 | related_enrolment_ids | uuid[] | duplicates / rings |
 | evidence | jsonb | human-readable, never auto-reject |
 | assignee_id | FK users nullable | the officer the flag is assigned to (0003: set by ASSIGN and optionally by ESCALATE) |
-| opened_at / resolved_at | timestamptz | `resolved_at` set on CLEAR and CONFIRM, cleared on REOPEN |
+| opened_at / resolved_at | timestamptz | `resolved_at` set when the case reaches UPHELD, CORRECTED or WITHDRAWN, cleared on REOPEN |
 | dedupe_key | text unique | stops re-raising the same flag on re-run |
 | docs_due_on | date nullable | 0003: the reply-by date of the latest REQUEST_DOCS; null when none was given or the flag is reopened |
 | response_received | bool NOT NULL default false | 0003: true once the college responds to the latest REQUEST_DOCS; a new REQUEST_DOCS or a REOPEN sets it back to false |
@@ -211,13 +257,16 @@ Index: `(institution_id, status)`, `(type, status)`, `(enrolment_id)`.
 | seq | bigserial PK | |
 | flag_id | FK flags | indexed |
 | actor_id | FK users nullable | 0003: null for SYSTEM_NOTE rows |
-| action | enum case_actions_action | CLEAR, REQUEST_DOCS, ESCALATE, CONFIRM, NOTE, COLLEGE_RESPONSE; 0003 adds ASSIGN, REOPEN, SYSTEM_NOTE |
+| action | enum case_actions_action | REQUEST_DOCS, ESCALATE, NOTE, COLLEGE_RESPONSE; 0003 adds ASSIGN, REOPEN, SYSTEM_NOTE; 0004 renames CLEAR to UPHOLD and CONFIRM to WITHDRAW and adds CORRECT |
 | note | text nullable | required for every action except ASSIGN (DECISIONS D25); the fixed sentence for SYSTEM_NOTE |
 | attachments | jsonb | Week 1 placeholder, always `[]` from 0003 on: files live in `case_attachments` |
 | from_status | enum flags_status nullable | 0003: the flag's status before the action |
 | to_status | enum flags_status nullable | 0003: the status after it; equal to `from_status` for NOTE, ASSIGN, COLLEGE_RESPONSE and SYSTEM_NOTE |
 | due_date | date nullable | 0003: REQUEST_DOCS reply-by date |
 | assignee_id | FK users nullable | 0003: the officer chosen by ASSIGN or ESCALATE; null on ASSIGN means "unassigned" |
+| reason_code | text nullable | 0004: the decision's reason code (API_CONTRACT §A4.9), required for UPHOLD, CORRECT, WITHDRAW and ESCALATE; on a REQUEST_DOCS row, the `docs_kind` |
+| correction | jsonb nullable | 0004: CORRECT: `{"enrolment_id", "changes": {field: [before, after]}}`; an UPHOLD that cites an approval version: `{"approval_version": n}` |
+| withdrawn_enrolment_ids | uuid[] NOT NULL default `'{}'` | 0004: WITHDRAW only: the enrolments the decision withdrew |
 | at | timestamptz | |
 
 Why: the history of a flag is these rows in `seq` order; nothing else records a decision.
@@ -269,16 +318,16 @@ Words used by the api and ENGINES §16: a notice is **answered** when `response`
 |---|---|---|
 | student_id | FK students | indexed |
 | enrolment_id | FK enrolments | |
-| kind | enum credentials_kind | ENROLMENT, DEGREE |
-| vct | text NOT NULL | 0003: `countersign:enrolment:v1` or `countersign:degree:v1` |
+| kind | enum credentials_kind | ENROLMENT, COMPLETION (0004 renames DEGREE) |
+| vct | text NOT NULL | 0003: `countersign:enrolment:v1` or `countersign:degree:v1`; from 0004 new completion attestations carry `countersign:completion:v1` and earlier rows keep their value |
 | short_id | text unique NOT NULL | 0003: 8 Crockford base32 characters, e.g. `7Q2MK4PX`; the `cid` of the degree QR |
 | sd_jwt | text | the issued SD-JWT: issuer-signed JWT and every disclosure, `~`-joined, ending in `~` |
 | status_list_index | int unique | a random unused position in status list 1 (0 to 131,071) |
 | disclosable | text[] NOT NULL default `'{}'` | 0003: the claim names the holder may disclose, in display order |
 | revoked | bool | |
 | issued_at / revoked_at | timestamptz | |
-| expires_at | timestamptz nullable | 0003: the SD-JWT `exp` (31 August after the academic year ends, 23:59:59 IST); null for DEGREE |
-| revoked_reason | text nullable | 0003: the reason code `ENROLMENT_WITHDRAWN`, `ENROLMENT_TRANSFERRED` or `FLAG_CONFIRMED`, or for an officer's revocation the officer's text (its code is then `ADMIN`); the api derives `revoked_reason_code` from it (API_CONTRACT §A3.18) |
+| expires_at | timestamptz nullable | 0003: the SD-JWT `exp` (31 August after the academic year ends, 23:59:59 IST); null for COMPLETION |
+| revoked_reason | text nullable | 0003: the reason code `ENROLMENT_WITHDRAWN`, `ENROLMENT_TRANSFERRED` or `FLAG_CONFIRMED`, or for an officer's revocation the officer's text (its code is then `ADMIN`); 0004 adds the codes `CLAIM_WITHDRAWN` and `STUDENT_DISPUTE` and no longer writes `FLAG_CONFIRMED`; the api derives `revoked_reason_code` from it (API_CONTRACT §A3.18, §A4.14) |
 | revoked_by_id | FK users nullable | 0003: null when the system revoked it (ledger, seed) |
 | issuer_key_id | text | the `kid` of the signing key |
 
@@ -353,9 +402,29 @@ The latest row per purpose (by `recorded_at`) is the student's current choice.
 |---|---|---|
 | institution_id | FK institutions | |
 | academic_year | text | unique with institution_id |
-| integrity_index | numeric(5,2) | 0-100 |
-| components | jsonb | `{penalty: {invalid_id: 3.5, ...}, weights: {...}}` |
-| computed_at | timestamptz | |
+| integrity_index | numeric(5,2) NOT NULL | from 0004: the completeness percentage, `100 * uploaded_and_joined / joined` rounded to 2 places, 0 when `joined` is 0 (the api then reports null). The column keeps its Week 1 name; the Integrity Index is dropped (D40) |
+| components | jsonb | from 0004: the reconciliation, `{"joined", "uploaded_and_joined", "missing", "uploaded_not_joined", "missing_students": [{"name", "roll_no", "programme_code", "joined_on", "round", "route", "apaar_last4"}], "published": bool, "source_unavailable": bool, "first_upload_at": timestamp or null}`; the missing students are the college's own admitted students as the authority lists them, shown to the college and officers (never a full APAAR) (ENGINES §17.10) |
+| computed_at | timestamptz | when the authority's list was last read |
+
+Why: one row per institution and year holds what the deadline state and the completeness score are computed from, so dashboards never call the authority. The deadline state itself is computed at read time from `first_upload_at`, the deadline and today.
+
+### `signals` (0004)
+| column | type | notes |
+|---|---|---|
+| type | enum signals_type | GHOST_RING, ANOMALY |
+| academic_year | text | |
+| institution_ids | uuid[] NOT NULL | every institution the signal touches (one for ANOMALY) |
+| enrolment_ids | uuid[] NOT NULL default `'{}'` | GHOST_RING: the members' ACTIVE enrolments; empty for ANOMALY |
+| summary | text NOT NULL | one plain sentence, never a student name or a full id |
+| facts | jsonb NOT NULL | an object: `items` (`[{label, value, source}]`, shown verbatim), `features` (ANOMALY), `shared` (GHOST_RING: masked shared contacts), `cases` (`[{flag_id, institution_id}]` opened from it), `dismissal` (`{note, by_id, at}`) (ENGINES §17.11) |
+| rule | text NOT NULL | the rule or model that produced it, e.g. "Isolation Forest, contamination 5%, trained on this year's 50 colleges" |
+| score | numeric nullable | ANOMALY: the Isolation Forest score (lower is more unusual); GHOST_RING: null |
+| status | enum signals_status | NEW, CASE_OPENED, DISMISSED |
+| case_flag_id | FK flags nullable | the first case opened from it |
+| dedupe_key | text unique | `GHOST_RING:{academic_year}:{smallest member student id}` or `ANOMALY:{academic_year}:{institution_id}` |
+| created_at / updated_at | timestamptz | `updated_at` moves when a later run refreshes it |
+
+Why: patterns across records point officers at something without being evidence about one record; they are kept apart from rows and cases so they can never set a status (D45).
 
 ### `audit_log` (append-only, hash-chained)
 | column | type | notes |
@@ -389,8 +458,9 @@ From Week 3 (DECISIONS D29) READ rows may carry a small `after` object that says
 | university_id | FK universities nullable | UNIVERSITY scope |
 | is_active | bool | |
 | last_login_at | timestamptz nullable | |
+| digilocker_sub | text unique nullable | 0004: the DigiLocker subject of a STUDENT who signed in through DigiLocker (D37) |
 
-Check constraint: exactly the scope column matching the role is non-null (admin: none).
+Check constraint: exactly the scope column matching the role is non-null (admin: none). From 0004 a STUDENT account signs in only through DigiLocker: an account created at first sign-in gets `email` `{digilocker_sub in lower case}@digilocker.invalid` (a reserved domain nothing is ever sent to) and a `password_hash` of 32 random bytes nobody keeps.
 
 ## Migration 0002 (Week 2)
 
@@ -570,6 +640,101 @@ Index: unique partial `uq_credentials_enrolment_id_kind` on `(enrolment_id, kind
 ### Not changed
 `audit_log` keeps its columns (READ details go into `after`, see the table reference). `students`, `enrolments`, `checks` and `users` are unchanged: the STUDENT check keeps using the `checks` row of type STUDENT with source `STUDENT_NOTICE`, graduates are ordinary `enrolments` rows with status GRADUATED, and AICTE_ADMIN, RO_OFFICER and UNIVERSITY users need no new scope column. There is no index on `audit_log.entity_id`; the student access log (API_CONTRACT §A3.22) scans by entity id, which is fine at demo size and is noted as a known limit.
 
+## Migration 0004 (Week 4)
+
+One Alembic revision `0004` (`down_revision = "0003"`, file `alembic/versions/0004_evidence_states_decisions_signals.py`) plus the matching edits to `app/models/*.py` and `app/models/enums.py`. It implements DECISIONS D34 to D45 and lands on `main` before any Week 4 code that reads the new columns. Demo data is rebuilt by `make demo-reset`, but the migration still converts existing rows so `alembic upgrade head` works on a seeded database; afterwards `python -m app.engine.status --refresh-all` (ENGINES §17.2) computes every record status once.
+
+Postgres renames enum values in place (`ALTER TYPE ... RENAME VALUE`), but a value added with `ADD VALUE` cannot be used in the transaction that added it. The revision therefore adds values inside `op.get_context().autocommit_block()` first, then runs the renames, columns and data steps in the revision's transaction.
+
+### New and changed enum types
+
+| Postgres type | Python enum (`app/models/enums.py`) | values after 0004 |
+|---|---|---|
+| `checks_status` (changed) | `CheckStatus` | `CONFIRMED` (renamed from PASS), `CONTRADICTED` (from FAIL), `PENDING`, `NOT_YET_DUE` (new), `NOT_APPLICABLE` (from NA), `SOURCE_UNAVAILABLE` (new) |
+| `enrolments_record_status` (new) | `RecordStatus` | `AWAITING_EVIDENCE`, `COUNTERSIGNED`, `UNDER_REVIEW`, `DISPUTED` |
+| `flags_type` (changed) | `FlagType` | adds `NOT_IN_JOINING_RECORD`, `ELIGIBILITY_BREACH`, `MISSING_FROM_UPLOAD` |
+| `flags_status` (changed) | `FlagStatus` | `OPEN`, `DOCS_REQUESTED`, `ESCALATED`, `UPHELD` (renamed from CLEARED), `CORRECTED` (new), `WITHDRAWN` (renamed from CONFIRMED) |
+| `case_actions_action` (changed) | `CaseActionKind` | `UPHOLD` (renamed from CLEAR), `CORRECT` (new), `WITHDRAW` (renamed from CONFIRM), `REQUEST_DOCS`, `ESCALATE`, `NOTE`, `ASSIGN`, `REOPEN`, `COLLEGE_RESPONSE`, `SYSTEM_NOTE` |
+| `credentials_kind` (changed) | `CredentialKind` | `ENROLMENT`, `COMPLETION` (renamed from DEGREE) |
+| `signals_type` (new) | `SignalType` | `GHOST_RING`, `ANOMALY` |
+| `signals_status` (new) | `SignalStatus` | `NEW`, `CASE_OPENED`, `DISMISSED` |
+
+Python member names follow the values everywhere (engine, routers, schemas, seed, tests): `CheckStatus.PASS` becomes `CheckStatus.CONFIRMED`, `FlagStatus.CLEARED` becomes `FlagStatus.UPHELD`, `CaseActionKind.CLEAR` becomes `CaseActionKind.UPHOLD`, `CredentialKind.DEGREE` becomes `CredentialKind.COMPLETION`, and so on, in the same commit, so the suite stays green. `enrolment_versions.source` is plain text, written through the Python `VersionSource` StrEnum (`UPLOAD`, `DECISION`, `SEED`); it has no Postgres type.
+
+### `checks`
+| column | change | notes |
+|---|---|---|
+| status | values as above | data step below |
+| supplied_by | add, text NOT NULL DEFAULT `''` | filled by the next evaluation of the row |
+| observed_at | add, timestamptz NULL | |
+| independent | add, bool NOT NULL DEFAULT false | |
+| resolved | add, jsonb NULL | |
+
+Data step, after the values exist:
+
+```sql
+UPDATE checks c SET status = 'NOT_YET_DUE'
+  FROM enrolments e
+ WHERE c.enrolment_id = e.id AND c.type = 'STUDYING' AND c.status = 'NOT_APPLICABLE'
+   AND (e.year_of_study = 1 OR (e.admission_route = 'LATERAL' AND e.year_of_study = 2));
+UPDATE checks SET status = 'SOURCE_UNAVAILABLE'
+ WHERE status = 'PENDING' AND detail ->> 'source_unavailable' = 'true';
+```
+
+Then every CONTRADICTED row covered by a case that is already UPHELD (formerly CLEARED) gets `resolved` from that case's latest UPHOLD row (`{"outcome": "UPHELD", "case_id", "case_action_seq", "by_id", "at", "reason_code": "OTHER"}`), using the case type to row mapping of API_CONTRACT §A4.10 and the naming rule of §A4.3 (the case's `enrolment_id`, or a related enrolment at the case's institution).
+
+### `enrolments`
+| column | change | notes |
+|---|---|---|
+| record_status | add, `enrolments_record_status` NOT NULL DEFAULT `'AWAITING_EVIDENCE'` | computed after the upgrade by `--refresh-all` |
+| status_reason | add, text NULL | |
+| next_step | add, text NULL | |
+| record_status_at | add, timestamptz NULL | |
+| eligibility | add, jsonb NOT NULL DEFAULT `'{}'` | |
+
+Index: `ix_enrolments_institution_year_record_status` on `(institution_id, academic_year, record_status)`.
+
+### New table `enrolment_versions`
+`id` uuid PK (`gen_random_uuid()`), `enrolment_id` uuid NOT NULL FK enrolments, `version` int NOT NULL, `changes` jsonb NOT NULL, `source` text NOT NULL, `batch_id` uuid NULL FK upload_batches, `case_action_seq` bigint NULL FK `case_actions.seq`, `actor_id` uuid NULL FK users, `at` timestamptz NOT NULL DEFAULT now(). Unique `uq_enrolment_versions_enrolment_id_version` on `(enrolment_id, version)`. The migration writes no versions for existing enrolments; their history starts at their next change (the seed writes version 1 for every enrolment it creates).
+
+### New table `approval_versions` and `approvals.current_version`
+`id` uuid PK (`gen_random_uuid()`), `approval_id` uuid NOT NULL FK approvals, `version` int NOT NULL, `approved_intake` int NOT NULL, `effective_from` date NOT NULL, `source` text NOT NULL, `created_at` timestamptz NOT NULL DEFAULT now(). Unique `uq_approval_versions_approval_id_version` on `(approval_id, version)`.
+
+| `approvals` column | change | notes |
+|---|---|---|
+| current_version | add, int NOT NULL DEFAULT 1 | |
+
+Backfill: one version 1 row per approval, `approved_intake` = the approval's, `effective_from` = the approval's `created_at::date`, `source` = `'Initial approval'`.
+
+### New table `institution_column_mappings`
+`institution_id` uuid PK, FK institutions; `mapping` jsonb NOT NULL DEFAULT `'{}'`; `updated_at` timestamptz NOT NULL DEFAULT now(); `updated_by_id` uuid NOT NULL FK users.
+
+### New table `signals`
+`id` uuid PK (`gen_random_uuid()`), `type` `signals_type` NOT NULL, `academic_year` text NOT NULL, `institution_ids` uuid[] NOT NULL, `enrolment_ids` uuid[] NOT NULL DEFAULT `'{}'`, `summary` text NOT NULL, `facts` jsonb NOT NULL DEFAULT `'{}'`, `rule` text NOT NULL, `score` numeric NULL, `status` `signals_status` NOT NULL DEFAULT `'NEW'`, `case_flag_id` uuid NULL FK flags, `dedupe_key` text NOT NULL unique, `created_at` timestamptz NOT NULL DEFAULT now(), `updated_at` timestamptz NOT NULL DEFAULT now().
+
+### `flags` and `case_actions`
+`flags_type` gains three values; `flags_status` and `case_actions_action` are renamed and extended as above (`case_actions.from_status` and `to_status` use `flags_status`, so their stored values follow the rename).
+
+| `case_actions` column | change | notes |
+|---|---|---|
+| reason_code | add, text NULL | existing UPHOLD and WITHDRAW rows (formerly CLEAR and CONFIRM) are backfilled with `'OTHER'` |
+| correction | add, jsonb NULL | |
+| withdrawn_enrolment_ids | add, uuid[] NOT NULL DEFAULT `'{}'` | |
+
+### `credentials`
+`credentials_kind` value DEGREE is renamed COMPLETION. Stored `vct` and `revoked_reason` values are not rewritten.
+
+### `users`
+| column | change | notes |
+|---|---|---|
+| digilocker_sub | add, text NULL, unique (`uq_users_digilocker_sub`) | |
+
+### Not changed
+`institution_scores` keeps its columns; from 0004 its rows hold the completeness reconciliation (table reference above) and nothing writes an Integrity Index. `notifications`, `consents`, `upload_batches`, `seats`, `seat_pools` and `seat_events` keep their columns: a reply after DigiLocker sign-in is recorded on the notice as before (the actor is in the audit entry), a SEED batch's `created_at` may carry the submission time from the datagen manifest (API_CONTRACT §A4.25), a seat retired by a lower approval version is a `seats` row with status `RELEASED` (that value's first use), and the column mapping a batch used is stored in `upload_batches.counts.column_mapping`.
+
+### Downgrade
+`downgrade()` restores the 0003 schema exactly: NOT_YET_DUE rows become NOT_APPLICABLE and SOURCE_UNAVAILABLE rows PENDING; CORRECTED cases become UPHELD and CORRECT rows NOTE; the renamed values are renamed back; `checks_status`, `flags_status`, `flags_type` and `case_actions_action` are rebuilt without the added values (Postgres cannot drop an enum value); the new columns, tables and types are dropped.
+
 ## mockgov database (`mockgov`, separate service)
 
 | table | columns |
@@ -579,6 +744,11 @@ Index: unique partial `uq_credentials_enrolment_id_kind` on `(enrolment_id, kind
 | `abc_credits` | id, apaar_id text, academic_year text, sem int, credits int, uploaded_at timestamptz, result text; unique (apaar_id, academic_year, sem) |
 | `digilocker_inbox` | inbox_id text PK, apaar_id text, message text, callback_url text, received_at timestamptz, read bool |
 | `sii_admissions` | id, passport_no text, name text, nationality text, institution_aicte_id text, programme text, academic_year text; unique (passport_no) |
-| `chaos` | source text PK, latency_ms int, fail_rate numeric, down bool |
+| `chaos` | source text PK, latency_ms int, fail_rate numeric, down bool; Week 4 adds the source `admission_authority` |
+| `admission_joinings` (Week 4) | id, state text, academic_year text, name text, name_normalized text, dob date, roll_no text nullable, institution_code text (the AICTE permanent id), programme text, joined_on date, round int nullable, route text, category text, apaar_id text nullable; index (state, academic_year, programme, dob), index (institution_code, academic_year) |
+| `digilocker_accounts` (Week 4) | digilocker_id text PK (e.g. `DL-RKS-4417`), name text, dob date, gender text, apaar_id text nullable unique |
+| `digilocker_auth_codes` (Week 4) | code text PK, digilocker_id text, client_id text, redirect_uri text, nonce text, expires_at timestamptz (60 seconds), used bool |
+
+Week 4 also adds `issuer` (text NOT NULL: the issuing body's code, a university code such as `MSTU` or, for a college that issues its own credits, its AICTE permanent id) and `issuer_name` (text NOT NULL) to `abc_credits`. mockgov has no migrations: its tables come from `create_all` at start, which never alters an existing table, so from Week 4 the mockgov seed's `--reset` drops and recreates its tables before loading (`make demo-reset` runs it).
 
 mockgov stores plaintext because it simulates the government's own registry; it is a separate database the api can never query directly.
