@@ -4,7 +4,12 @@
  * edit the deck first, then regenerate. The block after the deck ids holds
  * web-only strings the deck does not list yet; they are reported to UX.
  * Placeholders are {snake_case}; fill them with t(id, vars).
+ * Strings for the student and verifier pages and for case work live in
+ * copy-student.ts and copy-cases.ts and are merged in here.
  */
+import { casesCopy } from "@/lib/copy-cases";
+import { studentCopy } from "@/lib/copy-student";
+
 export const copy = {
   "brand.name": "Countersign",
   "brand.tagline": "Every enrolment, countersigned.",
@@ -820,6 +825,8 @@ export const copy = {
   "app.admin.chaos_fail": "{pct}% failures",
   "app.admin.chaos_normal": "normal",
   "app.admin.chaos_reset_done": "Chaos reset. Every source answers normally.",
+  ...studentCopy,
+  ...casesCopy,
 } as const;
 
 export type CopyId = keyof typeof copy;
