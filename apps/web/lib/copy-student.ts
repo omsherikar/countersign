@@ -187,7 +187,7 @@ export const studentCopy = {
   "verify.field.year_of_study": "Year of study",
   "verify.field.dob": "Date of birth",
   "verify.field.apaar_masked": "APAAR (masked)",
-  "verify.field.countersigned": "Checks that agree",
+  "verify.field.countersigned": "Countersigned by",
   "verify.field.university": "University",
   "verify.field.year_of_award": "Year of award",
   "verify.field.proof_id": "Proof id",
