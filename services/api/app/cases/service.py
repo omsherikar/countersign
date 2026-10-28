@@ -30,7 +30,7 @@ from app.engine.status import (
     clear_resolved,
     mark_resolved,
     named_enrolments,
-    refresh_record_status,
+    refresh,
 )
 from app.engine.upload.types import INDIA
 from app.models.enums import AuditAction, CaseActionKind, FlagStatus, FlagType, UserRole
@@ -67,8 +67,8 @@ FLAG_NAMES = {
     FlagType.STUDENT_DENIED: "Student denied",
     FlagType.GHOST_RING: "Shared contact ring",
     FlagType.ANOMALY: "Unusual pattern",
-    FlagType.NOT_IN_JOINING_RECORD: "Not in the joining record",
-    FlagType.ELIGIBILITY_BREACH: "Category eligibility breach",
+    FlagType.NOT_IN_JOINING_RECORD: "Not in joining record",
+    FlagType.ELIGIBILITY_BREACH: "Seat category not eligible",
     FlagType.MISSING_FROM_UPLOAD: "Missing from upload",
 }
 # copy deck email.docs_request.*
@@ -279,7 +279,7 @@ async def apply_action(
         )
     elif action is CaseActionKind.REOPEN:
         await clear_resolved(session, flag)
-    await refresh_record_status(session, named_enrolments(flag), now=now)
+    await refresh(session, named_enrolments(flag), actor_id=user.id, issue=False, now=now)
 
     if action is CaseActionKind.UPHOLD:
         for enrolment_id in named_enrolments(flag):
@@ -338,7 +338,7 @@ async def college_response(
     flag.response_received = True
     flag.last_action_at = now
     await session.flush()
-    await refresh_record_status(session, named_enrolments(flag), now=now)
+    await refresh(session, named_enrolments(flag), actor_id=user.id, issue=False, now=now)
     entries = [
         AuditEntry(
             action=AuditAction.UPDATE,

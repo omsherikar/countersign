@@ -93,7 +93,11 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     assert checks[CheckType.ADMISSION].source == "COUNSELLING"
     assert all(c.attempts == 0 and c.checked_at is not None for c in checks.values())
     audits = (
-        (await session.execute(select(AuditLog).where(AuditLog.entity_type == "enrolment")))
+        (
+            await session.execute(
+                select(AuditLog).where(AuditLog.entity_type == "enrolment").order_by(AuditLog.seq)
+            )
+        )
         .scalars()
         .all()
     )
@@ -106,7 +110,9 @@ async def test_five_checks_written_once(world, session, gov) -> None:
                 "STUDYING": "NOT_YET_DUE",
                 "STUDENT": "PENDING",
             }
-        }
+        },
+        # the record's status moved too
+        {"record_status": "COUNTERSIGNED"},
     ]
     first_checked = {t: c.checked_at for t, c in checks.items()}
 
@@ -116,7 +122,8 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     checks = await _checks(session, enrolment.id)
     assert {t: c.checked_at for t, c in checks.items()} == first_checked
     count = select(func.count()).select_from(AuditLog).where(AuditLog.entity_type == "enrolment")
-    assert (await session.execute(count)).scalar_one() == 1
+    # nothing changed on the second run, so nothing more is audited
+    assert (await session.execute(count)).scalar_one() == 2
 
 
 async def test_unseated_enrolment_fails_seat_and_points_at_the_flag(world, session, gov) -> None:

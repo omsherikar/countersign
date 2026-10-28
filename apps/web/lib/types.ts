@@ -369,7 +369,7 @@ export type CredentialStatus = "ACTIVE" | "REVOKED" | "EXPIRED";
 export type PresentationState = "LIVE" | "EXPIRED";
 export type VerifyResultCode = "VALID" | "REVOKED" | "EXPIRED" | "INVALID";
 export type VerifyMethod = "signature" | "register_lookup";
-export type RevokedReasonCode = "ENROLMENT_WITHDRAWN" | "ENROLMENT_TRANSFERRED" | "FLAG_CONFIRMED" | "ADMIN";
+export type RevokedReasonCode = "ENROLMENT_WITHDRAWN" | "ENROLMENT_TRANSFERRED" | "FLAG_CONFIRMED" | "STUDENT_DISPUTE" | "ADMIN";
 export type ClaimKey =
   | "name" | "dob" | "apaar_masked" | "provisional_id" | "institution" | "programme" | "academic_year"
   | "year_of_study" | "countersigned" | "university" | "year_of_award" | "proof_id";

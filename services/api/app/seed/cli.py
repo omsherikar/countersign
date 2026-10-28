@@ -26,7 +26,7 @@ from app.adapters.factory import build_adapters
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import dispose_engine, session_factory
-from app.engine.status import refresh_record_status
+from app.engine.status import refresh
 from app.models.enums import EnrolmentStatus
 from app.models.student import Enrolment
 from app.notices.dispatch import send_notices_for_batch
@@ -106,9 +106,9 @@ async def refresh_every_record_status(factory: async_sessionmaker[AsyncSession])
                 .order_by(Enrolment.id)
             )
         ).scalars()
-        changed = await refresh_record_status(session, list(ids))
+        tally = await refresh(session, list(ids), issue=False)
         await session.commit()
-    return changed
+    return tally.changed
 
 
 async def _run(source: Path, reset: bool) -> str:

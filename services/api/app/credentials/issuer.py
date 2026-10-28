@@ -66,7 +66,7 @@ DEGREE_DISCLOSABLE = (
     "year_of_award",
 )
 ALWAYS_DISCLOSED = ("institution", "programme")
-REASON_CODES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "FLAG_CONFIRMED")
+REASON_CODES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "FLAG_CONFIRMED", "STUDENT_DISPUTE")
 ADMIN_REASON = "ADMIN"
 
 ISSUER_NAME = "Countersign"
@@ -303,7 +303,8 @@ async def _eligible(
 
 # revocations a later upload can undo (the enrolment comes back ACTIVE); an officer's own
 # revocation or a confirmed flag stays until an officer acts again
-SYSTEM_RELEASES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED")
+# a dispute an officer later upheld does not block a new attestation either (R6)
+SYSTEM_RELEASES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "STUDENT_DISPUTE")
 
 
 async def _revoked_by_officer(session: AsyncSession, enrolment_id: uuid.UUID) -> bool:

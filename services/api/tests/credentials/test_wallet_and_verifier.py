@@ -154,7 +154,9 @@ async def test_issue_share_verify_expire_revoke(world):
         reads = (
             (
                 await session.execute(
-                    select(AuditLog).where(AuditLog.entity_type == "credential_presentation")
+                    select(AuditLog)
+                    .where(AuditLog.entity_type == "credential_presentation")
+                    .order_by(AuditLog.seq)
                 )
             )
             .scalars()

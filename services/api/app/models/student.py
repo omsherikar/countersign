@@ -118,7 +118,7 @@ class Enrolment(UUIDPk, Timestamps, Base):
     status_date: Mapped[date] = mapped_column(nullable=False, server_default=text("CURRENT_DATE"))
     # why the uploaded APAAR was unusable, e.g. "has 11 digits, expected 12"; never the digits
     apaar_problem: Mapped[str | None] = mapped_column(String)
-    # the record's status (D35), kept current by app.engine.status.refresh_record_status
+    # the record's status (D35), kept current by app.engine.status.refresh
     record_status: Mapped[RecordStatus] = mapped_column(
         pg_enum(RecordStatus, "enrolments_record_status"),
         nullable=False,

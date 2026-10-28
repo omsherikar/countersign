@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.core import audit
 from app.core.crypto import decrypt, hmac_bytes
@@ -286,5 +286,40 @@ async def test_every_uploaded_record_ends_the_batch_with_its_status(seeded):
     assert unset == 0 and sum(statuses.values()) > 0
     assert [status for status, _ in ananya] == [RecordStatus.UNDER_REVIEW] * 2
     assert {reason for _, reason in ananya} == {
-        "A case names this record: Duplicate across institutions."
+        "An open Duplicate across institutions case names this record."
     }
+
+
+async def test_the_refresh_all_command_computes_every_status(seeded):
+    async with session_factory()() as session:
+        # as after alembic upgrade: every record at the default
+        await session.execute(
+            update(Enrolment).values(
+                record_status=RecordStatus.AWAITING_EVIDENCE,
+                status_reason=None,
+                next_step=None,
+                record_status_at=None,
+            )
+        )
+        await session.commit()
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [sys.executable, "-m", "app.engine.status", "--refresh-all"],
+        cwd=API_ROOT,
+        env={**os.environ, "AUTO_MIGRATE": "false"},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("refreshed 47 records; ")
+    async with session_factory()() as session:
+        unset = await session.scalar(
+            select(func.count()).where(
+                Enrolment.status == EnrolmentStatus.ACTIVE, Enrolment.record_status_at.is_(None)
+            )
+        )
+        under_review = await session.scalar(
+            select(func.count()).where(Enrolment.record_status == RecordStatus.UNDER_REVIEW)
+        )
+    assert unset == 0 and under_review > 0

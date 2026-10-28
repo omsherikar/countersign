@@ -28,6 +28,7 @@ from app.adapters.factory import build_adapters
 from app.core import audit
 from app.core.config import get_settings
 from app.db.session import session_factory
+from app.engine import status
 from app.engine.contracts import (
     CHUNK_SIZE,
     RECHECK_STATES,
@@ -36,7 +37,6 @@ from app.engine.contracts import (
     FlagTally,
     PoolRef,
 )
-from app.engine.status import refresh_record_status
 from app.engine.upload.batches import empty_counts
 from app.engine.upload.parse import UNREADABLE, parse_rows, parse_upload
 from app.engine.upload.spool import delete_spool, find_spool, read_spool
@@ -580,7 +580,7 @@ class _BatchRun:
                 )
                 for enrolment_id, related in named.all():
                     targets.extend(i for i in (enrolment_id, *related) if i is not None)
-            await refresh_record_status(session, targets)
+            await status.refresh(session, targets, actor_id=self.actor_id, issue=False)
             await session.commit()
 
 

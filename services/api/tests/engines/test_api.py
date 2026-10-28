@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 
 from app.core.security import hash_password
 from app.db.session import session_factory
-from app.engine.status import refresh_record_status
+from app.engine.status import refresh
 from app.engine.suite import DefaultEngines
 from app.main import app
 from app.models.audit import AuditLog
@@ -120,7 +120,7 @@ async def ids() -> AsyncIterator[Ids]:
         await suite.detect_duplicates(session, abc.id, "2026-27", abc_ids)
         await suite.refresh_seat_flags(session, list(ledger.touched_pools))
         # as at the end of an upload batch, after the duplicate and seat flags
-        await refresh_record_status(session, [*abc_ids, twin_xyz.id])
+        await refresh(session, [*abc_ids, twin_xyz.id], issue=False)
         await session.commit()
         result = Ids(
             abc=abc.id,
@@ -336,8 +336,11 @@ async def test_enrolment_detail(ids, as_role) -> None:
     )
     # one contradiction outranks the confirmations (D35)
     assert body["record_status"] == "UNDER_REVIEW"
-    assert body["status_reason"] == "The joining record row contradicts the claim."
-    assert body["next_step"] == "An officer decides the case."
+    assert body["status_reason"] == "Joining record is contradicted."
+    # no case covers the joining record yet, so the record's open case gives the next step
+    assert body["next_step"] == (
+        "Waiting for an officer to review the Duplicate within institution case."
+    )
     assert body["record_status_at"].endswith("Z")
     assert "123456784417" not in str(body)
     assert body["countersign"]["score"] == {"passes": 2, "applicable": 4}  # counselling not found

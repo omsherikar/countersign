@@ -25,6 +25,7 @@ from app.core import audit
 from app.core.audit import AuditEntry
 from app.core.crypto import decrypt
 from app.core.rules import get_rules
+from app.engine import status
 from app.engine.checks import admission, identity, seat, student, studying
 from app.engine.checks.base import CheckSubject
 from app.engine.contracts import (
@@ -38,7 +39,6 @@ from app.engine.contracts import (
     RecheckResult,
 )
 from app.engine.flags import raise_intents
-from app.engine.status import refresh_record_status
 from app.models.enums import (
     AuditAction,
     CheckStatus,
@@ -342,7 +342,13 @@ async def run_checks(
         result.changed += await writer.write(subject, outcomes)
         _count_outcomes(result, outcomes)
     await writer.finish()
-    await refresh_record_status(session, [s.enrolment_id for s in subjects], now=writer.now)
+    await status.refresh(
+        session,
+        [s.enrolment_id for s in subjects],
+        actor_id=actor_id,
+        issue=False,
+        now=writer.now,
+    )
     result.flags.merge(writer.flags)
     return result
 
@@ -369,7 +375,13 @@ async def refresh_student(
         result.changed += await writer.write(subject, [outcome])
         _count_outcomes(result, [outcome])
     await writer.finish()
-    await refresh_record_status(session, [s.enrolment_id for s in subjects], now=writer.now)
+    await status.refresh(
+        session,
+        [s.enrolment_id for s in subjects],
+        actor_id=actor_id,
+        issue=False,
+        now=writer.now,
+    )
     result.flags.merge(writer.flags)
     return result
 
@@ -425,7 +437,13 @@ async def recheck_pending(
     for subject, outcomes in zip(subjects, evaluated, strict=True):
         await writer.write(subject, outcomes)
     await writer.finish()
-    await refresh_record_status(session, [s.enrolment_id for s in subjects], now=writer.now)
+    await status.refresh(
+        session,
+        [s.enrolment_id for s in subjects],
+        actor_id=actor_id,
+        issue=False,
+        now=writer.now,
+    )
     result.enrolments = len(subjects)
     for _type, _before, after in writer.transitions:
         result.rechecked += 1
