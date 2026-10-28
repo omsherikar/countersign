@@ -1,0 +1,7 @@
+{"file": "1-ABC-0001_2026-27.csv", "row_no": 2, "reply": "NONE", "channel": "EMAIL", "comment": null, "reply_after_days": 0}
+{"file": "1-ABC-0001_2026-27.csv", "row_no": 3, "reply": "YES", "channel": "EMAIL", "comment": null, "reply_after_days": 3}
+{"file": "1-ABC-0001_2026-27.csv", "row_no": 4, "reply": "YES", "channel": "DIGILOCKER", "comment": null, "reply_after_days": 1}
+{"file": "1-ABC-0001_2026-27.csv", "row_no": 5, "reply": "NO", "channel": "DIGILOCKER", "comment": "I never applied to this college.", "reply_after_days": 2}
+{"file": "1-XYZ-0002_2026-27.csv", "row_no": 2, "reply": "YES", "channel": "EMAIL", "comment": null, "reply_after_days": 0}
+{"file": "1-PQR-0003_2026-27.csv", "row_no": 2, "reply": "NO", "channel": "EMAIL", "comment": null, "reply_after_days": 5}
+{"file": "1-ABC-0001_2026-27.csv", "row_no": 999, "reply": "YES", "channel": "EMAIL", "comment": null, "reply_after_days": 4}

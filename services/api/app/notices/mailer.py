@@ -81,6 +81,17 @@ class SmtpMailer:
             results.extend(self._send_batch(messages[start : start + MAIL_BATCH]))
         return results
 
+    def ping(self) -> str | None:
+        """None when the server answers; otherwise the sentence a send would record."""
+        if not smtp_host_allowed(self.settings.smtp_host, self.settings):
+            return NOT_ALLOWED
+        try:
+            smtp = self._connect()
+        except (smtplib.SMTPException, OSError):
+            return NO_ANSWER
+        _close(smtp)
+        return None
+
     def _connect(self) -> smtplib.SMTP:
         return smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=10)
 

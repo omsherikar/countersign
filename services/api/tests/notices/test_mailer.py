@@ -138,3 +138,14 @@ def test_the_message_carries_the_sender_and_headers(fake_smtp, monkeypatch):
     assert email["From"] == get_settings().notice_from
     assert (email["To"], email["Subject"], email["X-Test"]) == ("a@example.demo", "Hi", "1")
     assert email.get_content().strip() == "Body"
+
+
+def test_ping_says_whether_the_server_answers(fake_smtp, monkeypatch):
+    assert SmtpMailer(allowed_settings()).ping() is None
+    assert fake_smtp.connections[0].closed
+
+    def unreachable(*args, **kwargs):
+        raise ConnectionRefusedError(61, "refused")
+
+    monkeypatch.setattr(mail.smtplib, "SMTP", unreachable)
+    assert SmtpMailer(allowed_settings()).ping() == "Mail server did not respond."
