@@ -8,7 +8,7 @@ A college's student upload is a *claim*. Five independent sources then countersi
 
 ## Status
 
-Week 1 of 4, in progress (2026-10-28). On `main`: the repo skeleton, the compose file with Postgres (three databases), Redis, Mailpit and service stubs, `rules.yaml` with handbook sources, and the shared contract (`docs/ARCHITECTURE.md`, `docs/API_CONTRACT.md`, `docs/DATA_MODEL.md`). Nothing runs end to end yet: the api, mockgov, datagen and web directories are empty until their tasks merge. The task board, the end-of-week verification checklist and a dated changelog are in [docs/PROGRESS.md](docs/PROGRESS.md); the reasons behind each choice are in `docs/DECISIONS.md`.
+Week 1 of 4, in progress (2026-10-28). The backend runs end to end: the API (schema, auth, RBAC, seat pools, adapters, seed importer), mockgov with chaos toggles, datagen with planted anomalies and ground truth, and the design system are on `main`, and the Week 1 acceptance checks pass against the API (api 64, mockgov 92, datagen 45 tests passing). The web app (`apps/web`) is still being built, so there is no browser UI yet. The task board, the end-of-week verification checklist and a dated changelog are in [docs/PROGRESS.md](docs/PROGRESS.md); the reasons behind each choice are in `docs/DECISIONS.md`.
 
 ## Run it
 
