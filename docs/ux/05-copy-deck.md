@@ -146,8 +146,10 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 | index.why | Why this score |
 | strip.not_checked | Not yet checked |
 | strip.score | {passes} of {applicable} |
-| strip.score_pending | {passes} of {applicable}, {pending} awaiting source |
+| strip.score_pending | {passes} of {applicable}, {pending} pending |
 | strip.aria | Countersigned {passes} of {applicable}. Identity {s1}, Admission {s2}, Seat {s3}, Studying {s4}, Student {s5}. |
+| strip.segment_tip | {check}: {status_word} |
+| strip.segment_tip_full | {check}: {status_word} ({source_name}, {checked_at}) |
 | check.IDENTITY | Identity |
 | check.ADMISSION | Admission |
 | check.SEAT | Seat |
@@ -155,10 +157,16 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 | check.STUDENT | Student |
 | check.status.PASS | Countersigned |
 | check.status.FAIL | Not countersigned |
-| check.status.PENDING | Awaiting source |
+| check.status.PENDING | Pending |
 | check.status.NA | n/a |
-| check.na_reason.STUDYING | Not applicable before first results |
-| check.na_reason.ADMISSION | No counselling list for this route |
+| check.pending.student | Notice not sent yet |
+| check.pending.unavailable | Awaiting source |
+| check.pending.review | Needs review |
+| check.pending.results | Awaiting next results |
+| check.na_reason.IDENTITY | No APAAR to check: not linked, or an international student |
+| check.na_reason.STUDYING | No credits to check: first year, or no APAAR or ABC record |
+| check.attempts | The source did not respond on {n} attempts. |
+| check.never | Not checked yet |
 | source.APAAR | APAAR registry |
 | source.COUNSELLING | Counselling list |
 | source.SEAT_LEDGER | Seat ledger |
@@ -172,7 +180,11 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 | source.disabled_detail | Real adapter disabled |
 | source.checked | Checked {relative} |
 | source.failed | Sources: could not check |
-| source.will_retry | Will retry |
+| source.will_retry | Checks against it stay pending, not failed |
+
+Pending words. A PENDING check shows the first word that applies: [check.pending.student] for the Student check, in every view; [check.pending.unavailable] when `detail.source_unavailable`; [check.pending.review] when `detail.needs_review`; [check.pending.results] when `detail.awaiting_semester`; otherwise [check.status.PENDING]. Enrolment lists and `/students/me` carry no `detail` (API_CONTRACT §A2.10), so there any pending check other than Student reads "Pending". PENDING is hollow and never red, whatever its word.
+
+In `strip.score_pending`, `{pending}` counts pending checks other than Student; when that is 0 the strip shows `strip.score` alone. (Every active enrolment's Student check stays pending until student notices start in Week 3; counting it would print the same words on every row.) `strip.aria`, `strip.segment_tip` and `strip.segment_tip_full` use the same status words. `strip.segment_tip` is for lists (type and status only); `strip.segment_tip_full` is for enrolment detail. `check.na_reason.*` is the n/a tooltip in lists; on enrolment detail the check's `detail.summary` replaces it.
 
 ## 4. Enum words
 
@@ -747,7 +759,7 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.NOT_FOUND_generic | We could not find that. |
 | err.VALIDATION_ERROR | Check the highlighted fields. |
 | err.RATE_LIMITED | Too many attempts. Try again in {seconds} s. |
-| err.SOURCE_UNAVAILABLE | {source} did not respond. This check will retry on its own. |
+| err.SOURCE_UNAVAILABLE | {source_name} did not respond. This check will retry on its own. |
 | err.FILE_TOO_LARGE | The file is larger than 20 MB. Split it by programme and upload each part. |
 | err.TOO_MANY_ROWS | The file has more than 50,000 rows. Split it and upload each part. |
 | err.UNSUPPORTED_FILE_TYPE | Only .csv and .xlsx files can be uploaded. |
@@ -790,3 +802,38 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | empty.affiliates | No institutions are affiliated to your university in this academic year. |
 | empty.audit | No audit entries. |
 | empty.graduates | No graduating students found. |
+
+## 15. Check detail sentences
+
+Reference copy of API_CONTRACT §A2.14. The engines write one of these into each check's `detail.summary`; enrolment detail prints it verbatim in the Detail column. The web never rebuilds them. Placeholders: `{source_name}` from `source.*`, `{route_word}` from `route.*`, `{seat_type_word}` from `seat_type.*`, `{flag_name}` from `flag.<TYPE>.name`, `{cohort_start}` the start year of the cohort (`2026`), `{cohort_year}` the approval year (`2026-27`).
+
+| id | check | result | when | text |
+|---|---|---|---|---|
+| check.detail.unavailable | any | Pending | the source did not answer | {source_name} did not respond. This check will retry on its own. |
+| check.detail.IDENTITY.na_no_apaar | Identity | n/a | no APAAR (consent Refused or Pending) | APAAR not linked; admission is not blocked. |
+| check.detail.IDENTITY.na_international | Identity | n/a | international student | International student; identity is checked through the passport, not APAAR. |
+| check.detail.IDENTITY.fail_malformed | Identity | Not countersigned | malformed APAAR on upload | APAAR as uploaded {problem}; the enrolment was kept without it. |
+| check.detail.IDENTITY.fail_not_found | Identity | Not countersigned | the registry has no such id | APAAR ending {apaar_last4} is not in the APAAR registry. |
+| check.detail.IDENTITY.fail_dob | Identity | Not countersigned | the date of birth differs | Date of birth on upload does not match the APAAR registry. |
+| check.detail.IDENTITY.fail_name | Identity | Not countersigned | similarity below 75 | Name on upload differs from the APAAR registry (similarity {name_score} of 100). |
+| check.detail.IDENTITY.pending_review | Identity | Needs review | similarity 75 to 89 | Name on upload is close to the APAAR registry but not a clear match (similarity {name_score} of 100); an officer should review. |
+| check.detail.IDENTITY.pass | Identity | Countersigned | similarity 90 or more | Name and date of birth match the APAAR registry (similarity {name_score} of 100). |
+| check.detail.ADMISSION.pass_counselling | Admission | Countersigned | in the counselling list | Found in the {state_name} counselling allotments for {programme_code} ({cohort_start}), round {round}. |
+| check.detail.ADMISSION.pass_ref_differs | Admission | Countersigned | found, reference differs | Found in the {state_name} counselling allotments for {programme_code} ({cohort_start}), round {round}, as {allotment_ref}; the upload says {counselling_ref}. |
+| check.detail.ADMISSION.fail_counselling | Admission | Not countersigned | not in the counselling list | Not found in the {state_name} counselling allotments for {programme_code} ({cohort_start}). |
+| check.detail.ADMISSION.pass_route | Admission | Countersigned | management, spot or NRI with a seat in the route's pool | {route_word} admission is allowed for {programme_code} and holds a {seat_type_word} seat. |
+| check.detail.ADMISSION.fail_no_pool | Admission | Not countersigned | the approval has no seats of the route's type | {route_word} admission is not allowed for {programme_code}: the {cohort_year} approval has no {seat_type_word} seats. |
+| check.detail.ADMISSION.fail_no_seat | Admission | Not countersigned | no seat of the route's type | {route_word} admission has no {seat_type_word} seat in {programme_code} ({cohort_year}). |
+| check.detail.ADMISSION.pass_sii | Admission | Countersigned | Study in India confirms | Study in India confirms this admission to {programme_code} ({cohort_year}). |
+| check.detail.ADMISSION.fail_sii | Admission | Not countersigned | Study in India does not | Study in India has no matching admission for this passport at this institution. |
+| check.detail.SEAT.pass | Seat | Countersigned | holds a seat of its cohort approval | Holds seat {seat_code} ({seat_type_word}, {cohort_year} approval). |
+| check.detail.SEAT.fail | Seat | Not countersigned | no seat | No {seat_type_word} seat is free in {programme_code} ({cohort_year}); see the {flag_name} flag. |
+| check.detail.STUDYING.na_first_year | Studying | n/a | first year | First year, no result yet. |
+| check.detail.STUDYING.na_no_apaar | Studying | n/a | no APAAR | APAAR not linked; ABC credits cannot be checked. |
+| check.detail.STUDYING.na_abc_unknown | Studying | n/a | ABC does not know the APAAR | ABC has no record of this APAAR; see the Identity check. |
+| check.detail.STUDYING.pass | Studying | Countersigned | credits in every expected semester | Credits recorded in ABC for all {expected} semesters since admission. |
+| check.detail.STUDYING.pending_one_missing | Studying | Awaiting next results | one semester missing | No credits recorded in ABC for semester {sem} ({academic_year}); waiting for the next upload. |
+| check.detail.STUDYING.fail | Studying | Not countersigned | two or more semesters missing | No credits recorded in ABC for {missing} of {expected} semesters since admission. |
+| check.detail.STUDENT.pending | Student | Notice not sent yet | until student notices start | Notice not sent yet. |
+
+`{problem}` is, for example, "has 11 digits, expected 12" or "contains characters other than digits". The result column gives the word the web shows beside the sentence (`check.status.*` or `check.pending.*`).
