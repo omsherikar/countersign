@@ -495,6 +495,7 @@ export const copy = {
   "empty.graduates": "No graduating students found.",
   // ---- Strings the deck does not cover yet (app.*). Propose them to the deck owner. ----
   "app.pick_role": "Pick a role",
+  "app.filter_institutions": "Filter this table by name or permanent id",
   "app.on_roll": "Students on roll",
   "app.on_roll_tip": "Active enrolments in every year of study",
   "app.hint.intake": "{academic_year} intake",

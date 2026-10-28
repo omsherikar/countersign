@@ -137,7 +137,7 @@ export function InstitutionsTable({
   return (
     <div id={anchorId} className="scroll-mt-20">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <SearchInput label={t("search.placeholder")} value={q} onChange={onSearch} className="w-full sm:w-80" />
+        <SearchInput label={t("app.filter_institutions")} value={q} onChange={onSearch} className="w-full sm:w-80" />
         <FilterSelect label={t("col.state")} value={state} options={stateOptions} onChange={(v) => set({ state: v, page: null })} />
         {variant === "aicte" && (
           <FilterSelect
