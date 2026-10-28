@@ -521,3 +521,230 @@ Both sides implement these in Week 1. Everything else in the contract is unchang
 8. `POST /admin/demo/reset` (AICTE_ADMIN only) is reserved for Week 2; Week 1 returns 501 `NOT_IMPLEMENTED` with message "Run make demo-reset."
 9. 422 `VALIDATION_ERROR` on both api and mockgov carries `details.fields = [{field, message}]` and `message` = the first field's message. (Supersedes the empty `details` shown in section C.2.)
 10. `GET /institutions/{id}/seats` accepts `academic_year?` (default: current, `2026-27`) and returns only the seats in pools of that year's approvals. Each approval year has its own pools, so a seat code such as `CSE-R-087` repeats across years and is unique within one. Rows gain `academic_year`, the approval year of the seat's pool.
+
+## Addendum 2 (2026-10-28): Week 2 endpoints and shapes
+
+Implements DECISIONS D14 to D22. Everything below is normative in the same way as sections A to E: field names, casing, enum values and the quoted sentences are exact. The internal Python interfaces behind these endpoints are in `ENGINES.md`; the schema is `DATA_MODEL.md` "Migration 0002". Where this addendum and an earlier section disagree, this addendum wins.
+
+### A2.1 Conventions added
+
+- **One multipart route.** `POST /uploads` takes `multipart/form-data`; it is the only mutating route exempt from the JSON-only 415 rule (ARCHITECTURE §3). The web proxy (`app/api/[...path]/route.ts`) must forward that request body as a stream with its original `Content-Type` (boundary included), and must pass non-JSON responses (`text/csv`, XLSX) through with `Content-Type` and `Content-Disposition` unchanged.
+- **New error codes**: `FILE_TOO_LARGE` (413), `TOO_MANY_ROWS` (413), `UNSUPPORTED_FILE_TYPE` (415), `UPLOAD_HEADER_INVALID` (422, `details.missing_columns`, `details.duplicate_columns`), `UPLOAD_EMPTY` (422), `UPLOAD_IN_PROGRESS` (409, `details.batch_id`). 404 messages: "Upload not found.", "Enrolment not found.", "Flag not found." (Addendum 1 item 6).
+- **Dates in sentences.** Every date inside a `summary`, a check `detail.summary` or an evidence fact `value` is written `5 Oct 2026` (day without a leading zero, three-letter English month, year). Date fields stay `YYYY-MM-DD`.
+- **New enums** (also in §A2.22):
+  - `ProgrammeMode`: `PHYSICAL`, `ODL`, `ONLINE`.
+  - `UploadStatus`: `QUEUED`, `VALIDATING`, `PROCESSING`, `DONE`, `FAILED` (`PROCESSING` replaces the Week 1 `CHECKING`).
+  - `UploadStage`: `PARSE`, `VALIDATE`, `FILE_DUPLICATES`, `UPSERT`, `LEDGER`, `CHECKS`, `DUPLICATES`, `FLAGS`, `DONE`.
+  - `UploadSource`: `FILE`, `API`, `SEED`. `UploadKind`: `INITIAL`, `UPDATE`.
+  - `RowErrorLevel`: `ERROR` (the row was rejected), `WARNING` (the row was accepted; a note for the registrar).
+  - `CheckSource`: `APAAR`, `COUNSELLING`, `SEAT_LEDGER`, `ABC`, `SII`, `STUDENT_NOTICE`.
+
+### A2.2 Upload file format (D14)
+
+One file (or one `POST /uploads/rows` body) is one institution and one academic year. Columns, in template order: the 16 from section E, then `status`, `status_date`, `admission_date`.
+
+| column | header must be present | value | rule |
+|---|---|---|---|
+| `apaar_id` | no | optional | 12 digits after removing spaces. Anything else gives an APAAR_FORMAT warning and the row is kept without an APAAR (the Identity check then fails with INVALID_APAAR). Used only when consent is LINKED |
+| `name` | yes | required | as on the admission register, up to 200 characters; Devanagari allowed |
+| `dob` | yes | required | `YYYY-MM-DD`; an XLSX date cell is accepted |
+| `gender` | no | optional | `M`, `F`, `O`, `U` or `Male`, `Female`, `Other`; blank is `U` |
+| `mobile` | no | optional | 10 digits after removing spaces, a leading `+91` or `0`; otherwise a MOBILE_FORMAT warning and the value is not used |
+| `email` | no | optional | one `@` with a dot after it; otherwise an EMAIL_FORMAT warning and the value is not used |
+| `address` | no | optional | free text; stored only as an HMAC |
+| `nationality` | no | optional | ISO 3166 alpha-2, default `IN` |
+| `passport_no` | no | conditional | required when `admission_route` is INTERNATIONAL, `consent_status` is INTERNATIONAL or `nationality` is not `IN` |
+| `programme_code` | yes | required | a programme of this institution (FIRST shift when the code exists in both) |
+| `academic_year` | no | optional | must equal the upload's academic year; blank means the upload's |
+| `year_of_study` | yes | required | whole number from 1 to the programme's `duration_years` |
+| `admission_route` | yes | required | `COUNSELLING`, `MANAGEMENT`, `NRI`, `SPOT`, `LATERAL`, `INTERNATIONAL`, `TFW` |
+| `counselling_ref` | no | optional | the counselling allotment reference, e.g. `MHCET-2026-R1-004512` |
+| `category` | yes | required | `GENERAL`, `EWS`, `OBC`, `SC`, `ST`, `OTHER` |
+| `consent_status` | no | optional | `LINKED`, `REFUSED`, `PENDING`, `INTERNATIONAL`. Blank: LINKED with a usable APAAR, INTERNATIONAL for an international row, else PENDING |
+| `status` | no | optional | `ACTIVE`, `WITHDRAWN`, `TRANSFERRED`. Blank: ACTIVE for a new enrolment, unchanged for an existing one |
+| `status_date` | no | optional | `YYYY-MM-DD`, not after the upload date. Blank: the upload date when the status changes |
+| `admission_date` | no | optional | `YYYY-MM-DD`, not after the upload date. Blank: the upload date for a new enrolment, unchanged for an existing one. Drives LATE_REFILL |
+
+Rules:
+
+- Headers are matched after trimming, lower-casing and turning spaces and hyphens into underscores. Unknown headers are listed in the batch's `ignored_columns` and otherwise ignored. A missing required header, or a header that appears twice, rejects the whole file (`UPLOAD_HEADER_INVALID`).
+- Enum values are matched case-insensitively with spaces and hyphens read as underscores (`Counselling`, `spot` and `TFW` are fine).
+- Blank lines are skipped and not counted. CSV must be UTF-8 (a BOM is allowed); XLSX uses the first sheet.
+- `row_no` is the spreadsheet row number: the header is row 1, the first data row is row 2. For `POST /uploads/rows` it is the 1-based position in `rows`.
+- A row with any `ERROR` entry is rejected; a row with only `WARNING` entries is accepted. Every problem in a row is reported, one entry per field.
+- Upsert key and identity: D14 and ENGINES.md §5. Rows not in a file are never touched (a file is a delta).
+- CIWG: an INTERNATIONAL-route row with nationality `IN` is a child of an Indian worker in the Gulf and may take the CIWG-reserved international seats.
+
+### A2.3 Row error codes
+
+The api writes `message` exactly as below with the placeholders filled; the web shows it verbatim (copy deck `rowerr.*` follows these). `{field_word}`: `name` Name, `dob` Date of birth, `programme_code` Programme code, `year_of_study` Year of study, `admission_route` Admission route, `category` Category.
+
+| code | level | field | message | when |
+|---|---|---|---|---|
+| `MISSING_REQUIRED` | ERROR | the column | `{field_word} is required` | a required value is blank |
+| `APAAR_FORMAT` | WARNING | `apaar_id` | `APAAR must be 12 digits` | an APAAR is given but is not 12 digits; the row is accepted without it |
+| `DUPLICATE_IN_FILE` | ERROR | `apaar_id` | `Same APAAR appears on row {other_row}` | the APAAR was already used by an earlier row of this file; the later row is rejected |
+| `DUPLICATE_IN_FILE` | ERROR | `passport_no` | `Same passport number appears on row {other_row}` | the same for a passport |
+| `DUPLICATE_IN_FILE` | ERROR | `name` | `Same student (name, date of birth and mobile) appears on row {other_row}` | two rows without APAAR or passport resolve to the same provisional student |
+| `UNKNOWN_PROGRAMME` | ERROR | `programme_code` | `Programme code {value} is not approved for your college` | no programme with that code at this institution |
+| `NO_APPROVAL_FOR_COHORT` | ERROR | `year_of_study` | `{programme_code} has no approval for {cohort_year}, the intake of a year {year_of_study} student in {academic_year}` | the programme has no approval for the row's cohort year |
+| `DOB_FORMAT` | ERROR | `dob` | `Date of birth must be YYYY-MM-DD` | not a date |
+| `DOB_IMPLAUSIBLE` | ERROR | `dob` | `Date of birth {value} gives an age of {age} at admission; expected 14 to 60` | age on 1 July of the cohort start year outside 14 to 60, or a date in the future |
+| `BAD_ENUM` | ERROR | `admission_route` | `Admission route must be one of Counselling, Management, NRI, Spot, Lateral, International, TFW` | |
+| `BAD_ENUM` | ERROR | `category` | `Category must be one of General, EWS, OBC, SC, ST, Other` | |
+| `BAD_ENUM` | ERROR | `consent_status` | `Consent status must be Linked, Refused, Pending or International` | |
+| `BAD_ENUM` | ERROR | `status` | `Status must be Active, Withdrawn or Transferred` | |
+| `BAD_ENUM` | WARNING | `gender` | `Gender must be M, F, O or U; recorded as U` | |
+| `YEAR_OF_STUDY_INVALID` | ERROR | `year_of_study` | `Year of study must be a whole number between 1 and {max}` | `{max}` is the programme's duration, 6 when the programme is unknown |
+| `YEAR_MISMATCH` | ERROR | `academic_year` | `Academic year {value} does not match this upload's academic year {academic_year}` | |
+| `PASSPORT_REQUIRED` | ERROR | `passport_no` | `International students need a passport number` | |
+| `NATIONALITY_FORMAT` | ERROR | `nationality` | `Nationality must be a two-letter country code, e.g. IN` | |
+| `DATE_FORMAT` | ERROR | `status_date` or `admission_date` | `Status date must be YYYY-MM-DD` or `Admission date must be YYYY-MM-DD` | |
+| `DATE_IN_FUTURE` | ERROR | `status_date` or `admission_date` | `Status date {value} is after the upload date` or `Admission date {value} is after the upload date` | |
+| `MOBILE_FORMAT` | WARNING | `mobile` | `Mobile must be 10 digits; the value was not used` | |
+| `EMAIL_FORMAT` | WARNING | `email` | `Email address is not valid; the value was not used` | |
+| `CONSENT_CONFLICT` | WARNING | `consent_status` | `APAAR given but consent is {consent_word}; the APAAR was not used` | APAAR present with REFUSED, PENDING or INTERNATIONAL consent |
+| `CONSENT_CONFLICT` | WARNING | `consent_status` | `Consent is Linked but no APAAR was given; recorded as Pending` | |
+| `NOT_PREVIOUSLY_ENROLLED` | WARNING | `status` | `No earlier enrolment matches this student; recorded as {status_word} with no seat` | a WITHDRAWN or TRANSFERRED row creates the enrolment |
+
+The copy deck's `ROUTE_INVALID`, `CONSENT_INVALID` and `YEAR_INVALID` keys are replaced by `BAD_ENUM` (per field) and `YEAR_OF_STUDY_INVALID`.
+
+`value_masked`, the offending value as the registrar may see it: a 12-digit APAAR as `XXXX XXXX 4417`, any other APAAR value as `<11 characters>` (its length only); passport as `XXXXX567` (last three kept); mobile as `XXXXXX1234` (or `<n characters>` when shorter than 4); email as `r***@example.com`; `address` never (null); every other field as uploaded, cut to 64 characters; null when the value is blank.
+
+### A2.4 `POST /uploads` (multipart)
+
+Roles: `INSTITUTION` (its own institution), `AICTE_ADMIN` (any institution, `institution_id` required). `RO_OFFICER`, `UNIVERSITY`, `STUDENT`: 403.
+
+Form fields: `file` (required, `.csv` or `.xlsx`, at most `UPLOAD_MAX_BYTES`, 20 MB), `academic_year` (required, `YYYY-YY`, must have at least one approval at the institution), `institution_id` (required for AICTE_ADMIN; an INSTITUTION may omit it, and any other value than its own gives 404), `declaration` (required, the string `true`; the registrar ticked [upload.declaration]). A `kind` field, if sent, is ignored: the server sets `kind` (INITIAL when the institution has no earlier DONE batch for that academic year, else UPDATE).
+
+The api checks the header synchronously (so a wrong template fails at once), writes the file encrypted to the spool, commits the batch as QUEUED, enqueues `run_batch` and answers:
+
+```json
+202 Location: /uploads/b7c1d2e3-4444-4555-8666-777788889999
+{ "batch": { ...UploadBatch (§A2.7), "status": "QUEUED", "stage": null, "progress_pct": 0... } }
+```
+
+Errors:
+
+| status | code | message |
+|---|---|---|
+| 409 | `UPLOAD_IN_PROGRESS` | "An upload for this college and year is still being processed." `details.batch_id` |
+| 413 | `FILE_TOO_LARGE` | "The file is larger than 20 MB. Split it by programme and upload each part." |
+| 413 | `TOO_MANY_ROWS` | "The file has more than 50,000 rows. Split it and upload each part." |
+| 415 | `UNSUPPORTED_FILE_TYPE` | "Only .csv and .xlsx files can be uploaded." |
+| 422 | `UPLOAD_HEADER_INVALID` | "The file is missing required columns: name, dob." (`details.missing_columns: ["name","dob"]`, `details.duplicate_columns: []`) |
+| 422 | `UPLOAD_EMPTY` | "The file has a header but no rows." |
+| 422 | `VALIDATION_ERROR` | first field message, e.g. `declaration`: "Tick the declaration to upload.", `academic_year`: "Your college has no approvals for 2027-28." |
+| 404 | `NOT_FOUND` | "Institution not found." |
+
+### A2.5 `POST /uploads/rows` (JSON, for institution systems)
+
+Same roles, scoping, declaration and errors as §A2.4 (`TOO_MANY_ROWS` above `UPLOAD_ROWS_API_MAX`, 5,000 rows per call). Same columns as §A2.2 as JSON keys; values are strings, `year_of_study` may be a number, `null` means blank. Unknown keys go to `ignored_columns`.
+
+```json
+POST /uploads/rows
+{
+  "academic_year": "2026-27",
+  "institution_id": null,
+  "declaration": true,
+  "label": "SIS sync 28 Oct",
+  "rows": [
+    { "apaar_id": "123456784417", "name": "Ravi Kumar Sharma", "dob": "2007-03-21", "programme_code": "CSE",
+      "year_of_study": 1, "admission_route": "COUNSELLING", "counselling_ref": "MHCET-2026-R1-004512",
+      "category": "GENERAL", "consent_status": "LINKED", "admission_date": "2026-08-02" },
+    { "apaar_id": "987654320011", "name": "Asha Patil", "dob": "2007-11-02", "programme_code": "IT",
+      "year_of_study": 1, "admission_route": "MANAGEMENT", "category": "OBC",
+      "status": "WITHDRAWN", "status_date": "2026-10-20" }
+  ]
+}
+202 { "batch": { ...UploadBatch, "source": "API", "filename": "SIS sync 28 Oct", "status": "QUEUED"... } }
+```
+
+`label` (optional, up to 120 characters) becomes the batch `filename`; default `rows.json`.
+
+### A2.6 `GET /uploads`
+
+Roles: `AICTE_ADMIN` (all), `RO_OFFICER` (institutions in its region), `INSTITUTION` (its own; `institution_id` ignored). `UNIVERSITY`, `STUDENT`: 403.
+
+Query: `page`, `page_size`, `institution_id?`, `academic_year?`, `status?`. Sorted by `uploaded_at` descending.
+
+```json
+200 { "items": [ ...UploadBatch... ], "total": 3, "page": 1, "page_size": 25 }
+```
+
+### A2.7 `GET /uploads/{id}`
+
+Same roles; a batch outside scope is 404 "Upload not found.". The web polls it every 2 s until `DONE` or `FAILED`.
+
+```json
+200 {
+  "id": "b7c1d2e3-4444-4555-8666-777788889999",
+  "institution_id": "a0b1c2d3-1111-4222-8333-444455556666",
+  "institution_name": "ABC College of Engineering",
+  "academic_year": "2026-27",
+  "filename": "1-ABC-0001_2026-27.csv",
+  "source": "FILE",
+  "kind": "INITIAL",
+  "status": "DONE",
+  "stage": "DONE",
+  "total_rows": 605,
+  "stage_total": 0,
+  "processed_rows": 0,
+  "progress_pct": 100,
+  "counts": {
+    "rows": 605, "accepted": 605, "errors": 0, "warnings": 0,
+    "created": 605, "updated": 0, "unchanged": 0, "withdrawn": 0, "transferred": 0,
+    "seated": 593, "released": 0, "unseated": 12,
+    "flags_raised": 3, "flags_updated": 0
+  },
+  "sources": [
+    { "source": "APAAR", "calls": 571, "unavailable": 0 },
+    { "source": "COUNSELLING", "calls": 402, "unavailable": 0 },
+    { "source": "ABC", "calls": 381, "unavailable": 0 },
+    { "source": "SII", "calls": 4, "unavailable": 0 }
+  ],
+  "timings_ms": { "PARSE": 40, "VALIDATE": 120, "FILE_DUPLICATES": 8, "UPSERT": 900, "LEDGER": 700, "CHECKS": 6100, "DUPLICATES": 300, "FLAGS": 60 },
+  "error": null,
+  "ignored_columns": [],
+  "same_file_as": null,
+  "uploaded_by": { "id": "6f1c0a8e-2b1d-4c9a-9e51-1c2f1a0b7d33", "name": "Registrar, ABC College of Engineering" },
+  "uploaded_at": "2026-10-28T10:02:11Z",
+  "started_at": "2026-10-28T10:02:12Z",
+  "finished_at": "2026-10-28T10:02:21Z"
+}
+```
+
+(The numbers are illustrative.) Fields:
+
+- `status` and `stage` move together: QUEUED has `stage: null`; VALIDATING covers PARSE, VALIDATE, FILE_DUPLICATES; PROCESSING covers UPSERT, LEDGER, CHECKS, DUPLICATES, FLAGS; DONE has `stage: "DONE"`; FAILED keeps the stage that failed.
+- `progress_pct` (0 to 100, never decreases) is computed by the api from `stage`, `processed_rows` and `stage_total` (ENGINES.md §4.6).
+- `counts` always has every key; values are 0 until their stage finishes. `rows` data rows; `accepted` rows kept (warnings allowed); `errors` rows rejected; `warnings` accepted rows with at least one warning; `created`, `updated`, `unchanged` enrolments; `withdrawn`, `transferred` enrolments moved to that status by this batch; `seated` seats assigned by this batch (including earlier unseated enrolments that got a freed seat); `released` seats released; `unseated` enrolments of this batch that are ACTIVE and without a seat; `flags_raised` new flags; `flags_updated` existing flags whose evidence changed.
+- `sources`: adapter calls per check source in this batch and how many found the source unavailable (the "APAAR awaiting source, will retry" line); empty until CHECKS starts.
+- `same_file_as`: `{ "batch_id", "uploaded_at" }` of an earlier batch of this institution with the same file hash, else null (a re-upload is safe and changes nothing; the page can say so).
+- `error`: null unless FAILED. Exact sentences: "The file could not be read as CSV or XLSX.", "The file is not UTF-8 text. Save it as CSV UTF-8 and upload it again.", "The file is missing required columns: {columns}.", "The column {column} appears more than once.", "The file has a header but no rows.", "The file has more than {max} rows. Split it and upload each part.", "Processing stopped while {stage_words}. Upload the file again; rows already saved are kept." with `{stage_words}`: PARSE reading the file, VALIDATE checking rows, FILE_DUPLICATES looking for repeated rows, UPSERT saving students and enrolments, LEDGER assigning seats, CHECKS checking with sources, DUPLICATES looking for duplicates, FLAGS raising flags.
+- `uploaded_by`: `{id, name}`; for SEED batches the institution's registrar.
+
+Proposed copy for the progress rail (UX owns the final words): `upload_status.PROCESSING` "Processing" (replaces `CHECKING`); `upload_stage.PARSE` "Reading file", `VALIDATE` "Checking rows", `FILE_DUPLICATES` "Repeated rows", `UPSERT` "Saving", `LEDGER` "Seat ledger", `CHECKS` "Checking sources", `DUPLICATES` "Duplicates", `FLAGS` "Flags", `DONE` "Done". The done card uses `upload.done_summary` with `{ok} = accepted`, `{seated}`, `{unseated}`, `{flags} = flags_raised`.
+
+### A2.8 `GET /uploads/{id}/errors` and `GET /uploads/{id}/errors.csv`
+
+Same roles and scoping as §A2.7.
+
+`GET /uploads/{id}/errors?page&page_size&level?&code?`, sorted by `row_no` then `field`:
+
+```json
+200 {
+  "items": [
+    { "row_no": 17, "level": "WARNING", "field": "apaar_id", "code": "APAAR_FORMAT", "message": "APAAR must be 12 digits", "value_masked": "<11 characters>" },
+    { "row_no": 41, "level": "ERROR", "field": "apaar_id", "code": "DUPLICATE_IN_FILE", "message": "Same APAAR appears on row 12", "value_masked": "XXXX XXXX 4417" },
+    { "row_no": 58, "level": "ERROR", "field": "dob", "code": "DOB_FORMAT", "message": "Date of birth must be YYYY-MM-DD", "value_masked": "21/03/2007" }
+  ],
+  "total": 3, "page": 1, "page_size": 25
+}
+```
+
+`total` counts entries (a row can have several). `GET /uploads/{id}/errors.csv` returns every entry, unpaged: `200 text/csv; charset=utf-8` with a BOM, `Content-Disposition: attachment; filename="<file stem>_errors.csv"`, header `row_no,level,field,code,message,value_masked`.
+
+### A2.9 `GET /uploads/template.csv` and `GET /uploads/template.xlsx`
+
+Roles: `AICTE_ADMIN`, `RO_OFFICER`, `INSTITUTION`. The header row only, the 19 columns in §A2.2 order; CSV as `text/csv` with `Content-Disposition: attachment; filename="countersign_upload_template.csv"`, XLSX with one sheet `students` and filename `countersign_upload_template.xlsx`. These two routes are declared before `/uploads/{id}` so they are never read as an id.
