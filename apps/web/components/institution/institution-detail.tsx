@@ -189,7 +189,15 @@ export function InstitutionDetail({
         </TabsContent>
 
         <TabsContent value="enrolments">
-          {d && <EnrolmentsTable institutionId={d.id} programmes={d.programmes} academicYear={academicYear} />}
+          {d && (
+            <EnrolmentsTable
+              institutionId={d.id}
+              programmes={d.programmes}
+              academicYear={academicYear}
+              enrolmentHref={(eid) => `${crumbRoot.href}/enrolments/${eid}`}
+              flagHref={showFlags ? (fid) => `${crumbRoot.href}/cases/${fid}` : undefined}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="seats">{d && <SeatsTable institutionId={d.id} programmes={d.programmes} />}</TabsContent>

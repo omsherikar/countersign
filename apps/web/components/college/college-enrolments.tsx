@@ -22,7 +22,13 @@ export function CollegeEnrolments() {
       {!d && detail.isLoading && <Skeleton className="h-64" />}
       {d && (
         <Suspense>
-          <EnrolmentsTable institutionId={d.id} programmes={d.programmes} academicYear={d.programmes[0]?.approval.academic_year ?? "2026-27"} />
+          <EnrolmentsTable
+            institutionId={d.id}
+            programmes={d.programmes}
+            academicYear={d.programmes[0]?.approval.academic_year ?? "2026-27"}
+            enrolmentHref={(id) => `/college/enrolments/${id}`}
+            flagHref={(id) => `/college/flags/${id}`}
+          />
         </Suspense>
       )}
     </>

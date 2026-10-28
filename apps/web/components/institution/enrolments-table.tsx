@@ -1,40 +1,50 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { ConsentBadge } from "@/components/brand/ConsentBadge";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { MaskedApaar } from "@/components/brand/MaskedApaar";
 import { SeatCodePill } from "@/components/brand/SeatCodePill";
-import { SeverityBadge } from "@/components/brand/SeverityBadge";
 import { t, tk } from "@/lib/copy";
 import { formatCount, formatDate } from "@/lib/format";
 import { useInstitutionEnrolments } from "@/lib/queries";
-import type { AdmissionRoute, EnrolmentStatus, ProgrammeDetail } from "@/lib/types";
+import { CHECK_ORDER } from "@/lib/checks";
+import type { AdmissionRoute, CheckStatus, CheckType, EnrolmentStatus, ProgrammeDetail } from "@/lib/types";
 import { useUrlParams } from "@/lib/use-url-params";
 import { Button } from "@/components/ui/button";
 import { ErrorBlock, SkeletonRows, SlowHint, TableMessage } from "@/components/common/query-state";
 import { FilterSelect, SearchInput } from "@/components/common/filter-select";
 import { CountersignStrip, ReadLoggedNote, UnseatedChip } from "@/components/common/ledger-bits";
+import { FlagChips } from "@/components/flags/flag-chip";
 import { Pager } from "@/components/common/pager";
 
 const PAGE_SIZE = 25;
 const COLS = 11;
 const STATUSES: EnrolmentStatus[] = ["ACTIVE", "WITHDRAWN", "TRANSFERRED", "GRADUATED"];
 const ROUTES: AdmissionRoute[] = ["COUNSELLING", "MANAGEMENT", "NRI", "SPOT", "LATERAL", "INTERNATIONAL", "TFW"];
+const RESULTS: CheckStatus[] = ["PASS", "FAIL", "PENDING", "NA"];
 
 /**
  * Enrolments of one institution: masked ids only, consent, route, seat code
- * or an amber "Unseated" chip, and the countersign strip. Filters live in
- * the URL with an `e_` prefix so they survive a refresh next to other tabs.
+ * or "Unseated", the countersign strip and the unresolved flags. The student
+ * opens enrolment detail. Filters live in the URL with an `e_` prefix so they
+ * survive a refresh next to other tabs.
  */
 export function EnrolmentsTable({
   institutionId,
   programmes,
   academicYear,
+  enrolmentHref,
+  flagHref,
 }: {
   institutionId: string;
   programmes: ProgrammeDetail[];
   academicYear: string;
+  /** Enrolment detail route for this role, e.g. (id) => `/aicte/enrolments/${id}`. */
+  enrolmentHref?: (id: string) => string;
+  /** Flag detail route for this role; the university has none. */
+  flagHref?: (id: string) => string;
 }) {
   const [params, set] = useUrlParams();
   const programmeId = params.get("e_programme") ?? "";
@@ -42,6 +52,10 @@ export function EnrolmentsTable({
   const year = params.get("e_year") ?? academicYear;
   const route = params.get("e_route") ?? "";
   const q = params.get("e_q") ?? "";
+  const checkType = (params.get("e_check") ?? "") as CheckType | "";
+  const result = (params.get("e_result") ?? "") as CheckStatus | "";
+  const flagged = params.get("e_flagged") ?? "";
+  const seated = params.get("e_seated") ?? "";
   const page = Math.max(1, Number(params.get("e_page") ?? 1) || 1);
 
   const list = useInstitutionEnrolments(institutionId, {
@@ -52,11 +66,18 @@ export function EnrolmentsTable({
     academic_year: year || undefined,
     admission_route: (route || undefined) as AdmissionRoute | undefined,
     q: q || undefined,
+    // Result alone is "any check with this result"; Check is sent only with a Result (A2.10).
+    check_status: result || undefined,
+    check_type: result && checkType ? checkType : undefined,
+    flagged: flagged === "" ? undefined : flagged === "true",
+    seated: seated === "" ? undefined : seated === "true",
   });
   const onSearch = React.useCallback((value: string) => set({ e_q: value, e_page: null }), [set]);
   const data = list.data;
   const rows = data?.items ?? [];
-  const filtered = Boolean(programmeId || route || q || status !== "ACTIVE");
+  const filtered = Boolean(programmeId || route || q || status !== "ACTIVE" || result || checkType || flagged || seated);
+  const clearAll = () =>
+    set({ e_programme: null, e_status: null, e_route: null, e_q: null, e_check: null, e_result: null, e_flagged: null, e_seated: null, e_page: null });
 
   return (
     <div>
@@ -86,7 +107,46 @@ export function EnrolmentsTable({
           options={ROUTES.map((r) => ({ value: r, label: tk(`route.${r}`) }))}
           onChange={(v) => set({ e_route: v, e_page: null })}
         />
+        <FilterSelect
+          label={t("enrolments.filter.check")}
+          value={checkType}
+          options={CHECK_ORDER.map((c) => ({ value: c, label: tk(`check.${c}`) }))}
+          allLabel={t("enrolments.filter.any")}
+          onChange={(v) => set({ e_check: v, e_page: null })}
+        />
+        <FilterSelect
+          label={t("enrolments.filter.result")}
+          value={result}
+          options={RESULTS.map((r) => ({ value: r, label: tk(`check.status.${r}`) }))}
+          allLabel={t("enrolments.filter.any")}
+          onChange={(v) => set({ e_result: v, e_page: null })}
+        />
+        <FilterSelect
+          label={t("enrolments.filter.flagged")}
+          value={flagged}
+          options={[
+            { value: "true", label: t("enrolments.filter.flagged_yes") },
+            { value: "false", label: t("enrolments.filter.flagged_no") },
+          ]}
+          allLabel={t("enrolments.filter.any")}
+          onChange={(v) => set({ e_flagged: v, e_page: null })}
+        />
+        <FilterSelect
+          label={t("enrolments.filter.seated")}
+          value={seated}
+          options={[
+            { value: "true", label: t("enrolments.filter.seated_yes") },
+            { value: "false", label: t("enrolments.filter.seated_no") },
+          ]}
+          allLabel={t("enrolments.filter.any")}
+          onChange={(v) => set({ e_seated: v, e_page: null })}
+        />
         <SearchInput label={t("app.search_enrolments")} value={q} onChange={onSearch} className="w-full sm:w-64" />
+        {filtered && (
+          <Button variant="link" size="sm" className="h-8 px-0" onClick={clearAll}>
+            {t("empty.clear_filters")}
+          </Button>
+        )}
       </div>
 
       <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
@@ -127,11 +187,11 @@ export function EnrolmentsTable({
             {data && rows.length === 0 && (
               <TableMessage cols={COLS}>
                 <EmptyState
-                  title={q ? t("empty.enrolments_search", { q }) : t("empty.enrolments")}
+                  title={q ? t("empty.enrolments_search", { q }) : filtered ? t("empty.enrolments_filtered") : t("empty.enrolments")}
                   action={
                     filtered ? (
-                      <Button variant="outline" size="sm" onClick={() => set({ e_programme: null, e_status: null, e_route: null, e_q: null, e_page: null })}>
-                        {t("empty.institutions_clear")}
+                      <Button variant="outline" size="sm" onClick={clearAll}>
+                        {t("empty.clear_filters")}
                       </Button>
                     ) : undefined
                   }
@@ -140,7 +200,9 @@ export function EnrolmentsTable({
             )}
             {rows.map((e) => (
               <tr key={e.id}>
-                <td className="font-medium">{e.student.name}</td>
+                <td className="font-medium">
+                  {enrolmentHref ? <Link href={enrolmentHref(e.id)}>{e.student.name}</Link> : e.student.name}
+                </td>
                 <td className="code">
                   <MaskedApaar apaarMasked={e.student.apaar_masked} provisionalId={e.student.provisional_id} />
                 </td>
@@ -156,16 +218,7 @@ export function EnrolmentsTable({
                   <CountersignStrip countersign={e.countersign} />
                 </td>
                 <td>
-                  {e.flags.length === 0 ? (
-                    <span className="sr-only">{t("app.none")}</span>
-                  ) : (
-                    <span className="flex gap-1">
-                      {e.flags.slice(0, 2).map((f) => (
-                        <SeverityBadge key={f.id} severity={f.severity} compact />
-                      ))}
-                      {e.flags.length > 2 && <span className="text-xs text-ink-muted">+{e.flags.length - 2}</span>}
-                    </span>
-                  )}
+                  <FlagChips flags={e.flags} hrefFor={flagHref} />
                 </td>
                 <td className="num hidden text-ink-muted xl:table-cell">{formatDate(e.uploaded_at)}</td>
               </tr>
