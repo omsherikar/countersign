@@ -190,7 +190,10 @@ class Planter:
 
         # 4. A second-year at XYZ with zero credits for two semesters.
         victim = w.pick_row(
-            lambda r: r["_inst"] == XYZ_ID and r["year_of_study"] == 2 and is_linked(r)
+            lambda r: r["_inst"] == XYZ_ID
+            and r["year_of_study"] == 2
+            and r["admission_route"] != "LATERAL"
+            and is_linked(r)
         )
         victim["_credits"] = "zero"
         self.record(
@@ -514,7 +517,13 @@ class Planter:
         )  # fmt: skip
 
     def plant_no_activity(self) -> None:
-        row = self.w.pick_row(lambda r: clean_linked_physical(r) and r["year_of_study"] >= 2)
+        # A year-2 lateral entrant joined this year: the api treats STUDYING as NA for them,
+        # so planting "no activity" there would be a false ground truth.
+        row = self.w.pick_row(
+            lambda r: clean_linked_physical(r)
+            and r["year_of_study"] >= 2
+            and not (r["admission_route"] == "LATERAL" and r["year_of_study"] == 2)
+        )
         if row is None:
             return
         row["_credits"] = "none"

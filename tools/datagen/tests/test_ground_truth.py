@@ -196,3 +196,14 @@ def test_scenarios_can_be_switched_off(small_no_scenarios):
     assert small_no_scenarios.summary["xlsx_note"]
     assert not list((small_no_scenarios.path / "uploads").glob("*.xlsx"))
     assert small_no_scenarios.update_files()
+
+
+def test_no_activity_is_never_planted_on_a_year_two_lateral_entrant(small):
+    # A year-2 lateral joined this year, so the api's STUDYING check is NA for them.
+    records = small.json("ground_truth.json")
+    for rec in (r for r in records if r["anomaly_type"] == "NO_ACADEMIC_ACTIVITY"):
+        for row in rec["rows"]:
+            csv_row = small.row(row["file"], row["row_no"])
+            assert not (
+                csv_row["admission_route"] == "LATERAL" and int(csv_row["year_of_study"]) == 2
+            ), row
