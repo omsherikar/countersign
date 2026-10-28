@@ -1416,7 +1416,7 @@ Rules, in order:
 2. Not answered and past `expires_at`: `410 NOTICE_EXPIRED`.
 3. Not answered: the first reply. `response`, `responded_at` and `comment` are stored.
 4. Answered with the same response: nothing changes (the comment is not replaced); 200.
-5. Answered with the other response: allowed once, within 7 days of `responded_at`, even if the notice has since expired. `previous_response` keeps the first answer, `response` takes the new one and `changed_at` is set; a change to `NO` stores its comment, a change to `YES` keeps the earlier comment. Otherwise `409 NOTICE_ALREADY_CHANGED` with `details.reason` `CHANGED_ONCE` ("You have already changed your answer once.") or `WINDOW_CLOSED` ("Answers can be changed only within 7 days of the first reply.").
+5. Answered with the other response: allowed once, within 7 days of `responded_at` (`rules.yaml` `notices.change_window_days`), even if the notice has since expired. `previous_response` keeps the first answer, `response` takes the new one and `changed_at` is set; a change to `NO` stores its comment, a change to `YES` keeps the earlier comment. Otherwise `409 NOTICE_ALREADY_CHANGED` with `details.reason` `CHANGED_ONCE` ("You have already changed your answer once.") or `WINDOW_CLOSED` ("Answers can be changed only within 7 days of the first reply.").
 
 Effects of a first reply or a change, in one transaction (ENGINES §16.3):
 
@@ -1867,8 +1867,8 @@ Every revocation has a reason code. `credentials.revoked_reason` stores the code
 
 | `revoked_reason_code` (wire) | cause | stored `revoked_reason` | actor | wallet words |
 |---|---|---|---|---|
-| `ENROLMENT_WITHDRAWN` | the Seat Ledger released the seat because the enrolment was withdrawn | `ENROLMENT_WITHDRAWN` | none (system) | `wallet.revoked_reason.ENROLMENT_WITHDRAWN` |
-| `ENROLMENT_TRANSFERRED` | the same, for a transfer | `ENROLMENT_TRANSFERRED` | none (system) | `wallet.revoked_reason.ENROLMENT_TRANSFERRED` |
+| `ENROLMENT_WITHDRAWN` | the Seat Ledger released the seat because the enrolment was withdrawn | `ENROLMENT_WITHDRAWN` | the batch's uploader (none for a seeded batch) | `wallet.revoked_reason.ENROLMENT_WITHDRAWN` |
+| `ENROLMENT_TRANSFERRED` | the same, for a transfer | `ENROLMENT_TRANSFERRED` | the batch's uploader (none for a seeded batch) | `wallet.revoked_reason.ENROLMENT_TRANSFERRED` |
 | `FLAG_CONFIRMED` | an officer confirmed a flag on the enrolment (§A3.9) | `FLAG_CONFIRMED` | the officer | `wallet.revoked_reason.FLAG_CONFIRMED` |
 | `ADMIN` | this endpoint | the officer's text | the officer | `wallet.revoked_reason.ADMIN` |
 
