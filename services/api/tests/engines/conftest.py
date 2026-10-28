@@ -10,7 +10,7 @@ import itertools
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -280,7 +280,8 @@ class World:
         self.next_row = max(self.next_row, start_row + count)
         for i in range(count):
             n = next(_serial)
-            stu = await self.student(f"{prefix} {n:05d}", date(2008, 1, 1 + n % 28))
+            # a distinct birth date per student keeps synthetic names out of each other's block
+            stu = await self.student(f"{prefix} {n:05d}", date(2004, 1, 1) + timedelta(days=n))
             out.append(
                 await self.enrol(
                     stu,
