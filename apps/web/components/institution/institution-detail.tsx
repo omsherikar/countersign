@@ -4,12 +4,17 @@ import * as React from "react";
 import { t } from "@/lib/copy";
 import { institutionAdmitted } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
-import { useInstitution } from "@/lib/queries";
+import { RefreshCw } from "lucide-react";
+import { ApiError } from "@/lib/api";
+import { useInstitution, useRecheckInstitution } from "@/lib/queries";
 import { REGION_NAME } from "@/lib/roles";
 import type { InstitutionDetail as Detail } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ErrorBlock, SlowHint } from "@/components/common/query-state";
+import { Button } from "@/components/ui/button";
+import { ErrorBlock, SlowHint, errorMessage } from "@/components/common/query-state";
+import { useMe } from "@/components/providers/root-provider";
+import { LastUploadLine } from "@/components/uploads/last-upload-line";
 import { Crumbs, SectionHeader } from "@/components/common/page-header";
 import { TypeChip } from "@/components/common/ledger-bits";
 import { EnrolmentsTable } from "@/components/institution/enrolments-table";
@@ -46,7 +51,7 @@ function useHashTab(allowed: readonly Tab[]): [Tab, (t: Tab) => void] {
  * admitted are the same intake; students on roll covers every year and is
  * labelled so nobody divides it by seats.
  */
-function HeaderFigures({ d, academicYear }: { d: Detail; academicYear: string }) {
+function HeaderFigures({ d, academicYear, officer }: { d: Detail; academicYear: string; officer: boolean }) {
   const admitted = institutionAdmitted(d);
   const approved = d.programmes.reduce((a, p) => a + p.approval.approved_intake, 0) || d.approved_seats;
   const intake = t("app.hint.intake", { academic_year: academicYear });
@@ -54,10 +59,10 @@ function HeaderFigures({ d, academicYear }: { d: Detail; academicYear: string })
     { label: t("kpi.approved_seats"), value: formatCount(approved), hint: intake },
     { label: t("kpi.admitted"), value: formatCount(admitted), hint: intake },
     { label: t("kpi.enrolments"), value: formatCount(d.enrolments), hint: t("app.hint.all_years") },
-    { label: t("kpi.flags_open"), value: formatCount(d.flags_open), tone: d.flags_open > 0 ? undefined : "text-ink-muted" },
+    ...(officer ? [{ label: t("kpi.flags_open"), value: formatCount(d.flags_open), tone: d.flags_open > 0 ? undefined : "text-ink-muted" }] : []),
   ];
   return (
-    <dl className="mt-4 grid grid-cols-2 border-y border-rule bg-paper-raised sm:grid-cols-4" style={{ fontVariantNumeric: "lining-nums proportional-nums" }}>
+    <dl className={`mt-4 grid grid-cols-2 border-y border-rule bg-paper-raised ${officer ? "sm:grid-cols-4" : "sm:grid-cols-3"}`} style={{ fontVariantNumeric: "lining-nums proportional-nums" }}>
       {cells.map((c, i) => (
         <div key={c.label} className={`flex min-w-0 flex-col gap-0.5 px-3 py-2 ${i > 0 ? "sm:border-l sm:border-rule" : ""} ${i % 2 === 1 ? "border-l border-rule" : ""} ${i >= 2 ? "border-t border-rule sm:border-t-0" : ""}`}>
           <dt className="truncate text-xs font-medium text-ink-muted">{c.label}</dt>
@@ -69,7 +74,49 @@ function HeaderFigures({ d, academicYear }: { d: Detail; academicYear: string })
   );
 }
 
-function DetailHeader({ d, academicYear }: { d: Detail; academicYear: string }) {
+/** "Recheck pending checks" for officers: the demo moment when a source comes back (A2.13). */
+function InstitutionRecheckButton({ id, academicYear }: { id: string; academicYear: string }) {
+  const recheck = useRecheckInstitution(id);
+  const { user } = useMe();
+  const r = recheck.data;
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        title={t("recheck.institution_tip", { academic_year: academicYear })}
+        disabled={recheck.isPending}
+        onClick={() => recheck.mutate(academicYear)}
+      >
+        <RefreshCw className={recheck.isPending ? "size-3.5 animate-spin" : "size-3.5"} aria-hidden="true" />
+        {recheck.isPending ? t("recheck.running") : t("recheck.institution")}
+      </Button>
+      <div aria-live="polite" className="max-w-xs text-xs text-ink-muted">
+        {r &&
+          (r.rechecked === 0
+            ? t("recheck.none")
+            : t("recheck.institution_result", {
+                rechecked: formatCount(r.rechecked),
+                seconds: (r.duration_ms / 1000).toFixed(1),
+                now_pass: formatCount(r.now_pass),
+                now_fail: formatCount(r.now_fail),
+                now_na: formatCount(r.now_na),
+                still_pending: formatCount(r.still_pending),
+              }))}
+        {r && r.flags_raised > 0 && ` ${t("recheck.flags_raised", { n: r.flags_raised })}`}
+        {recheck.isError && (
+          <span className="text-check-fail-ink">
+            {recheck.error instanceof ApiError && recheck.error.code === "RATE_LIMITED"
+              ? t("err.RATE_LIMITED", { seconds: recheck.error.retryAfter ?? 60 })
+              : errorMessage(recheck.error, user?.role)}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailHeader({ d, academicYear, officer }: { d: Detail; academicYear: string; officer: boolean }) {
   const place = [d.address_city, d.state_code].filter(Boolean).join(", ");
   const second = [
     t("app.detail.region", { region_name: REGION_NAME[d.region] }),
@@ -86,7 +133,8 @@ function DetailHeader({ d, academicYear }: { d: Detail; academicYear: string }) 
           {place && <span>{place}</span>}
         </p>
         <p className="mt-1 text-sm text-ink-muted">{second.join(", ")}</p>
-        <HeaderFigures d={d} academicYear={academicYear} />
+        <HeaderFigures d={d} academicYear={academicYear} officer={officer} />
+        <LastUploadLine last={d.last_upload} className="mt-2 text-sm text-ink-muted" />
       </div>
       <dl className="flex min-w-44 flex-col gap-1 border-l-2 border-rule-margin pl-4">
         <dt className="text-xs font-medium text-ink-muted">{t("index.label")}</dt>
@@ -97,6 +145,11 @@ function DetailHeader({ d, academicYear }: { d: Detail; academicYear: string }) 
             <span className="font-display text-3xl font-semibold">{Math.round(d.integrity_index)}</span>
           )}
         </dd>
+        {officer && (
+          <dd className="mt-4">
+            <InstitutionRecheckButton id={d.id} academicYear={academicYear} />
+          </dd>
+        )}
       </dl>
     </div>
   );
@@ -148,7 +201,7 @@ export function InstitutionDetail({
   return (
     <>
       <Crumbs items={[crumbRoot, { label: d?.name ?? "…" }]} />
-      {d ? <DetailHeader d={d} academicYear={academicYear} /> : <HeaderSkeleton />}
+      {d ? <DetailHeader d={d} academicYear={academicYear} officer={showFlags} /> : <HeaderSkeleton />}
       {detail.isLoading && <SlowHint className="-mt-4 mb-4" />}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
