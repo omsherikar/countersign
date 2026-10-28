@@ -170,7 +170,7 @@ export interface LastUpload {
  * example and the live api carry no approved_seats or enrolments on the
  * detail; those come from summing programmes[].
  */
-export interface InstitutionDetail extends Omit<InstitutionRow, "programmes" | "approved_seats" | "enrolments"> {
+export interface InstitutionDetail extends Omit<InstitutionRow, "programmes"> {
   address_city: string | null;
   established_year: number | null;
   integrity_components: Record<string, number> | null;

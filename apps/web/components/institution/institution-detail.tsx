@@ -110,7 +110,9 @@ export function InstitutionDetail({
     );
   }
 
-  const enrolmentCount = d ? d.programmes.reduce((a, p) => a + p.enrolments, 0) : null;
+  // Every active enrolment in the year, matching the enrolments list below; programme
+  // rows count only their own intake.
+  const enrolmentCount = d ? d.enrolments : null;
   const academicYear = d?.programmes[0]?.approval.academic_year ?? "2026-27";
 
   return (

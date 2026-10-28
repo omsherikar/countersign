@@ -393,6 +393,8 @@ export function institutionDetail(id: string): InstitutionDetail | null {
     region_name: row.region_name,
     university_id: row.university_id,
     university_name: row.university_name,
+    approved_seats: row.approved_seats,
+    enrolments: row.enrolments,
     address_city: seed.address_city,
     established_year: seed.established_year,
     integrity_index: null,
