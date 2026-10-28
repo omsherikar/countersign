@@ -20,7 +20,7 @@ from typing import Any
 from jwcrypto.jwk import JWK
 from sd_jwt.common import SDObj
 from sd_jwt.issuer import SDJWTIssuer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -296,7 +296,30 @@ async def _eligible(
         return False
     if await _has_unresolved_high_flag(session, enrolment):
         return False
+    if await _revoked_by_officer(session, enrolment.id):
+        return False
     return await _active_credential(session, enrolment.id, CredentialKind.ENROLMENT) is None
+
+
+# revocations a later upload can undo (the enrolment comes back ACTIVE); an officer's own
+# revocation or a confirmed flag stays until an officer acts again
+SYSTEM_RELEASES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED")
+
+
+async def _revoked_by_officer(session: AsyncSession, enrolment_id: uuid.UUID) -> bool:
+    """Whether an officer revoked an Enrolment proof of this enrolment (ADMIN or
+    FLAG_CONFIRMED); such a proof is never issued again on its own."""
+    found = await session.scalar(
+        select(Credential.id)
+        .where(
+            Credential.enrolment_id == enrolment_id,
+            Credential.kind == CredentialKind.ENROLMENT,
+            Credential.revoked.is_(True),
+            func.coalesce(Credential.revoked_reason, "").not_in(SYSTEM_RELEASES),
+        )
+        .limit(1)
+    )
+    return found is not None
 
 
 async def eligibility(session: AsyncSession, enrolment_id: uuid.UUID) -> bool:

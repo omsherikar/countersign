@@ -206,7 +206,9 @@ async def test_a_short_id_clash_draws_again(world, session, monkeypatch):
     enrolment = await ravi_enrolment(session)
     await make_countersigned(session, enrolment.id)
     first = await issuer.issue_if_eligible(session, enrolment.id)
+    # a withdrawal undone by a later upload; an officer's revocation would block reissue
     first.revoked = True
+    first.revoked_reason = "ENROLMENT_WITHDRAWN"
     await session.flush()
     draws = iter([first.short_id, "ZZZZZZZZ"])
     monkeypatch.setattr(issuer, "new_short_id", lambda: next(draws))
@@ -302,6 +304,33 @@ async def test_an_officer_revocation(world, session):
         await issuer.revoke(session, credential, reason="Again.", actor_id=admin.id)
     assert again.value.code == "CREDENTIAL_REVOKED"
     assert again.value.message == "This proof is already revoked."
+    await session.rollback()
+
+
+@pytest.mark.parametrize(
+    ("cause", "issued_again"),
+    [("officer", False), ("FLAG_CONFIRMED", False), ("ENROLMENT_WITHDRAWN", True)],
+)
+async def test_only_a_system_release_lets_a_proof_be_issued_again(
+    world, session, cause, issued_again
+):
+    """An officer's revocation, or one from a confirmed flag, holds until an officer acts
+    again; a withdrawal undone by a later upload lets the proof come back."""
+    from app import credentials
+
+    admin = (
+        await session.execute(select(User).where(User.email == "admin@aicte.demo"))
+    ).scalar_one()
+    enrolment = await ravi_enrolment(session)
+    await make_countersigned(session, enrolment.id)
+    credential = await issuer.issue_if_eligible(session, enrolment.id)
+    if cause == "officer":
+        await issuer.revoke(
+            session, credential, reason="Inquiry found it false.", actor_id=admin.id
+        )
+    else:
+        await credentials.revoke_for_enrolment(session, enrolment.id, cause, admin.id)
+    assert (await issuer.issue_if_eligible(session, enrolment.id) is not None) is issued_again
     await session.rollback()
 
 
