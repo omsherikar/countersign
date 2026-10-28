@@ -36,6 +36,7 @@ from app.engine.contracts import (
     FlagTally,
     PoolRef,
 )
+from app.engine.status import refresh_record_status
 from app.engine.upload.batches import empty_counts
 from app.engine.upload.parse import UNREADABLE, parse_rows, parse_upload
 from app.engine.upload.spool import delete_spool, find_spool, read_spool
@@ -61,7 +62,7 @@ from app.models.enums import (
 from app.models.institution import Institution
 from app.models.student import Enrolment
 from app.models.upload import UploadBatch, UploadRowError
-from app.models.verification import Check
+from app.models.verification import Check, Flag
 
 log = logging.getLogger("countersign.pipeline")
 
@@ -170,6 +171,8 @@ class _BatchRun:
         self.seated: list[uuid.UUID] = []
         self.pools: set[PoolRef] = set()
         self.checks = ChecksResult()
+        # every flag the batch raised or refreshed: the records they name need a new status
+        self.flag_ids: set[uuid.UUID] = set()
 
     # -- batch row helpers
 
@@ -233,6 +236,7 @@ class _BatchRun:
     def _tally(self, tally: FlagTally) -> None:
         self.counts["flags_raised"] += tally.created
         self.counts["flags_updated"] += tally.updated
+        self.flag_ids.update(tally.flag_ids)
 
     # -- the run
 
@@ -562,6 +566,22 @@ class _BatchRun:
                 self._tally(tally)
 
             await self._chunk(work, len(pools))
+        await self._record_statuses()
+
+    async def _record_statuses(self) -> None:
+        """The records of the batch, and every record a flag of the batch names, get their
+        status from their final rows and cases (D35): duplicates and seat flags are raised
+        after the checks stage."""
+        targets = [o.enrolment_id for o in self.outcomes] + list(self.seated)
+        async with self.factory() as session:
+            for part in chunks(sorted(self.flag_ids, key=str)):
+                named = await session.execute(
+                    select(Flag.enrolment_id, Flag.related_enrolment_ids).where(Flag.id.in_(part))
+                )
+                for enrolment_id, related in named.all():
+                    targets.extend(i for i in (enrolment_id, *related) if i is not None)
+            await refresh_record_status(session, targets)
+            await session.commit()
 
 
 async def run_batch(

@@ -2,7 +2,9 @@
 
 After every upload has gone through run_batch, the student notices of each batch are sent
 in upload order (D31): emails to SMTP_HOST (Mailpit in the demo) and DigiLocker messages to
-mockgov. `python -m app.seed.replies` then applies the simulated replies.
+mockgov. The last step computes the status of every ACTIVE record (D35); that is also how a
+database migrated to revision 0004, whose records all start AWAITING_EVIDENCE, gets its
+statuses. `python -m app.seed.replies` then applies the simulated replies.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.base import AdapterSet
@@ -23,6 +26,9 @@ from app.adapters.factory import build_adapters
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import dispose_engine, session_factory
+from app.engine.status import refresh_record_status
+from app.models.enums import EnrolmentStatus
+from app.models.student import Enrolment
 from app.notices.dispatch import send_notices_for_batch
 from app.notices.mailer import Mailer, SmtpMailer, build_mailer
 from app.seed.importer import SeedError, Summary, import_directory, load_inmemory_registries
@@ -90,6 +96,21 @@ async def send_seed_notices(
     return created
 
 
+async def refresh_every_record_status(factory: async_sessionmaker[AsyncSession]) -> int:
+    """Every ACTIVE record's status from its final rows and cases; returns how many changed."""
+    async with factory() as session:
+        ids = (
+            await session.execute(
+                select(Enrolment.id)
+                .where(Enrolment.status == EnrolmentStatus.ACTIVE)
+                .order_by(Enrolment.id)
+            )
+        ).scalars()
+        changed = await refresh_record_status(session, list(ids))
+        await session.commit()
+    return changed
+
+
 async def _run(source: Path, reset: bool) -> str:
     started = time.perf_counter()
     try:
@@ -107,6 +128,7 @@ async def _run(source: Path, reset: bool) -> str:
         )
         if problem is None:
             notices = await send_seed_notices(factory, summary, source, mailer=mailer)
+        statuses = await refresh_every_record_status(factory)
     finally:
         await dispose_engine()
     done = time.perf_counter()
@@ -122,7 +144,7 @@ async def _run(source: Path, reset: bool) -> str:
         )
     return (
         f"{summary.table()}\n\nseeded {files} upload files, {rows} rows, in "
-        f"{uploaded - started:.1f} s\n{sent}"
+        f"{uploaded - started:.1f} s\nrecord statuses updated on {statuses} records\n{sent}"
     )
 
 

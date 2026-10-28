@@ -26,8 +26,14 @@ from app.core.audit import AuditEntry
 from app.core.config import get_settings
 from app.core.errors import ApiError, not_found
 from app.engine.evidence import fmt_date
+from app.engine.status import (
+    clear_resolved,
+    mark_resolved,
+    named_enrolments,
+    refresh_record_status,
+)
 from app.engine.upload.types import INDIA
-from app.models.enums import AuditAction, CaseActionKind, FlagType, UserRole
+from app.models.enums import AuditAction, CaseActionKind, FlagStatus, FlagType, UserRole
 from app.models.geo import Region
 from app.models.institution import Institution, Programme
 from app.models.user import User
@@ -260,10 +266,16 @@ async def apply_action(
     # the note is never written to the audit log
     await audit.record(session, user.id, AuditAction.UPDATE, "flag", flag.id, after=after)
 
+    # an upheld claim resolves the contradiction it decided, without becoming evidence (R2)
     if action is CaseActionKind.UPHOLD:
-        for enrolment_id in dict.fromkeys([flag.enrolment_id, *flag.related_enrolment_ids]):
-            if enrolment_id is not None:
-                await credentials.issue_if_eligible(session, enrolment_id)
+        await mark_resolved(session, flag, FlagStatus.UPHELD, actor_id=user.id, at=now)
+    elif action is CaseActionKind.REOPEN:
+        await clear_resolved(session, flag)
+    await refresh_record_status(session, named_enrolments(flag), now=now)
+
+    if action is CaseActionKind.UPHOLD:
+        for enrolment_id in named_enrolments(flag):
+            await credentials.issue_if_eligible(session, enrolment_id)
     elif action is CaseActionKind.WITHDRAW and flag.enrolment_id is not None:
         # nothing on the enrolment, its seat or its checks changes; its proofs are revoked
         await credentials.revoke_for_enrolment(session, flag.enrolment_id, WITHDRAW_REASON, user.id)
@@ -318,6 +330,7 @@ async def college_response(
     flag.response_received = True
     flag.last_action_at = now
     await session.flush()
+    await refresh_record_status(session, named_enrolments(flag), now=now)
     entries = [
         AuditEntry(
             action=AuditAction.UPDATE,

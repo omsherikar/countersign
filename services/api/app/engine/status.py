@@ -6,25 +6,40 @@ DISPUTED > UNDER_REVIEW > COUNTERSIGNED > AWAITING_EVIDENCE. There is no score: 
 contradiction outranks any number of confirmations. An officer's decision resolves a
 contradiction but is never evidence, so it never counts towards COUNTERSIGNED (R2).
 NOT_YET_DUE and SOURCE_UNAVAILABLE never contradict (R4).
+
+`refresh_record_status` loads the rows and cases of the ACTIVE enrolments among the ids and
+writes `record_status`, `status_reason`, `next_step` and `record_status_at` in the caller's
+transaction. `mark_resolved` and `clear_resolved` record an officer's decision on the rows a
+case decides.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta, timezone
+from typing import Any
 
-from app.engine.contracts import CHECK_ORDER, UNRESOLVED_FLAG_STATUSES
+from sqlalchemy import literal, or_, select, update
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
+from sqlalchemy.orm.util import identity_key
+
+from app.engine.contracts import CHECK_ORDER, CHUNK_SIZE, UNRESOLVED_FLAG_STATUSES
 from app.engine.evidence import FLAG_NAMES, MONTHS
 from app.models.enums import (
     CheckStatus,
     CheckType,
+    EnrolmentStatus,
     FlagStatus,
     FlagType,
     RecordStatus,
     Severity,
 )
+from app.models.student import Enrolment
+from app.models.verification import Check, Flag
 
 # the row labels of the record card (D34)
 ROW_LABELS = {
@@ -273,3 +288,192 @@ def record_status(
         return StatusResult(RecordStatus.AWAITING_EVIDENCE, NOTHING_CAN_CONFIRM, None)
     row_type, row = candidates[0]
     return StatusResult(RecordStatus.AWAITING_EVIDENCE, reason, row_next_step(row_type, row))
+
+
+# ------------------------------------------------------------------- the writer
+
+
+def _chunks[T](items: Sequence[T], size: int = CHUNK_SIZE) -> Iterable[Sequence[T]]:
+    for start in range(0, len(items), size):
+        yield items[start : start + size]
+
+
+async def _unresolved_cases(
+    session: AsyncSession, owners: dict[uuid.UUID, uuid.UUID]
+) -> dict[uuid.UUID, list[CaseFact]]:
+    """{enrolment_id: [CaseFact]}: unresolved cases against the enrolment's own institution
+    that name it as `enrolment_id` or among `related_enrolment_ids`."""
+    ids = list(owners)
+    rows = await session.execute(
+        select(
+            Flag.id,
+            Flag.type,
+            Flag.severity,
+            Flag.status,
+            Flag.opened_at,
+            Flag.docs_due_on,
+            Flag.response_received,
+            Flag.institution_id,
+            Flag.enrolment_id,
+            Flag.related_enrolment_ids,
+        ).where(
+            Flag.status.in_(UNRESOLVED_FLAG_STATUSES),
+            or_(
+                Flag.enrolment_id.in_(ids),
+                Flag.related_enrolment_ids.op("&&")(literal(ids, type_=ARRAY(UUID(as_uuid=True)))),
+            ),
+        )
+    )
+    out: dict[uuid.UUID, list[CaseFact]] = {}
+    for (
+        flag_id,
+        flag_type,
+        severity,
+        status,
+        opened_at,
+        due_on,
+        responded,
+        institution_id,
+        enrolment_id,
+        related,
+    ) in rows.all():
+        fact = CaseFact(flag_id, flag_type, severity, status, opened_at, due_on, responded)
+        for named in {enrolment_id, *related} & owners.keys():
+            if owners[named] == institution_id:
+                out.setdefault(named, []).append(fact)
+    return out
+
+
+async def refresh_record_status(
+    session: AsyncSession,
+    enrolment_ids: Sequence[uuid.UUID],
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Recompute the status of the ACTIVE enrolments among the ids and write the ones that
+    changed; returns how many changed. Flushes, never commits."""
+    now = now or datetime.now(UTC)
+    ids = list(dict.fromkeys(enrolment_ids))
+    changed = 0
+    for part in _chunks(ids):
+        current = (
+            await session.execute(
+                select(
+                    Enrolment.id,
+                    Enrolment.institution_id,
+                    Enrolment.record_status,
+                    Enrolment.status_reason,
+                    Enrolment.next_step,
+                    Enrolment.record_status_at,
+                ).where(Enrolment.id.in_(part), Enrolment.status == EnrolmentStatus.ACTIVE)
+            )
+        ).all()
+        if not current:
+            continue
+        owners = {row.id: row.institution_id for row in current}
+        facts: dict[uuid.UUID, list[RowFact]] = {}
+        for enrolment_id, check_type, state, independent, resolved, supplied_by in (
+            await session.execute(
+                select(
+                    Check.enrolment_id,
+                    Check.type,
+                    Check.status,
+                    Check.independent,
+                    Check.resolved,
+                    Check.supplied_by,
+                ).where(Check.enrolment_id.in_(list(owners)))
+            )
+        ).all():
+            facts.setdefault(enrolment_id, []).append(
+                RowFact(check_type, state, independent, resolved is not None, supplied_by)
+            )
+        cases = await _unresolved_cases(session, owners)
+        updates: list[dict[str, Any]] = []
+        for row in current:
+            result = record_status(facts.get(row.id, []), cases.get(row.id, []), now=now)
+            if (result.status, result.reason, result.next_step) == (
+                row.record_status,
+                row.status_reason,
+                row.next_step,
+            ) and row.record_status_at is not None:
+                continue
+            moved = result.status is not row.record_status or row.record_status_at is None
+            updates.append(
+                {
+                    "id": row.id,
+                    "record_status": result.status,
+                    "status_reason": result.reason,
+                    "next_step": result.next_step,
+                    "record_status_at": now if moved else row.record_status_at,
+                }
+            )
+        if updates:
+            await session.execute(update(Enrolment), updates)
+            _sync_loaded(session, updates)
+            changed += len(updates)
+    return changed
+
+
+def _sync_loaded(session: AsyncSession, updates: list[dict[str, Any]]) -> None:
+    """Enrolments already loaded in the session see the written values."""
+    for values in updates:
+        loaded = session.identity_map.get(identity_key(Enrolment, values["id"]))
+        if loaded is None:
+            continue
+        for key, value in values.items():
+            if key != "id":
+                set_committed_value(loaded, key, value)
+
+
+# ---------------------------------------------------------------- decisions (R2)
+
+
+def named_enrolments(flag: Flag) -> list[uuid.UUID]:
+    """The enrolments a case names: its own and the related ones."""
+    return [i for i in dict.fromkeys([flag.enrolment_id, *flag.related_enrolment_ids]) if i]
+
+
+async def mark_resolved(
+    session: AsyncSession, flag: Flag, outcome: FlagStatus, *, actor_id: uuid.UUID, at: datetime
+) -> None:
+    """An officer decided the case: the CONTRADICTED rows it decides keep their state and
+    carry {outcome, by, at, case_id}, and no longer count as unresolved (R2)."""
+    row_type = CASE_ROW.get(flag.type)
+    named = named_enrolments(flag)
+    if row_type is None or not named:
+        return
+    resolved = {
+        "outcome": outcome.value,
+        "by": str(actor_id),
+        "at": at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+        "case_id": str(flag.id),
+    }
+    await session.execute(
+        update(Check)
+        .where(
+            Check.enrolment_id.in_(named),
+            Check.type == row_type,
+            Check.status == CheckStatus.CONTRADICTED,
+            Check.enrolment_id.in_(
+                select(Enrolment.id).where(Enrolment.institution_id == flag.institution_id)
+            ),
+        )
+        .values(resolved=resolved)
+        .execution_options(synchronize_session=False)
+    )
+
+
+async def clear_resolved(session: AsyncSession, flag: Flag) -> None:
+    """The case was reopened: the rows its decision resolved count as unresolved again."""
+    named = named_enrolments(flag)
+    if not named:
+        return
+    await session.execute(
+        update(Check)
+        .where(
+            Check.enrolment_id.in_(named),
+            Check.resolved["case_id"].astext == str(flag.id),
+        )
+        .values(resolved=None)
+        .execution_options(synchronize_session=False)
+    )

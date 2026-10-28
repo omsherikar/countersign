@@ -16,6 +16,7 @@ from app.models.enums import (
     ConsentStatus,
     EnrolmentStatus,
     ProgrammeMode,
+    RecordStatus,
     SeatType,
     UploadKind,
     UploadSource,
@@ -239,3 +240,35 @@ async def test_bad_input_fails_loudly(clean_db, tmp_path: Path):
     )
     with pytest.raises(SeedError):
         await import_directory(session_factory(), bad)
+
+
+async def test_every_uploaded_record_ends_the_batch_with_its_status(seeded):
+    async with session_factory()() as session:
+        statuses = dict(
+            (
+                await session.execute(
+                    select(Enrolment.record_status, func.count())
+                    .where(Enrolment.status == EnrolmentStatus.ACTIVE)
+                    .group_by(Enrolment.record_status)
+                )
+            ).all()
+        )
+        unset = await session.scalar(
+            select(func.count()).where(
+                Enrolment.status == EnrolmentStatus.ACTIVE, Enrolment.record_status_at.is_(None)
+            )
+        )
+        # the duplicate cases are raised after the checks stage; the end of the batch still
+        # puts the records they name under review
+        ananya = (
+            await session.execute(
+                select(Enrolment.record_status, Enrolment.status_reason)
+                .join(Student, Student.id == Enrolment.student_id)
+                .where(Student.name == "Ananya Krishnan")
+            )
+        ).all()
+    assert unset == 0 and sum(statuses.values()) > 0
+    assert [status for status, _ in ananya] == [RecordStatus.UNDER_REVIEW] * 2
+    assert {reason for _, reason in ananya} == {
+        "A case names this record: Duplicate across institutions."
+    }

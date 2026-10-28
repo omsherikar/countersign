@@ -180,3 +180,9 @@ async def test_the_seed_sends_no_notices_while_the_mail_server_is_down(db, monke
     )
     async with session_factory()() as s:
         assert (await s.execute(select(func.count()).select_from(Notification))).scalar_one() == 0
+        # the seed's last step gives every ACTIVE record its status
+        unset = select(func.count()).where(
+            Enrolment.status == EnrolmentStatus.ACTIVE, Enrolment.record_status_at.is_(None)
+        )
+        assert (await s.execute(unset)).scalar_one() == 0
+    assert "record statuses updated on " in output

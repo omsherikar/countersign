@@ -6,6 +6,7 @@ then writes check rows, flags and audit entries sequentially. The session is nev
 inside the gather. `recheck_pending` does the same for PENDING and SOURCE_UNAVAILABLE checks
 other than STUDENT.
 `refresh_student` re-derives only the STUDENT check from the notices (ENGINES §16.4).
+Each of them ends by recomputing the record status of the enrolments it wrote (D35).
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from app.engine.contracts import (
     RecheckResult,
 )
 from app.engine.flags import raise_intents
+from app.engine.status import refresh_record_status
 from app.models.enums import (
     AuditAction,
     CheckStatus,
@@ -340,6 +342,7 @@ async def run_checks(
         result.changed += await writer.write(subject, outcomes)
         _count_outcomes(result, outcomes)
     await writer.finish()
+    await refresh_record_status(session, [s.enrolment_id for s in subjects], now=writer.now)
     result.flags.merge(writer.flags)
     return result
 
@@ -366,6 +369,7 @@ async def refresh_student(
         result.changed += await writer.write(subject, [outcome])
         _count_outcomes(result, [outcome])
     await writer.finish()
+    await refresh_record_status(session, [s.enrolment_id for s in subjects], now=writer.now)
     result.flags.merge(writer.flags)
     return result
 
@@ -421,6 +425,7 @@ async def recheck_pending(
     for subject, outcomes in zip(subjects, evaluated, strict=True):
         await writer.write(subject, outcomes)
     await writer.finish()
+    await refresh_record_status(session, [s.enrolment_id for s in subjects], now=writer.now)
     result.enrolments = len(subjects)
     for _type, _before, after in writer.transitions:
         result.rechecked += 1
