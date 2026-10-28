@@ -69,7 +69,7 @@ export function TypeChip({ type }: { type: InstitutionType }) {
 
 /** Muted "Not yet computed" for Week 1 nulls (spec section 0). */
 export function NotComputed({ className }: { className?: string }) {
-  return <span className={cn("text-xs text-ink-faint italic", className)}>{t("kpi.not_computed")}</span>;
+  return <span className={cn("text-xs text-ink-muted italic", className)}>{t("kpi.not_computed")}</span>;
 }
 
 /** "Viewing student records is logged." under every table with a student column. */

@@ -98,7 +98,7 @@ function DetailHeader({ d, academicYear }: { d: Detail; academicYear: string }) 
         <dt className="text-xs font-medium text-ink-muted">{t("index.label")}</dt>
         <dd>
           {d.integrity_index === null ? (
-            <span className="font-display text-lg text-ink-faint italic">{t("kpi.not_computed")}</span>
+            <span className="font-display text-lg text-ink-muted italic">{t("kpi.not_computed")}</span>
           ) : (
             <span className="font-display text-3xl font-semibold">{Math.round(d.integrity_index)}</span>
           )}

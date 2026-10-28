@@ -75,7 +75,7 @@ export function KpiStrip({
           if (tile.value === null || tile.value === undefined) {
             return (
               <TileShell key={tile.label} label={label}>
-                <span className="font-display text-lg leading-7 text-ink-faint italic">{tile.nullText ?? t("kpi.not_computed")}</span>
+                <span className="font-display text-lg leading-7 text-ink-muted italic">{tile.nullText ?? t("kpi.not_computed")}</span>
               </TileShell>
             );
           }
