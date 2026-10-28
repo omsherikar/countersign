@@ -162,6 +162,8 @@ async def import_directory(
     if uploads:
         own_adapters = adapters is None
         adapters = adapters if adapters is not None else build_adapters()
+        if own_adapters:
+            load_inmemory_registries(adapters, source / "mockgov")
         try:
             for path in uploads:
                 await import_upload(factory, path, summary, engines=engines, adapters=adapters)
@@ -370,6 +372,38 @@ async def _import_programmes(
 
 
 # ------------------------------------------------------------------- uploads
+
+
+def _jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    with path.open(encoding="utf-8") as fh:
+        return [json.loads(line) for line in fh if line.strip()]
+
+
+def load_inmemory_registries(adapters: AdapterSet, directory: Path) -> None:
+    """Give in-memory adapters (GOV_ADAPTER=inmemory) the generated mockgov registries.
+
+    The demo seeds mockgov before the api; this is the same order for the in-memory
+    sources, so a seeded test database is checked against the same registries.
+    """
+    if adapters.name != "inmemory" or not directory.is_dir():
+        return
+    apaar: Any = adapters.apaar
+    for row in _jsonl(directory / "apaar_registry.jsonl"):
+        apaar.registry[row["apaar_id"]] = {
+            "name": row["name"],
+            "dob": date.fromisoformat(row["dob"]),
+        }
+    counselling: Any = adapters.counselling
+    counselling.allotments.extend(_jsonl(directory / "counselling.jsonl"))
+    abc: Any = adapters.abc
+    for row in _jsonl(directory / "abc_credits.jsonl"):
+        years = abc.credits_by_apaar.setdefault(row["apaar_id"], {})
+        years.setdefault(row["academic_year"], []).append(row)
+    sii: Any = adapters.sii
+    for row in _jsonl(directory / "sii.jsonl"):
+        sii.admissions[row["passport_no"]] = row
 
 
 def upload_files(directory: Path) -> list[Path]:

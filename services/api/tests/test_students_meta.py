@@ -14,7 +14,16 @@ async def test_students_me(student, admin, registrar_abc):
     assert enrolment["programme_name"] == "B.Tech Computer Science and Engineering"
     assert enrolment["academic_year"] == "2026-27" and enrolment["year_of_study"] == 1
     assert enrolment["status"] == "ACTIVE"
-    assert enrolment["countersign"] == {"score": None, "checks": []}
+    assert enrolment["countersign"] == {
+        "score": {"passes": 3, "applicable": 4},
+        "checks": [
+            {"type": "IDENTITY", "status": "PASS"},
+            {"type": "ADMISSION", "status": "PASS"},
+            {"type": "SEAT", "status": "PASS"},
+            {"type": "STUDYING", "status": "NA"},
+            {"type": "STUDENT", "status": "PENDING"},
+        ],
+    }
     assert "apaar_id" not in body and "mobile" not in body
 
     for other in (admin, registrar_abc):

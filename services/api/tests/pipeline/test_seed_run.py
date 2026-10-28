@@ -72,3 +72,23 @@ async def test_a_bad_seed_file_stops_the_seed(empty, tmp_path):
     (tmp_path / "data" / "uploads" / "1-ABC-0001_2026-27.csv").write_text("name,dob\nA,2007\n")
     with pytest.raises(SeedError, match="missing required columns"):
         await import_directory(session_factory(), tmp_path / "data")
+
+
+async def test_in_memory_sources_get_the_generated_registries():
+    from datetime import date
+
+    from app.adapters.factory import build_adapters
+    from app.core.config import get_settings
+    from app.seed.importer import load_inmemory_registries
+
+    adapters = build_adapters(get_settings())
+    load_inmemory_registries(adapters, FIXTURE_DIR / "mockgov")
+    ravi = await adapters.apaar.verify("123456784417", "ravi kumar sharma", date(2007, 3, 21))
+    assert ravi.exists and ravi.dob_match and ravi.name_score == 100
+    allotted = await adapters.counselling.verify(
+        state="MH", year=2026, name="Ravi Kumar Sharma", dob=date(2007, 3, 21), programme="CSE"
+    )
+    assert allotted.found and allotted.allotment_ref == "MHCET-2026-R1-004512"
+    credits = await adapters.abc.credits("202600000109", "2025-26")
+    assert credits.apaar_id_known and [s.credits for s in credits.semesters] == [22, 24]
+    assert (await adapters.sii.verify("N1234567", "aisha rahman", "BD")).admitted

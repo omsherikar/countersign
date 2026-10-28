@@ -128,7 +128,7 @@ async def test_students_are_stored_masked_and_scoped(clean_db):
             .scalars()
             .all()
         )
-        assert len(enrolments) == 2 and all(e.seat_id is None for e in enrolments)
+        assert len(enrolments) == 2 and all(e.seat_id is not None for e in enrolments)
 
         cse = (
             await session.execute(

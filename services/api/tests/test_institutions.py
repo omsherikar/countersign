@@ -25,7 +25,7 @@ async def test_list_is_scoped_per_role(
     assert row["region_name"] == "Western (Mumbai)"
     assert row["university_name"] == "Maharashtra State Technical University"
     assert (row["programmes"], row["approved_seats"], row["enrolments"]) == (2, 180, 20)
-    assert (row["flags_open"], row["integrity_index"]) == (0, None)
+    assert (row["flags_open"], row["integrity_index"]) == (1, None)  # Ananya's ABC side
 
     west = (await ro_west.get("/institutions")).json()
     assert [i["aicte_permanent_id"] for i in west["items"]] == ["1-ABC-0001"]
@@ -54,8 +54,12 @@ async def test_list_filters_sort_and_pagination(admin):
         "PQR Polytechnic",
         "XYZ Institute of Technology",
     ]
-    default = (await admin.get("/institutions")).json()
-    assert [i["enrolments"] for i in default["items"]] == [20, 12, 9]
+    default = (await admin.get("/institutions")).json()  # most open flags first
+    assert [(i["flags_open"], i["enrolments"]) for i in default["items"]] == [
+        (3, 9),
+        (1, 20),
+        (1, 12),
+    ]
     by_seats = (
         await admin.get("/institutions", params={"sort": "approved_seats", "order": "asc"})
     ).json()
@@ -87,7 +91,7 @@ async def test_detail_scope_and_shape(
     assert detail["address_city"] == "Pune" and detail["established_year"] == 2004
     assert detail["region_name"] == "Western (Mumbai)"
     assert detail["integrity_index"] is None and detail["integrity_components"] is None
-    assert detail["flags_open"] == 0
+    assert detail["flags_open"] == 1
     last = detail["last_upload"]  # the seeded file is the college's latest upload (A2.20)
     assert (last["rows"], last["errors"], last["status"]) == (20, 0, "DONE")
     assert detail["admitted"] == 19 and detail["enrolments"] == 20
@@ -101,7 +105,7 @@ async def test_detail_scope_and_shape(
         "cutoff_date": "2026-09-15",
     }
     # 15 first-years; the year-2 lateral entrant belongs to the 2025-26 batch
-    assert cse["enrolments"] == 15 and cse["unseated"] == 15
+    assert cse["enrolments"] == 15 and cse["unseated"] == 0
     pools = {p["seat_type"]: p for p in cse["pools"]}
     assert [p["seat_type"] for p in cse["pools"]] == [
         "REGULAR",
@@ -117,7 +121,14 @@ async def test_detail_scope_and_shape(
         "LATERAL": 12,
         "INTERNATIONAL": 18,
     }
-    assert all(p["assigned"] == 0 and p["free"] == p["capacity"] for p in cse["pools"])
+    assert {k: v["assigned"] for k, v in pools.items()} == {
+        "REGULAR": 12,
+        "NRI": 1,
+        "TFW": 1,
+        "LATERAL": 0,
+        "INTERNATIONAL": 1,
+    }
+    assert all(p["assigned"] + p["free"] == p["capacity"] for p in cse["pools"])
     assert pools["INTERNATIONAL"]["reserved_for"] == "FN_OCI_PIO_CIWG"
     assert pools["REGULAR"]["reserved_for"] is None
     assert "6.42" in pools["TFW"]["rule_source"]
@@ -164,9 +175,10 @@ async def test_seats(admin, registrar_abc, registrar_xyz):
     assert (await admin.get(f"/institutions/{abc}/seats", params={"q": "CSE-I"})).json()[
         "total"
     ] == 18
+    # the seed's ledger seated all 19 ABC enrolments of the 2026-27 cohort
     assert (await admin.get(f"/institutions/{abc}/seats", params={"status": "ASSIGNED"})).json()[
         "total"
-    ] == 0
+    ] == 19
     ciwg = (
         await admin.get(f"/institutions/{abc}/seats", params={"q": "CSE-I", "page_size": 50})
     ).json()
@@ -225,9 +237,17 @@ async def test_enrolments(admin, registrar_abc, registrar_xyz, student):
     assert ravi["programme_code"] == "CSE" and ravi["academic_year"] == "2026-27"
     assert ravi["year_of_study"] == 1 and ravi["admission_route"] == "COUNSELLING"
     assert ravi["counselling_ref"] == "MHCET-2026-R1-004512" and ravi["category"] == "GENERAL"
-    assert ravi["seat_code"] is None and ravi["status"] == "ACTIVE"
+    assert ravi["seat_code"].startswith("CSE-R-") and ravi["status"] == "ACTIVE"
     assert ravi["uploaded_at"].endswith("Z")
-    assert ravi["countersign"] == {"score": None, "checks": []} and ravi["flags"] == []
+    assert ravi["countersign"]["score"] == {"passes": 3, "applicable": 4}
+    assert [c["status"] for c in ravi["countersign"]["checks"]] == [
+        "PASS",
+        "PASS",
+        "PASS",
+        "NA",
+        "PENDING",
+    ]
+    assert ravi["flags"] == []
     assert ravi["upload_batch_id"] is not None and ravi["source_row_no"] == 2
     assert "email" not in ravi["student"] and "apaar_id" not in ravi["student"]
 
