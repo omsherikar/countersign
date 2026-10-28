@@ -1,25 +1,20 @@
 import * as React from "react";
 import { Check, Clock, Minus, X } from "lucide-react";
+import { t, tk } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
 /** Mirrors `CheckStatus` and `CheckType` in lib/types.ts (API_CONTRACT.md D). */
 export type CheckStatus = "PASS" | "FAIL" | "PENDING" | "NA";
 export type CheckType = "IDENTITY" | "ADMISSION" | "SEAT" | "STUDYING" | "STUDENT";
 
-export const CHECK_TYPE_LABEL: Record<CheckType, string> = {
-  IDENTITY: "Identity",
-  ADMISSION: "Admission",
-  SEAT: "Seat",
-  STUDYING: "Studying",
-  STUDENT: "Student",
-};
+/** Words from the copy deck: check.* and check.status.* (Countersigned, Not countersigned, Pending, n/a). */
+export const CHECK_TYPE_LABEL = Object.fromEntries(
+  (["IDENTITY", "ADMISSION", "SEAT", "STUDYING", "STUDENT"] as const).map((c) => [c, tk(`check.${c}`)]),
+) as Record<CheckType, string>;
 
-export const CHECK_STATUS_LABEL: Record<CheckStatus, string> = {
-  PASS: "Pass",
-  FAIL: "Fail",
-  PENDING: "Pending",
-  NA: "Not applicable",
-};
+export const CHECK_STATUS_LABEL = Object.fromEntries(
+  (["PASS", "FAIL", "PENDING", "NA"] as const).map((s) => [s, tk(`check.status.${s}`)]),
+) as Record<CheckStatus, string>;
 
 const STYLE: Record<CheckStatus, { chip: string; Icon: React.ComponentType<{ className?: string }> }> = {
   PASS: { chip: "bg-check-pass-soft text-check-pass-ink border-check-pass/40", Icon: Check },
@@ -36,6 +31,8 @@ export interface CheckBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   source?: string;
   /** Glyph only, label in the accessible name. For dense table cells. */
   compact?: boolean;
+  /** Overrides the status word, e.g. a pending word from copy deck §3 ("Awaiting source"). */
+  word?: string;
 }
 
 /**
@@ -43,14 +40,15 @@ export interface CheckBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
  * has a glyph and a word, and the pending/not-applicable states also differ
  * by border style so they survive greyscale print.
  */
-export function CheckBadge({ status, type, source, compact = false, className, ...rest }: CheckBadgeProps) {
+export function CheckBadge({ status, type, source, compact = false, word, className, ...rest }: CheckBadgeProps) {
   const { chip, Icon } = STYLE[status];
-  const label = type ? `${CHECK_TYPE_LABEL[type]}: ${CHECK_STATUS_LABEL[status]}` : CHECK_STATUS_LABEL[status];
+  const statusLabel = word ?? CHECK_STATUS_LABEL[status];
+  const label = type ? `${CHECK_TYPE_LABEL[type]}: ${statusLabel}` : statusLabel;
   return (
     <span
       role="img"
       aria-label={source ? `${label} (${source})` : label}
-      title={source ? `${label}. Source: ${source}` : label}
+      title={source ? `${label}. ${t("col.source")}: ${source}` : label}
       className={cn(
         "inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-chip border px-1.5 text-xs font-medium leading-none",
         compact && "w-5 justify-center px-0",
@@ -60,8 +58,8 @@ export function CheckBadge({ status, type, source, compact = false, className, .
       {...rest}
     >
       <Icon className="size-3 shrink-0" aria-hidden="true" />
-      {!compact && <span>{type ? CHECK_TYPE_LABEL[type] : CHECK_STATUS_LABEL[status]}</span>}
-      {!compact && type && <span className="opacity-70">{CHECK_STATUS_LABEL[status]}</span>}
+      {!compact && <span>{type ? CHECK_TYPE_LABEL[type] : statusLabel}</span>}
+      {!compact && type && <span className="opacity-70">{statusLabel}</span>}
     </span>
   );
 }

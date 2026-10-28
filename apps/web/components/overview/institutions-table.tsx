@@ -5,10 +5,11 @@ import Link from "next/link";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { t, tk } from "@/lib/copy";
+import { admittedOf } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { useInstitutions, useRegions, useStates } from "@/lib/queries";
 import { REGION_NAME } from "@/lib/roles";
-import type { InstitutionListParams, InstitutionSort, InstitutionType, Region } from "@/lib/types";
+import type { InstitutionListParams, InstitutionListSort, InstitutionType, Region } from "@/lib/types";
 import { useUrlParams } from "@/lib/use-url-params";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,11 +27,13 @@ interface Column {
   key: string;
   label: string;
   num?: boolean;
-  sort?: InstitutionSort;
+  sort?: InstitutionListSort;
   tip?: string;
+  /** Extra classes on the head and body cells, e.g. a breakpoint. */
+  cls?: string;
 }
 
-function columnsFor(variant: InstitutionsVariant): Column[] {
+function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmitted: boolean): Column[] {
   const cols: Column[] = [
     { key: "name", label: t("col.name"), sort: "name" },
     { key: "permanent_id", label: t("col.permanent_id") },
@@ -39,30 +42,39 @@ function columnsFor(variant: InstitutionsVariant): Column[] {
   if (variant === "aicte") cols.push({ key: "region", label: t("col.region") });
   cols.push(
     { key: "type", label: t("col.type") },
-    { key: "programmes", label: t("col.programmes"), num: true },
-    { key: "approved_seats", label: t("col.approved_seats"), num: true, sort: "approved_seats" },
-    { key: "enrolments", label: t("col.enrolments"), num: true, sort: "enrolments", tip: t("table.sort_tip") },
+    { key: "programmes", label: t("col.programmes"), num: true, cls: "hidden 2xl:table-cell" },
+    { key: "approved_seats", label: t("col.approved_seats"), num: true, sort: "approved_seats", tip: t("app.hint.intake", { academic_year: academicYear }) },
   );
+  if (withAdmitted) cols.push({ key: "admitted", label: t("col.admitted"), num: true, tip: t("col.admitted_tip", { academic_year: academicYear }) });
+  cols.push({ key: "enrolments", label: t("col.enrolments"), num: true, sort: "enrolments", tip: t("col.enrolments_tip", { academic_year: academicYear }) });
   if (variant !== "university") {
-    cols.push({ key: "flags_open", label: t("col.flags_open"), num: true }, { key: "integrity", label: t("col.integrity"), num: true });
+    cols.push(
+      { key: "flags_open", label: t("col.flags_open"), num: true, sort: "flags_open_desc", tip: t("table.sort_tip") },
+      { key: "integrity", label: t("col.integrity"), num: true },
+    );
   }
   return cols;
 }
 
 /**
  * "Institutions ranked": server-side search, filters, sort and pages, all
- * kept in the URL. Week 1 ranks by enrolments (descending), ties by name.
+ * kept in the URL. Officers rank by open flags, then students on roll
+ * (sort=flags_open_desc, A2.20); the university, which sees no flags, by
+ * students on roll.
  */
 export function InstitutionsTable({
   variant,
   basePath,
   region,
+  academicYear = "2026-27",
   anchorId = "institutions",
 }: {
   variant: InstitutionsVariant;
   basePath: string;
   /** RO scope: limits the State filter to the region's states. */
   region?: Region | null;
+  /** The approval year the seats belong to, for the column tips. */
+  academicYear?: string;
   anchorId?: string;
 }) {
   const [params, set] = useUrlParams();
@@ -73,8 +85,11 @@ export function InstitutionsTable({
   const state = params.get("state") ?? "";
   const regionFilter = variant === "aicte" ? (params.get("region") ?? "") : "";
   const type = params.get("type") ?? "";
-  const sort = (params.get("sort") as InstitutionSort | null) ?? "enrolments";
-  const order = (params.get("order") as "asc" | "desc" | null) ?? (sort === "name" ? "asc" : "desc");
+  const defaultSort: InstitutionListSort = variant === "university" ? "enrolments" : "flags_open_desc";
+  const sort = (params.get("sort") as InstitutionListSort | null) ?? defaultSort;
+  // flags_open_desc carries its own direction; the A.6 keys take `order`.
+  const oneWay = sort === "flags_open_desc" || sort === "enrolments_desc" || sort === "name_asc";
+  const order = oneWay ? "desc" : ((params.get("order") as "asc" | "desc" | null) ?? (sort === "name" ? "asc" : "desc"));
   const page = Math.max(1, Number(params.get("page") ?? 1) || 1);
 
   const query: InstitutionListParams = {
@@ -85,10 +100,12 @@ export function InstitutionsTable({
     region: (regionFilter || undefined) as Region | undefined,
     type: (type || undefined) as InstitutionType | undefined,
     sort,
-    order,
+    order: oneWay ? undefined : order,
   };
   const list = useInstitutions(query);
-  const cols = columnsFor(variant);
+  // Admitted appears once the api sends it; until then the table shows seats and students on roll only.
+  const withAdmitted = !list.data || list.data.items.length === 0 || list.data.items.some((r) => admittedOf(r) !== null);
+  const cols = columnsFor(variant, academicYear, withAdmitted);
   const filtered = Boolean(q || state || regionFilter || type);
 
   const stateOptions = (states.data ?? [])
@@ -101,7 +118,11 @@ export function InstitutionsTable({
 
   const onSearch = React.useCallback((value: string) => set({ q: value, page: null }), [set]);
 
-  function toggleSort(key: InstitutionSort) {
+  function toggleSort(key: InstitutionListSort) {
+    if (key === "flags_open_desc") {
+      set({ sort: key === defaultSort ? null : key, order: null, page: null });
+      return;
+    }
     if (sort === key) set({ sort: key, order: order === "asc" ? "desc" : "asc", page: null });
     else set({ sort: key, order: key === "name" ? "asc" : "desc", page: null });
   }
@@ -116,7 +137,7 @@ export function InstitutionsTable({
   return (
     <div id={anchorId} className="scroll-mt-20">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <SearchInput label={t("search.placeholder")} value={q} onChange={onSearch} className="w-full sm:w-80" />
+        <SearchInput label={t("app.filter_institutions")} value={q} onChange={onSearch} className="w-full sm:w-80" />
         <FilterSelect label={t("col.state")} value={state} options={stateOptions} onChange={(v) => set({ state: v, page: null })} />
         {variant === "aicte" && (
           <FilterSelect
@@ -139,7 +160,7 @@ export function InstitutionsTable({
         )}
       </div>
 
-      <div className="overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+      <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
         <table className="ledger-table" aria-busy={list.isFetching}>
           <caption className="sr-only">{t("section.institutions_ranked")}</caption>
           <thead>
@@ -148,7 +169,7 @@ export function InstitutionsTable({
                 const active = c.sort && sort === c.sort;
                 const ariaSort = active ? (order === "asc" ? "ascending" : "descending") : c.sort ? "none" : undefined;
                 return (
-                  <th key={c.key} scope="col" className={cn(c.num && "num")} aria-sort={ariaSort} title={c.tip}>
+                  <th key={c.key} scope="col" className={cn(c.num && "num", c.cls)} aria-sort={ariaSort} title={c.tip}>
                     {c.sort ? (
                       <button
                         type="button"
@@ -219,12 +240,13 @@ export function InstitutionsTable({
                 <td>
                   <TypeChip type={r.type} />
                 </td>
-                <td className="num">{formatCount(r.programmes)}</td>
+                <td className="num hidden 2xl:table-cell">{formatCount(r.programmes)}</td>
                 <td className="num">{formatCount(r.approved_seats)}</td>
-                <td className="num font-medium">{formatCount(r.enrolments)}</td>
+                {withAdmitted && <td className="num font-medium">{admittedOf(r) === null ? "" : formatCount(admittedOf(r))}</td>}
+                <td className="num">{formatCount(r.enrolments)}</td>
                 {variant !== "university" && (
                   <>
-                    <td className={cn("num", r.flags_open > 0 ? "font-medium text-check-fail-ink" : "text-ink-muted")}>
+                    <td className={cn("num", r.flags_open > 0 ? "font-semibold text-ink" : "text-ink-muted")}>
                       {formatCount(r.flags_open)}
                     </td>
                     <td className="num">{r.integrity_index === null ? <NotComputed /> : Math.round(r.integrity_index)}</td>

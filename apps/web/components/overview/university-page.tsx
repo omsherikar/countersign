@@ -2,6 +2,7 @@
 
 import { Printer } from "lucide-react";
 import { t } from "@/lib/copy";
+import { admittedOf } from "@/lib/counts";
 import { useDashboardSummary } from "@/lib/queries";
 import { PageHeader } from "@/components/common/page-header";
 import { InstitutionsTable } from "@/components/overview/institutions-table";
@@ -11,6 +12,8 @@ import { KpiStrip } from "@/components/overview/kpi-strip";
 export function UniversityPage() {
   const summary = useDashboardSummary();
   const data = summary.data;
+  const admitted = admittedOf(data?.kpis);
+  const intake = data ? t("app.hint.intake", { academic_year: data.academic_year }) : undefined;
   return (
     <>
       <PageHeader
@@ -25,12 +28,13 @@ export function UniversityPage() {
         tiles={[
           { label: "kpi.institutions", value: data?.kpis.institutions },
           { label: "kpi.programmes", value: data?.kpis.programmes },
-          { label: "kpi.approved_seats", value: data?.kpis.approved_seats },
-          { label: "kpi.enrolments", value: data?.kpis.enrolments },
+          { label: "kpi.approved_seats", value: data?.kpis.approved_seats, hint: intake },
+          ...(data && admitted === null ? [] : [{ label: "kpi.admitted" as const, value: admitted ?? undefined, hint: intake }]),
+          { label: "kpi.enrolments", value: data?.kpis.enrolments, hint: t("app.hint.all_years") },
         ]}
       />
       <section aria-label={t("app.university.affiliates")} className="mb-10">
-        <InstitutionsTable variant="university" basePath="/university" />
+        <InstitutionsTable variant="university" basePath="/university" academicYear={data?.academic_year} />
       </section>
       <section className="flex max-w-[68ch] items-start gap-3 border-l-2 border-rule-margin bg-paper-raised px-4 py-3">
         <Printer className="mt-0.5 size-5 shrink-0 text-ink-faint" aria-hidden="true" />

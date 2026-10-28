@@ -41,7 +41,14 @@ export function LoginForm({ next, notice }: { next: string | null; notice: strin
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
   const [wait, setWait] = useCountdown();
   const submitRef = React.useRef<HTMLButtonElement>(null);
+  const passwordRef = React.useRef<HTMLInputElement>(null);
+  const [refocus, setRefocus] = React.useState(0);
   const busy = login.isPending || login.isSuccess;
+
+  // After a wrong password the field is cleared and takes focus once it is enabled again.
+  React.useEffect(() => {
+    if (refocus > 0 && !busy) passwordRef.current?.focus();
+  }, [refocus, busy]);
 
   function pick(key: string) {
     const demo = DEMO_ROLES.find((d) => d.key === key);
@@ -80,6 +87,8 @@ export function LoginForm({ next, notice }: { next: string | null; notice: strin
             setError(null);
           } else if (err.code === "INVALID_CREDENTIALS") {
             setError(t("err.INVALID_CREDENTIALS"));
+            setPassword("");
+            setRefocus((n) => n + 1);
           } else if (err.code === "NETWORK") {
             setError(t("err.NETWORK"));
           } else {
@@ -164,6 +173,7 @@ export function LoginForm({ next, notice }: { next: string | null; notice: strin
           </label>
           <div className="flex gap-2">
             <input
+              ref={passwordRef}
               id="password"
               name="password"
               type={show ? "text" : "password"}

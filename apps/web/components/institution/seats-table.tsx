@@ -69,7 +69,7 @@ export function SeatsTable({ institutionId, programmes }: { institutionId: strin
         />
         <SearchInput label={t("app.search_seats")} value={q} onChange={onSearch} className="w-full sm:w-56" />
       </div>
-      <div className="overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+      <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
         <table className="ledger-table ledger-table--dense" aria-busy={list.isFetching}>
           <caption className="sr-only">{t("tab.seats")}</caption>
           <thead>

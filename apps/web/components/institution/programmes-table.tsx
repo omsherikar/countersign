@@ -4,17 +4,18 @@ import * as React from "react";
 import { ChevronRight } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { t, tk } from "@/lib/copy";
+import { seatedOf } from "@/lib/counts";
 import { formatCount, formatDate } from "@/lib/format";
 import type { ProgrammeDetail, SeatPool } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { UnseatedCount } from "@/components/common/ledger-bits";
 
-const COLS = 8;
+const COLS = 9;
 
 /** "Regular 114 of 114", "TFW 4 of 6 (supernumerary)", "International 1 of 18 (6 reserved for CIWG)". */
 export function poolLine(pool: SeatPool): string {
   let line = t("pools.line", { type: tk(`seat_type.${pool.seat_type}`), assigned: formatCount(pool.assigned), capacity: formatCount(pool.capacity) });
-  if (pool.is_supernumerary) line += ` ${t("pools.supernumerary")}`;
+  if (pool.is_supernumerary && !pool.reserved_for?.includes("CIWG")) line += ` ${t("pools.supernumerary")}`;
   if (pool.reserved_for && pool.reserved_for.includes("CIWG")) line += ` ${t("pools.ciwg", { n: formatCount(Math.round(pool.capacity / 3)) })}`;
   return line;
 }
@@ -94,7 +95,7 @@ export function ProgrammesTable({
   if (programmes.length === 0) return <EmptyState title={emptyText} />;
 
   return (
-    <div className="overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+    <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
       <table className="ledger-table">
         <caption className="sr-only">{t("section.programmes")}</caption>
         <thead>
@@ -105,10 +106,11 @@ export function ProgrammesTable({
             <th scope="col">{t("col.programme")}</th>
             <th scope="col">{t("col.level")}</th>
             <th scope="col">{t("col.shift")}</th>
+            <th scope="col">{t("col.mode")}</th>
             <th scope="col" className="num" title={t("col.approved_tip", { academic_year: academicYear })}>
               {t("col.approved")}
             </th>
-            <th scope="col" className="num" title={t("col.admitted_tip")}>
+            <th scope="col" className="num" title={t("col.admitted_tip", { academic_year: academicYear })}>
               {t("col.admitted")}
             </th>
             <th scope="col" className="num">
@@ -142,11 +144,12 @@ export function ProgrammesTable({
                   <td className="wrap min-w-[16rem]">{p.name}</td>
                   <td>{tk(`level.${p.level}`)}</td>
                   <td>{tk(`shift.${p.shift}`)}</td>
+                  <td className="text-ink-muted">{p.mode ? tk(`mode.${p.mode}`) : ""}</td>
                   <td className="num">{formatCount(p.approval.approved_intake)}</td>
-                  <td className={cn("num font-medium", p.enrolments > p.approval.approved_intake && "text-check-pending-ink")}>
+                  <td className="num font-medium">
                     {formatCount(p.enrolments)}
                   </td>
-                  <td className="num">{formatCount(p.enrolments - p.unseated)}</td>
+                  <td className="num">{formatCount(seatedOf(p))}</td>
                   <td className="num">
                     <UnseatedCount n={p.unseated} />
                   </td>
@@ -155,7 +158,7 @@ export function ProgrammesTable({
                   <tr id={panelId}>
                     <td colSpan={COLS} className="!h-auto !p-0 !whitespace-normal">
                       <div className="px-3 py-2">
-                        <p className="mb-1.5 text-xs text-ink-muted">{p.pools.map(poolLine).join(", ")}</p>
+                        <p className="mb-1.5 text-xs text-ink-muted">{p.pools.map(poolLine).join(" · ")}</p>
                         <PoolsPanel programme={p} />
                       </div>
                     </td>

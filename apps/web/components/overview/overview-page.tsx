@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { t } from "@/lib/copy";
+import { admittedOf } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { useDashboardSummary, useRegions } from "@/lib/queries";
 import { REGION_NAME } from "@/lib/roles";
@@ -9,8 +10,9 @@ import { useMe } from "@/components/providers/root-provider";
 import { ErrorBlock } from "@/components/common/query-state";
 import { FilterSelect } from "@/components/common/filter-select";
 import { PageHeader, SectionHeader } from "@/components/common/page-header";
+import { FlagsByType } from "@/components/overview/flags-by-type";
 import { InstitutionsTable } from "@/components/overview/institutions-table";
-import { KpiStrip } from "@/components/overview/kpi-strip";
+import { KpiStrip, formatPct } from "@/components/overview/kpi-strip";
 import { SourcesPanel } from "@/components/overview/sources-panel";
 import { RegionTable, StateGrid } from "@/components/overview/state-grid";
 
@@ -28,6 +30,10 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
   const region = variant === "ro" ? (user?.scope.region ?? null) : null;
   const regionMeta = region ? regions.data?.find((r) => r.code === region) : undefined;
   const regionRow = data?.by_region[0];
+
+  const admitted = admittedOf(data?.kpis);
+  const intake = data ? t("app.hint.intake", { academic_year: data.academic_year }) : undefined;
+  const regionAdmitted = admittedOf(regionRow);
 
   const heading = variant === "aicte" ? t("aicte.heading") : t("ro.heading", { region_name: region ? REGION_NAME[region] : "" });
 
@@ -55,14 +61,29 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
           tiles={[
             { label: "kpi.institutions", value: data?.kpis.institutions },
             { label: "kpi.programmes", value: data?.kpis.programmes },
-            { label: "kpi.approved_seats", value: data?.kpis.approved_seats },
-            { label: "kpi.enrolments", value: data?.kpis.enrolments },
-            { label: "kpi.flags_open", value: data?.kpis.flags_open, tone: data && data.kpis.flags_open > 0 ? "alert" : "muted" },
+            { label: "kpi.approved_seats", value: data?.kpis.approved_seats, hint: intake },
+            ...(data && admitted === null ? [] : [{ label: "kpi.admitted" as const, value: admitted ?? undefined, hint: intake }]),
+            { label: "kpi.enrolments", value: data?.kpis.enrolments, hint: t("app.hint.all_years") },
+            {
+              label: "kpi.flags_open",
+              value: data?.kpis.flags_open,
+              tone: data && data.kpis.flags_open > 0 ? "default" : "muted",
+              tip: data ? t("kpi.flags_open_tip", { academic_year: data.academic_year }) : undefined,
+              href: `${basePath}/cases`,
+            },
             {
               label: "kpi.countersigned",
               value: data ? data.kpis.countersigned_pct : undefined,
-              format: (n) => `${n}%`,
-              hint: data?.kpis.countersigned_pct !== null && data ? t("kpi.countersigned_value", { pct: data.kpis.countersigned_pct ?? 0 }) : undefined,
+              format: formatPct,
+              hint: data && data.kpis.countersigned_pct !== null ? t("kpi.countersigned_value", { pct: formatPct(data.kpis.countersigned_pct).replace("%", "") }) : undefined,
+              tip: t("kpi.countersigned_tip"),
+            },
+            {
+              label: "kpi.clear",
+              value: data ? (data.kpis.clear_pct ?? null) : undefined,
+              format: formatPct,
+              hint: data && typeof data.kpis.clear_pct === "number" ? t("kpi.clear_value", { pct: formatPct(data.kpis.clear_pct).replace("%", "") }) : undefined,
+              tip: t("kpi.clear_tip"),
             },
           ]}
         />
@@ -74,16 +95,26 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
             {regionRow && (
               <span className="text-ink">
                 {regionRow.region_name}: {formatCount(regionRow.institutions)} institutions, {formatCount(regionRow.approved_seats)} approved
-                seats, {formatCount(regionRow.enrolments)} enrolments, {formatCount(regionRow.flags_open)} open flags
+                seats{regionAdmitted !== null && <>, {formatCount(regionAdmitted)} admitted</>}, {formatCount(regionRow.enrolments)} students on roll,{" "}
+                {formatCount(regionRow.flags_open)} open flags
               </span>
             )}
           </div>
         )}
       </div>
 
+      <section aria-labelledby="flags-by-type-heading" className="mb-12">
+        <SectionHeader id="flags-by-type-heading" title={t("section.flags_by_type")} />
+        {summary.isError && !data ? (
+          <ErrorBlock error={summary.error} onRetry={() => summary.refetch()} />
+        ) : (
+          <FlagsByType summary={data} loading={summary.isLoading} casesHref={`${basePath}/cases`} />
+        )}
+      </section>
+
       <section aria-labelledby="ranked-heading" className="mb-12">
         <SectionHeader id="ranked-heading" title={t("section.institutions_ranked")} />
-        <InstitutionsTable variant={variant} basePath={basePath} region={region} />
+        <InstitutionsTable variant={variant} basePath={basePath} region={region} academicYear={data?.academic_year} />
       </section>
 
       <section aria-labelledby="by-state-heading" className="mb-12">
@@ -98,7 +129,7 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
       {variant === "aicte" && data && data.by_region.length > 0 && (
         <section aria-labelledby="by-region-heading" className="mb-6">
           <SectionHeader id="by-region-heading" title={t("section.by_region")} />
-          <RegionTable summary={data} />
+          <RegionTable summary={data} regions={regions.data} />
         </section>
       )}
     </>

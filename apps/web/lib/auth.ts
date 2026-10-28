@@ -40,7 +40,8 @@ export async function getMe(): Promise<User | null> {
 export async function requireRole(role: Role, fallbackPath: string): Promise<User> {
   const here = (await headers()).get("x-pathname") ?? fallbackPath;
   const me = await getMe();
-  if (!me) redirect(`/login?next=${encodeURIComponent(here)}`);
+  // Only reached with a cs_access cookie (the proxy sends cookie-less visits to /login), so the session has ended.
+  if (!me) redirect(`/login?next=${encodeURIComponent(here)}&expired=1`);
   if (me.role !== role) redirect(`${landingFor(me.role)}?denied=${role}`);
   return me;
 }

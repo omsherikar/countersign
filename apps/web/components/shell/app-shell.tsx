@@ -27,7 +27,7 @@ export function scopeLabel(user: User): string {
     case "AICTE_ADMIN":
       return "All India";
     case "RO_OFFICER":
-      return user.scope.region ? `${REGION_NAME[user.scope.region]} Region` : "";
+      return user.scope.region ? `${REGION_NAME[user.scope.region]} region` : "";
     case "INSTITUTION":
       return user.scope.institution_name ?? "";
     case "UNIVERSITY":
@@ -51,11 +51,13 @@ function DeniedNotice({ user }: { user: User }) {
   const denied = params.get("denied") as Role | null;
   React.useEffect(() => {
     if (!denied || !(denied in ROLE_PLURAL)) return;
+    // A fixed id: the effect can run twice (strict mode, the replace below), and sonner keeps one toast per id.
     toast(
       t("err.FORBIDDEN_redirect", {
         required_roles_words: ROLE_PLURAL[denied],
         role_word: ROLE_SINGULAR[user.role],
       }),
+      { id: "denied-redirect" },
     );
     const rest = new URLSearchParams(params.toString());
     rest.delete("denied");
@@ -100,7 +102,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
                   <Menu className="size-5" aria-hidden="true" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-72 bg-sidebar p-0">
+              <SheetContent side="left" className="w-72 bg-sidebar p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
                 <SheetHeader className="border-b border-line px-4 py-3">
                   <SheetTitle className="font-sans text-sm font-semibold">{scope || t("brand.name")}</SheetTitle>
                   <SheetDescription className="text-xs">{roleWord(user)}</SheetDescription>
@@ -115,7 +117,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
             <Logo className="h-7" />
           </Link>
           {scope && (
-            <div className="hidden min-w-0 items-center gap-3 border-l border-line pl-3 lg:flex">
+            <div className="hidden min-w-0 items-center gap-3 border-l border-line pl-3 md:flex">
               <span className="truncate text-sm font-medium text-ink" title={scope}>
                 {scope}
               </span>
@@ -133,6 +135,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
           <ThemeToggle />
           <UserMenu user={user} />
         </div>
+        {scope && !student && <p className="truncate border-t border-line px-4 py-1.5 text-xs text-ink-muted md:hidden">{scope}</p>}
         {student && (
           <nav aria-label="Main" className="mx-auto max-w-[640px] px-4 pb-2">
             <NavList items={items} orientation="horizontal" />

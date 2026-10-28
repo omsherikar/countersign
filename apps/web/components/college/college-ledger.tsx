@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Flag } from "lucide-react";
-import { EmptyState } from "@/components/brand/EmptyState";
 import { t } from "@/lib/copy";
+import { institutionAdmitted, seatedOf } from "@/lib/counts";
+import { formatCount } from "@/lib/format";
 import { useDashboardSummary, useInstitution } from "@/lib/queries";
 import { useMe } from "@/components/providers/root-provider";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +12,8 @@ import { ErrorBlock } from "@/components/common/query-state";
 import { PageHeader, SectionHeader } from "@/components/common/page-header";
 import { KpiStrip } from "@/components/overview/kpi-strip";
 import { ProgrammesTable } from "@/components/institution/programmes-table";
+import { CollegeFlagsPanel } from "@/components/college/college-flags-panel";
+import { LastUploadLine } from "@/components/uploads/last-upload-line";
 
 /** "What are pools?": a disclosure, so it works on touch and with a keyboard. */
 function PoolsHelp() {
@@ -40,7 +42,12 @@ export function CollegeLedger() {
   const detail = useInstitution(institutionId);
   const d = detail.data;
   const unseated = d ? d.programmes.reduce((a, p) => a + p.unseated, 0) : undefined;
+  const seated = d ? d.programmes.reduce((a, p) => a + seatedOf(p), 0) : undefined;
   const academicYear = summary.data?.academic_year ?? d?.programmes[0]?.approval.academic_year ?? "2026-27";
+  // Admitted is this year's intake, the same population as the seats and the unseated count beside it.
+  const admitted = d ? institutionAdmitted(d) : undefined;
+  const approved = summary.data?.kpis.approved_seats;
+  const intake = t("app.hint.intake", { academic_year: academicYear });
 
   return (
     <>
@@ -49,7 +56,7 @@ export function CollegeLedger() {
         description={`${user?.scope.institution_name ?? ""}, ${t("app.academic_year").toLowerCase()} ${academicYear}`}
       />
       <KpiStrip
-        className="mb-10"
+        className="mb-2"
         loading={summary.isLoading || detail.isLoading}
         failed={(summary.isError && !summary.data) || (detail.isError && !d)}
         onRetry={() => {
@@ -58,11 +65,16 @@ export function CollegeLedger() {
         }}
         tiles={[
           { label: "kpi.programmes", value: summary.data?.kpis.programmes },
-          { label: "kpi.approved_seats", value: summary.data?.kpis.approved_seats },
-          { label: "col.admitted", value: summary.data?.kpis.enrolments },
+          { label: "kpi.approved_seats", value: approved, hint: intake },
+          { label: "kpi.admitted", value: admitted, hint: intake },
+          { label: "col.seated", value: seated },
           { label: "col.unseated", value: unseated, tone: "default" },
         ]}
       />
+
+      <p className="mb-10 text-sm text-ink-muted">
+        {summary.data ? t("app.all_years_line", { n: formatCount(summary.data.kpis.enrolments) }) : " "}
+      </p>
 
       <section aria-labelledby="programmes-heading" className="mb-12">
         <SectionHeader id="programmes-heading" title={t("section.programmes")} aside={<span>{`${t("app.academic_year")} ${academicYear}`}</span>} />
@@ -87,17 +99,12 @@ export function CollegeLedger() {
         )}
       </section>
 
-      <section aria-labelledby="flags-heading" className="mb-10">
-        <SectionHeader id="flags-heading" title={t("app.college.flags", { n: 0 })} />
-        <div className="border-l-2 border-rule-margin bg-paper-raised">
-          <EmptyState icon={<Flag className="size-5" />} title={t("empty.flags_college")} />
-        </div>
-      </section>
+      <CollegeFlagsPanel academicYear={academicYear} />
 
-      <p className="text-sm text-ink-muted">
-        {t("college.no_upload_yet")}{" "}
-        <Link href="/college/upload">{t("app.upload.see_columns")}</Link>
-      </p>
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-ink-muted">
+        {d ? <LastUploadLine last={d.last_upload} href={(id) => `/college/uploads/${id}`} /> : <span> </span>}
+        <Link href="/college/upload">{t("upload.upload_again")}</Link>
+      </div>
     </>
   );
 }

@@ -1,17 +1,14 @@
 import * as React from "react";
 import { ChevronsUp, CircleCheck, CircleDot, FileQuestion, Stamp } from "lucide-react";
+import { tk } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
 /** Mirrors `FlagStatus` in lib/types.ts. */
 export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "CLEARED" | "ESCALATED" | "CONFIRMED";
 
-export const FLAG_STATUS_LABEL: Record<FlagStatus, string> = {
-  OPEN: "Open",
-  DOCS_REQUESTED: "Documents requested",
-  CLEARED: "Cleared",
-  ESCALATED: "Escalated",
-  CONFIRMED: "Confirmed",
-};
+export const FLAG_STATUS_LABEL = Object.fromEntries(
+  (["OPEN", "DOCS_REQUESTED", "CLEARED", "ESCALATED", "CONFIRMED"] as const).map((s) => [s, tk(`flag_status.${s}`)]),
+) as Record<FlagStatus, string>;
 
 const STYLE: Record<FlagStatus, { chip: string; Icon: React.ComponentType<{ className?: string }> }> = {
   OPEN: { chip: "bg-flag-open-soft text-flag-open-ink border-flag-open/40", Icon: CircleDot },

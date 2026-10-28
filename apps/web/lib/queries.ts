@@ -12,11 +12,17 @@ import type {
   ChaosRequest,
   ChaosState,
   DashboardSummary,
+  EnrolmentDetail,
   EnrolmentListParams,
+  EnrolmentRecheck,
   EnrolmentRow,
+  FlagDetail,
+  FlagListParams,
+  FlagPage,
   Health,
   InstitutionDetail,
   InstitutionListParams,
+  InstitutionRecheck,
   InstitutionRow,
   ItemsEnvelope,
   LoginRequest,
@@ -26,6 +32,11 @@ import type {
   SeatRow,
   StateMeta,
   StudentMe,
+  UploadAccepted,
+  UploadBatch,
+  UploadErrorListParams,
+  UploadListParams,
+  UploadRowError,
   User,
   UserEnvelope,
 } from "@/lib/types";
@@ -45,6 +56,12 @@ export const keys = {
   health: ["healthz"] as const,
   regions: ["meta", "regions"] as const,
   states: ["meta", "states"] as const,
+  uploads: (params: UploadListParams) => ["uploads", "list", params] as const,
+  upload: (id: string) => ["uploads", id] as const,
+  uploadErrors: (id: string, params: UploadErrorListParams) => ["uploads", id, "errors", params] as const,
+  enrolment: (id: string) => ["enrolments", id] as const,
+  flags: (params: FlagListParams) => ["flags", "list", params] as const,
+  flag: (id: string) => ["flags", id] as const,
 };
 
 /* ---- Session ------------------------------------------------------------- */
@@ -145,6 +162,113 @@ export function useInstitutionEnrolments(id: string, params: EnrolmentListParams
     placeholderData: keepPreviousData,
     enabled,
   });
+}
+
+/* ---- Uploads (API_CONTRACT A2.4 to A2.9) --------------------------------- */
+
+const RUNNING: UploadBatch["status"][] = ["QUEUED", "VALIDATING", "PROCESSING"];
+export const isRunning = (b: UploadBatch | undefined) => Boolean(b && RUNNING.includes(b.status));
+
+export function useUploads(params: UploadListParams, enabled = true) {
+  return useQuery({
+    queryKey: keys.uploads(params),
+    queryFn: ({ signal }) => api.get<Page<UploadBatch>>("/uploads", { ...params }, { signal }),
+    placeholderData: keepPreviousData,
+    // A running batch in the list keeps the list fresh too.
+    refetchInterval: (q) => (q.state.data?.items.some(isRunning) ? 4000 : false),
+    enabled,
+  });
+}
+
+/** One batch, polled every 2 s until DONE or FAILED (A2.7). */
+export function useUpload(id: string) {
+  return useQuery({
+    queryKey: keys.upload(id),
+    queryFn: () => api.get<UploadBatch>(`/uploads/${id}`),
+    refetchInterval: (q) => (q.state.data && !isRunning(q.state.data) ? false : 2000),
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useUploadErrors(id: string, params: UploadErrorListParams, enabled = true) {
+  return useQuery({
+    queryKey: keys.uploadErrors(id, params),
+    queryFn: ({ signal }) => api.get<Page<UploadRowError>>(`/uploads/${id}/errors`, { ...params }, { signal }),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+export interface UploadInput {
+  file: File;
+  academicYear: string;
+  institutionId?: string;
+  onProgress?: (pct: number) => void;
+}
+
+/** POST /uploads as multipart/form-data; the server sets the kind (A2.4). */
+export function useUploadFile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, academicYear, institutionId, onProgress }: UploadInput) => {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("academic_year", academicYear);
+      form.append("declaration", "true");
+      if (institutionId) form.append("institution_id", institutionId);
+      return api.upload<UploadAccepted>("/uploads", form, { onProgress });
+    },
+    onSuccess: (res) => {
+      qc.setQueryData(keys.upload(res.batch.id), res.batch);
+      void qc.invalidateQueries({ queryKey: ["uploads", "list"] });
+      void qc.invalidateQueries({ queryKey: ["institutions"] });
+    },
+  });
+}
+
+/* ---- Enrolment detail and recheck (A2.11 to A2.13) ----------------------- */
+
+export function useEnrolment(id: string) {
+  return useQuery({ queryKey: keys.enrolment(id), queryFn: () => api.get<EnrolmentDetail>(`/enrolments/${id}`) });
+}
+
+export function useRecheckEnrolment(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<EnrolmentRecheck>(`/enrolments/${id}/recheck`, {}),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.enrolment(id) });
+      void qc.invalidateQueries({ queryKey: ["institutions"] });
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+export function useRecheckInstitution(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (academicYear: string) => api.post<InstitutionRecheck>(`/institutions/${id}/recheck`, { academic_year: academicYear }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["institutions", id] });
+      void qc.invalidateQueries({ queryKey: ["enrolments"] });
+      void qc.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+/* ---- Flags (A2.15, A2.16), read only in Week 2 ---------------------------- */
+
+export function useFlags(params: FlagListParams, enabled = true) {
+  return useQuery({
+    queryKey: keys.flags(params),
+    queryFn: ({ signal }) => api.get<FlagPage>("/flags", { ...params }, { signal }),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+export function useFlag(id: string) {
+  return useQuery({ queryKey: keys.flag(id), queryFn: () => api.get<FlagDetail>(`/flags/${id}`) });
 }
 
 /* ---- Student ------------------------------------------------------------- */

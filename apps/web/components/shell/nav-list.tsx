@@ -8,9 +8,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { isActive, type NavItem } from "@/components/shell/nav-config";
 
 /**
- * Role navigation. Items whose endpoints arrive later are shown but never
- * navigate: aria-disabled, with "Coming in Week N" in a tooltip and as a
- * visible tag so nothing depends on hover.
+ * Role navigation. Items not yet available (`available: false` in
+ * nav-config) are shown but never navigate: aria-disabled, with "Coming in
+ * Week N" in a tooltip and as a visible tag so nothing depends on hover.
  */
 export function NavList({
   items,
@@ -30,9 +30,9 @@ export function NavList({
         const label = t(item.label);
         const base = cn(
           "group flex items-center gap-2.5 rounded-md text-sm whitespace-nowrap",
-          vertical ? "h-9 px-2.5" : "h-9 px-3",
+          vertical ? "h-9 px-2.5" : "h-11 px-3",
         );
-        if (item.week > 1) {
+        if (!item.available) {
           const coming = t("shell.coming", { n: item.week });
           return (
             <li key={item.href}>

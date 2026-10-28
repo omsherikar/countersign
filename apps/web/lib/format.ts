@@ -18,6 +18,9 @@ const TIME_SECONDS = new Intl.DateTimeFormat("en-GB", {
   timeZone: TZ,
 });
 
+/** ICU writes September as "Sept" in en-GB and en-IN; the deck and the api sentences say "Sep". */
+const fmtDay = (d: Date) => DATE.format(d).replace(/\bSept\b/, "Sep");
+
 export function formatCount(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "";
   return COUNT.format(n);
@@ -33,7 +36,7 @@ function toDate(value: string): Date {
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "";
   const d = toDate(value);
-  return Number.isNaN(d.getTime()) ? value : DATE.format(d);
+  return Number.isNaN(d.getTime()) ? value : fmtDay(d);
 }
 
 /** "14 Jul 2026, 09:30 IST" */
@@ -41,7 +44,7 @@ export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "";
   const d = toDate(value);
   if (Number.isNaN(d.getTime())) return value;
-  return `${DATE.format(d)}, ${TIME.format(d)} IST`;
+  return `${fmtDay(d)}, ${TIME.format(d)} IST`;
 }
 
 /** "09:30:12" in IST, for "Checked" lines on the system page. */
@@ -82,4 +85,15 @@ export function formatLatency(ms: number): string {
 export function joinWords(words: string[]): string {
   if (words.length <= 1) return words.join("");
   return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+/** "1 rows" to "1 row": the copy deck asks for the singular noun when a count is exactly one. */
+export function singular(text: string): string {
+  return text.replace(/(^|[^\d,.])1 ((?:open |related |new )?)(rows|flags|seats|checks|institutions|enrolments|students|semesters)\b/g, (_m, pre: string, mid: string, noun: string) => `${pre}1 ${mid}${noun.slice(0, -1)}`);
+}
+
+/** "2.4 MB", "830 KB" for a chosen file. */
+export function formatBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
 }

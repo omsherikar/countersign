@@ -4,9 +4,10 @@ import * as React from "react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { StateGridCard } from "@/components/brand/StateGridCard";
 import { t } from "@/lib/copy";
+import { admittedOf } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { REGION_NAME } from "@/lib/roles";
-import type { DashboardSummary, Region } from "@/lib/types";
+import type { DashboardSummary, Region, RegionMeta, RegionSummaryRow } from "@/lib/types";
 import { useUrlParams } from "@/lib/use-url-params";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -66,7 +67,7 @@ export function StateGrid({
               <h3 className="font-sans text-md font-semibold">{name}</h3>
               {r && (
                 <p className="num text-xs text-ink-muted">
-                  {formatCount(r.institutions)} institutions, {formatCount(r.enrolments)} enrolments
+                  {formatCount(r.institutions)} institutions, {formatCount(r.enrolments)} students on roll
                 </p>
               )}
             </div>
@@ -82,10 +83,31 @@ export function StateGrid({
   );
 }
 
-/** By region: ten rows for AICTE, sorted by name as delivered. */
-export function RegionTable({ summary }: { summary: DashboardSummary }) {
+/**
+ * By region: all ten regional offices, sorted by name, with zero rows for
+ * an office that has no institutions this year (the api drops those rows).
+ */
+export function RegionTable({ summary, regions }: { summary: DashboardSummary; regions?: RegionMeta[] }) {
+  const byCode = new Map(summary.by_region.map((r) => [r.region, r]));
+  const rows: RegionSummaryRow[] = regions?.length
+    ? [...regions]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(
+          (m) =>
+            byCode.get(m.code) ?? {
+              region: m.code,
+              region_name: `${m.name} (${m.hq_city})`,
+              institutions: 0,
+              approved_seats: 0,
+              admitted: 0,
+              enrolments: 0,
+              flags_open: 0,
+            },
+        )
+    : summary.by_region;
+  const withAdmitted = summary.by_region.some((r) => admittedOf(r) !== null);
   return (
-    <div className="overflow-x-auto bg-paper-raised">
+    <div className="relative overflow-x-auto bg-paper-raised">
       <table className="ledger-table">
         <caption className="sr-only">{t("section.by_region")}</caption>
         <thead>
@@ -94,10 +116,15 @@ export function RegionTable({ summary }: { summary: DashboardSummary }) {
             <th scope="col" className="num">
               {t("kpi.institutions")}
             </th>
-            <th scope="col" className="num">
+            <th scope="col" className="num" title={t("app.hint.intake", { academic_year: summary.academic_year })}>
               {t("col.approved_seats")}
             </th>
-            <th scope="col" className="num">
+            {withAdmitted && (
+              <th scope="col" className="num" title={t("col.admitted_tip", { academic_year: summary.academic_year })}>
+                {t("col.admitted")}
+              </th>
+            )}
+            <th scope="col" className="num" title={t("col.enrolments_tip", { academic_year: summary.academic_year })}>
               {t("col.enrolments")}
             </th>
             <th scope="col" className="num">
@@ -106,13 +133,14 @@ export function RegionTable({ summary }: { summary: DashboardSummary }) {
           </tr>
         </thead>
         <tbody>
-          {summary.by_region.map((r) => (
+          {rows.map((r) => (
             <tr key={r.region}>
-              <td>{r.region_name}</td>
+              <td className={r.institutions === 0 ? "text-ink-muted" : undefined}>{r.region_name}</td>
               <td className="num">{formatCount(r.institutions)}</td>
               <td className="num">{formatCount(r.approved_seats)}</td>
+              {withAdmitted && <td className="num">{formatCount(admittedOf(r) ?? 0)}</td>}
               <td className="num">{formatCount(r.enrolments)}</td>
-              <td className={r.flags_open > 0 ? "num font-medium text-check-fail-ink" : "num text-ink-muted"}>{formatCount(r.flags_open)}</td>
+              <td className={r.flags_open > 0 ? "num font-semibold" : "num text-ink-muted"}>{formatCount(r.flags_open)}</td>
             </tr>
           ))}
         </tbody>

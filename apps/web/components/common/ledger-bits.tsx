@@ -1,31 +1,13 @@
 import * as React from "react";
 import { TriangleAlert } from "lucide-react";
-import { CountersignScore, CHECK_ORDER } from "@/components/brand/CountersignScore";
 import { t, tk } from "@/lib/copy";
 import { formatCount } from "@/lib/format";
-import type { Countersign, InstitutionType } from "@/lib/types";
+import type { InstitutionType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-/**
- * The countersign strip. With a score it is the brand CountersignScore; in
- * Week 1 (score null, no checks) it draws five hollow segments and
- * "Not yet checked", as page spec section 0 asks.
- */
-export function CountersignStrip({ countersign, size = "sm" }: { countersign: Countersign; size?: "sm" | "md" | "lg" }) {
-  if (countersign.score) return <CountersignScore countersign={countersign} size={size} />;
-  const sizeClass = size === "sm" ? "countersign-score--sm" : size === "lg" ? "countersign-score--lg" : undefined;
-  return (
-    <span className={cn("countersign-score", sizeClass)} aria-label={t("strip.not_checked")} role="img">
-      <span className="countersign-score__checks" aria-hidden="true">
-        {CHECK_ORDER.map((c) => (
-          <span key={c} className="countersign-score__check" data-status="UNCHECKED" title={`${tk(`check.${c}`)}: ${t("strip.not_checked")}`} />
-        ))}
-      </span>
-      <span className="countersign-score__empty">{t("strip.not_checked")}</span>
-    </span>
-  );
-}
+/** The live strip lives in components/countersign; re-exported for the Week 1 callers. */
+export { CountersignStrip } from "@/components/countersign/countersign-strip";
 
 /** "12 unseated" in amber with the ledger tooltip; zero renders a plain "0". */
 export function UnseatedCount({ n }: { n: number }) {
@@ -46,16 +28,9 @@ export function UnseatedCount({ n }: { n: number }) {
   );
 }
 
-/** The amber "Unseated" marker for an enrolment row with no seat code. */
+/** "Unseated" in muted text for an enrolment row with no seat code; the amber chip stays on programme counts. */
 export function UnseatedChip() {
-  return (
-    <span
-      title={t("ledger.unseated_tip")}
-      className="inline-flex h-5 items-center rounded-chip border border-dashed border-check-pending/50 bg-check-pending-soft px-1.5 font-sans text-xs font-medium text-check-pending-ink"
-    >
-      {t("seat.unseated")}
-    </span>
-  );
+  return <span className="font-sans text-xs text-ink-muted">{t("seat.unseated")}</span>;
 }
 
 /** Institution type in words, as a quiet outlined chip. */
@@ -69,7 +44,7 @@ export function TypeChip({ type }: { type: InstitutionType }) {
 
 /** Muted "Not yet computed" for Week 1 nulls (spec section 0). */
 export function NotComputed({ className }: { className?: string }) {
-  return <span className={cn("text-xs text-ink-faint italic", className)}>{t("kpi.not_computed")}</span>;
+  return <span className={cn("text-xs text-ink-muted italic", className)}>{t("kpi.not_computed")}</span>;
 }
 
 /** "Viewing student records is logged." under every table with a student column. */

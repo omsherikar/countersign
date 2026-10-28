@@ -352,7 +352,7 @@
   .countersign-score__empty {
     font-family: var(--font-display);
     font-style: italic;
-    color: var(--ink-faint);
+    color: var(--ink-muted);
     font-size: var(--text-sm);
   }
 

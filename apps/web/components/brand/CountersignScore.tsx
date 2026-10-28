@@ -1,37 +1,15 @@
 import * as React from "react";
+import { scoreText, stripAria } from "@/lib/checks";
+import { t } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
-/** Mirrors `Check`, `CheckStatus`, `CheckType` and `Countersign` in lib/types.ts. */
-export type CheckType = "IDENTITY" | "ADMISSION" | "SEAT" | "STUDYING" | "STUDENT";
-export type CheckStatus = "PASS" | "FAIL" | "PENDING" | "NA";
-export interface Check {
-  type: CheckType;
-  status: CheckStatus;
-  source: string;
-  checked_at: string | null;
-  detail: Record<string, unknown>;
-}
-export interface Countersign {
-  score: { passes: number; applicable: number } | null;
-  checks: Check[];
-}
+import type { CheckStatus, CheckType, Countersign } from "@/lib/types";
+
+export type { CheckStatus, CheckType, Countersign };
 
 /** Display order is fixed by ARCHITECTURE.md section 9. */
 export const CHECK_ORDER: CheckType[] = ["IDENTITY", "ADMISSION", "SEAT", "STUDYING", "STUDENT"];
 
-const TYPE_LABEL: Record<CheckType, string> = {
-  IDENTITY: "Identity",
-  ADMISSION: "Admission",
-  SEAT: "Seat",
-  STUDYING: "Studying",
-  STUDENT: "Student",
-};
-const STATUS_LABEL: Record<CheckStatus, string> = {
-  PASS: "pass",
-  FAIL: "fail",
-  PENDING: "pending",
-  NA: "not applicable",
-};
 
 export interface CountersignScoreProps extends React.HTMLAttributes<HTMLSpanElement> {
   countersign: Countersign;
@@ -55,24 +33,15 @@ export function CountersignScore({ countersign, size = "md", numberOnly = false,
   if (!score) {
     return (
       <span className={cn("countersign-score", sizeClass, className)} {...rest}>
-        <span className="countersign-score__empty">{size === "sm" ? "Not yet" : "Not yet countersigned"}</span>
+        <span className="countersign-score__empty">{t("strip.not_checked")}</span>
       </span>
     );
   }
 
-  const summary = CHECK_ORDER.map((t) => {
-    const c = byType.get(t);
-    return `${TYPE_LABEL[t]} ${c ? STATUS_LABEL[c.status] : "pending"}`;
-  }).join(", ");
+  const aria = stripAria(countersign);
 
   return (
-    <span
-      className={cn("countersign-score", sizeClass, className)}
-      role="img"
-      aria-label={`Countersigned ${score.passes} of ${score.applicable}. ${summary}.`}
-      title={summary}
-      {...rest}
-    >
+    <span className={cn("countersign-score", sizeClass, className)} role="img" aria-label={aria} title={scoreText(countersign)} {...rest}>
       <span className="countersign-score__value">
         {score.passes}
         <span className="countersign-score__of">of</span>
@@ -80,9 +49,9 @@ export function CountersignScore({ countersign, size = "md", numberOnly = false,
       </span>
       {!numberOnly && (
         <span className="countersign-score__checks" aria-hidden="true">
-          {CHECK_ORDER.map((t) => {
-            const c = byType.get(t);
-            return <span key={t} className="countersign-score__check" data-status={c?.status ?? "PENDING"} />;
+          {CHECK_ORDER.map((type) => {
+            const c = byType.get(type);
+            return <span key={type} className="countersign-score__check" data-status={c?.status ?? "PENDING"} />;
           })}
         </span>
       )}

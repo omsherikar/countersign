@@ -1,14 +1,11 @@
 import * as React from "react";
+import { tk } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
 /** Mirrors `Severity` in lib/types.ts. */
 export type Severity = "LOW" | "MEDIUM" | "HIGH";
 
-export const SEVERITY_LABEL: Record<Severity, string> = {
-  LOW: "Low",
-  MEDIUM: "Medium",
-  HIGH: "High",
-};
+export const SEVERITY_LABEL = Object.fromEntries((["LOW", "MEDIUM", "HIGH"] as const).map((s) => [s, tk(`severity.${s}`)])) as Record<Severity, string>;
 
 /** Ordinal: slate, ochre, red. The bar count repeats the level without colour. */
 const STYLE: Record<Severity, { chip: string; bars: number }> = {
