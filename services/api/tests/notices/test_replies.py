@@ -81,7 +81,7 @@ async def test_a_yes_countersigns_records_consent_and_asks_for_the_proof(
         "+00:00", "Z"
     )
     check = await check_of(enrolment.id)
-    assert check.status is CheckStatus.PASS
+    assert check.status is CheckStatus.CONFIRMED
     assert check.detail["summary"] == f"Confirmed by the student on {fmt_day(responded)} (email)."
     assert check.detail["notice_state"] == "CONFIRMED"
     email, _ = await notices_of(enrolment.id)
@@ -131,7 +131,7 @@ async def test_a_no_fails_the_check_and_raises_the_flag_with_the_comment_for_off
     response = await reply(public, tokens[DIGILOCKER], "NO", "  I did not join this college. ")
     assert response.status_code == 200 and response.json()["response"] == "NO"
     check = await check_of(enrolment.id)
-    assert check.status is CheckStatus.FAIL and check.detail["notice_state"] == "DENIED"
+    assert check.status is CheckStatus.CONTRADICTED and check.detail["notice_state"] == "DENIED"
     assert check.detail["summary"].endswith("(DigiLocker).")
     flag = await denied_flag(enrolment.id)
     assert (flag.type, flag.severity, flag.status) == (
@@ -169,9 +169,9 @@ async def test_a_no_fails_the_check_and_raises_the_flag_with_the_comment_for_off
 async def test_a_no_on_one_channel_beats_a_yes_on_the_other(world, mailer, public, issued):
     enrolment, tokens = await delivered(world, mailer)
     await reply(public, tokens[EMAIL], "YES")
-    assert (await check_of(enrolment.id)).status is CheckStatus.PASS
+    assert (await check_of(enrolment.id)).status is CheckStatus.CONFIRMED
     await reply(public, tokens[DIGILOCKER], "NO")
-    assert (await check_of(enrolment.id)).status is CheckStatus.FAIL
+    assert (await check_of(enrolment.id)).status is CheckStatus.CONTRADICTED
     assert (await denied_flag(enrolment.id)) is not None
 
 
@@ -193,7 +193,7 @@ async def test_no_then_yes_passes_keeps_the_flag_and_notes_it_once(
     assert (body["response"], body["previous_response"]) == ("YES", "NO")
     assert body["changed_at"] and body["can_change_until"] is None
     check = await check_of(enrolment.id)
-    assert check.status is CheckStatus.PASS and check.detail["changed"] is True
+    assert check.status is CheckStatus.CONFIRMED and check.detail["changed"] is True
 
     flag = await denied_flag(enrolment.id)
     assert flag.status is FlagStatus.DOCS_REQUESTED  # only officers resolve flags
@@ -248,7 +248,7 @@ async def test_yes_then_no_fails_and_raises_the_flag(world, mailer, public, issu
     assert await denied_flag(enrolment.id) is None
     changed = await reply(public, tokens[EMAIL], "NO", "Someone used my details")
     assert changed.status_code == 200
-    assert (await check_of(enrolment.id)).status is CheckStatus.FAIL
+    assert (await check_of(enrolment.id)).status is CheckStatus.CONTRADICTED
     flag = await denied_flag(enrolment.id)
     assert flag.status is FlagStatus.OPEN
     [notice] = await notices_of(enrolment.id)
@@ -326,8 +326,8 @@ async def test_a_reupload_keeps_the_derived_status(world, mailer, public, issued
     async with session_factory()() as s:
         await run_checks(s, [confirmed.id, denied.id], world.gov)
         await s.commit()
-    assert (await check_of(confirmed.id)).status is CheckStatus.PASS
-    assert (await check_of(denied.id)).status is CheckStatus.FAIL
+    assert (await check_of(confirmed.id)).status is CheckStatus.CONFIRMED
+    assert (await check_of(denied.id)).status is CheckStatus.CONTRADICTED
     assert {e.id: (await check_of(e.id)).detail for e in (confirmed, denied)} == before
     assert (await denied_flag(denied.id)).status is FlagStatus.OPEN
 

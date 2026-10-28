@@ -42,7 +42,7 @@ async def test_the_college_never_sees_assignments_or_internal_notes(cw, logins, 
     escalate = {"action": "ESCALATE", "note": "Same name twice.", "assignee_id": str(senior)}
     later = [
         (west, escalate),
-        (admin, {"action": "CLEAR", "note": "The form settles it."}),
+        (admin, {"action": "UPHOLD", "note": "The form settles it."}),
         (admin, {"action": "REOPEN", "note": "New information from the region."}),
     ]
     for client, payload in later:
@@ -55,7 +55,7 @@ async def test_the_college_never_sees_assignments_or_internal_notes(cw, logins, 
         "REQUEST_DOCS",
         "COLLEGE_RESPONSE",
         "ESCALATE",
-        "CLEAR",
+        "UPHOLD",
         "REOPEN",
     ]
     assert officer[0]["assignee"]["id"] == str(cw.users["ro.west@aicte.demo"])
@@ -74,7 +74,7 @@ async def test_the_college_never_sees_assignments_or_internal_notes(cw, logins, 
         "REQUEST_DOCS",
         "COLLEGE_RESPONSE",
         "ESCALATE",
-        "CLEAR",
+        "UPHOLD",
         "REOPEN",
     ]
     notes = {h["action"]: h["note"] for h in college}
@@ -83,7 +83,7 @@ async def test_the_college_never_sees_assignments_or_internal_notes(cw, logins, 
         "REQUEST_DOCS": "Send the admission form.",
         "COLLEGE_RESPONSE": "Form attached.",
         "ESCALATE": None,
-        "CLEAR": "The form settles it.",
+        "UPHOLD": "The form settles it.",
         "REOPEN": None,
     }
     assert all(h["assignee"] is None for h in college)
@@ -119,10 +119,10 @@ async def test_confirm_revokes_the_proof_and_touches_nothing_else(cw, logins) ->
     assert before[0] is EnrolmentStatus.ACTIVE and before[2] is not None
     response = await admin.post(
         f"/flags/{flag_id}/actions",
-        json={"action": "CONFIRM", "note": "Confirmed with the registry."},
+        json={"action": "WITHDRAW", "note": "Confirmed with the registry."},
     )
     assert response.status_code == 200, response.text
-    assert response.json()["status"] == "CONFIRMED"
+    assert response.json()["status"] == "WITHDRAWN"
     assert await snapshot() == before
     async with session_factory()() as session:
         credential = await session.get(Credential, credential_id)
@@ -133,7 +133,7 @@ async def test_confirm_revokes_the_proof_and_touches_nothing_else(cw, logins) ->
     seat_flag = await new_flag(cw, institution="xyz")
     other = await add_credential(cw.xyz_student, await _xyz_enrolment(cw))
     confirmed = await admin.post(
-        f"/flags/{seat_flag}/actions", json={"action": "CONFIRM", "note": "Excess confirmed."}
+        f"/flags/{seat_flag}/actions", json={"action": "WITHDRAW", "note": "Excess confirmed."}
     )
     assert confirmed.status_code == 200
     async with session_factory()() as session:
@@ -160,7 +160,7 @@ async def test_clear_asks_for_a_proof_for_every_named_enrolment(cw, logins, monk
     admin = await logins("admin@aicte.demo")
     flag_id = await new_flag(cw, related=[cw.ravi, cw.asha])
     response = await admin.post(
-        f"/flags/{flag_id}/actions", json={"action": "CLEAR", "note": "Both genuine."}
+        f"/flags/{flag_id}/actions", json={"action": "UPHOLD", "note": "Both genuine."}
     )
     assert response.status_code == 200
     assert asked == [cw.ravi, cw.asha]

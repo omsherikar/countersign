@@ -12,10 +12,10 @@ from collections.abc import Mapping
 from app.core.errors import ApiError
 from app.models.enums import CaseActionKind, FlagStatus, UserRole
 
-CLEAR = CaseActionKind.CLEAR
+UPHOLD = CaseActionKind.UPHOLD
 REQUEST_DOCS = CaseActionKind.REQUEST_DOCS
 ESCALATE = CaseActionKind.ESCALATE
-CONFIRM = CaseActionKind.CONFIRM
+WITHDRAW = CaseActionKind.WITHDRAW
 NOTE = CaseActionKind.NOTE
 ASSIGN = CaseActionKind.ASSIGN
 REOPEN = CaseActionKind.REOPEN
@@ -24,17 +24,17 @@ SYSTEM_NOTE = CaseActionKind.SYSTEM_NOTE
 
 # the order of the action bar and of `allowed_actions`
 OFFICER_ACTIONS: tuple[CaseActionKind, ...] = (
-    CLEAR,
+    UPHOLD,
     REQUEST_DOCS,
     ESCALATE,
-    CONFIRM,
+    WITHDRAW,
     NOTE,
     ASSIGN,
     REOPEN,
 )
 # notes the college reads; the rest stay with officers (ASSIGN has no note)
 NOTE_SHOWN_TO_COLLEGE: frozenset[CaseActionKind] = frozenset(
-    {CLEAR, REQUEST_DOCS, CONFIRM, COLLEGE_RESPONSE, SYSTEM_NOTE}
+    {UPHOLD, REQUEST_DOCS, WITHDRAW, COLLEGE_RESPONSE, SYSTEM_NOTE}
 )
 NOTE_INTERNAL: frozenset[CaseActionKind] = frozenset({ESCALATE, NOTE, REOPEN})
 
@@ -42,12 +42,13 @@ _A = frozenset({UserRole.AICTE_ADMIN})
 _AR = frozenset({UserRole.AICTE_ADMIN, UserRole.RO_OFFICER})
 _I = frozenset({UserRole.INSTITUTION})
 
-_OPEN, _DOCS, _ESC, _CLEARED, _CONFIRMED = (
+_OPEN, _DOCS, _ESC, _UPHELD, _WITHDRAWN, _CORRECTED = (
     FlagStatus.OPEN,
     FlagStatus.DOCS_REQUESTED,
     FlagStatus.ESCALATED,
-    FlagStatus.CLEARED,
-    FlagStatus.CONFIRMED,
+    FlagStatus.UPHELD,
+    FlagStatus.WITHDRAWN,
+    FlagStatus.CORRECTED,
 )
 
 
@@ -58,8 +59,8 @@ def _undecided(status: FlagStatus) -> dict[tuple[FlagStatus, CaseActionKind], Ce
     return {
         (status, REQUEST_DOCS): (_DOCS, _AR),
         (status, ESCALATE): (_ESC, _AR),
-        (status, CLEAR): (_CLEARED, _AR),
-        (status, CONFIRM): (_CONFIRMED, _AR),
+        (status, UPHOLD): (_UPHELD, _AR),
+        (status, WITHDRAW): (_WITHDRAWN, _AR),
         (status, NOTE): (status, _AR),
         (status, ASSIGN): (status, _AR),
     }
@@ -71,23 +72,24 @@ TABLE: Mapping[tuple[FlagStatus, CaseActionKind], Cell] = {
     (_DOCS, COLLEGE_RESPONSE): (_DOCS, _I),
     # an escalation means AICTE takes over; the regional office can still add notes
     (_ESC, REQUEST_DOCS): (_DOCS, _A),
-    (_ESC, CLEAR): (_CLEARED, _A),
-    (_ESC, CONFIRM): (_CONFIRMED, _A),
+    (_ESC, UPHOLD): (_UPHELD, _A),
+    (_ESC, WITHDRAW): (_WITHDRAWN, _A),
     (_ESC, NOTE): (_ESC, _AR),
     (_ESC, ASSIGN): (_ESC, _A),
     # decided flags are final; only AICTE reopens them
-    (_CLEARED, NOTE): (_CLEARED, _AR),
-    (_CLEARED, REOPEN): (_OPEN, _A),
-    (_CONFIRMED, NOTE): (_CONFIRMED, _AR),
-    (_CONFIRMED, REOPEN): (_OPEN, _A),
+    (_UPHELD, NOTE): (_UPHELD, _AR),
+    (_UPHELD, REOPEN): (_OPEN, _A),
+    (_WITHDRAWN, NOTE): (_WITHDRAWN, _AR),
+    (_WITHDRAWN, REOPEN): (_OPEN, _A),
 }
 
 STATUS_WORDS = {
     _OPEN: "open",
     _DOCS: "waiting for documents",
     _ESC: "escalated",
-    _CLEARED: "cleared",
-    _CONFIRMED: "confirmed",
+    _UPHELD: "cleared",
+    _WITHDRAWN: "confirmed",
+    _CORRECTED: "corrected",
 }
 
 

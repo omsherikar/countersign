@@ -154,9 +154,11 @@ async def test_reupload_is_idempotent_and_rechecks_only_pending(world, tmp_path)
     async with session_factory()() as session:
         for index, eid in enumerate(ids[:4]):
             for check_type in CheckType:
-                status = CheckStatus.PASS
+                status = CheckStatus.CONFIRMED
                 if index == 1 and check_type is CheckType.IDENTITY:
-                    status = CheckStatus.PENDING  # a source was down: retried
+                    status = CheckStatus.PENDING  # still waiting on a source: retried
+                if index == 2 and check_type is CheckType.ADMISSION:
+                    status = CheckStatus.SOURCE_UNAVAILABLE  # a source was down: retried
                 if check_type is CheckType.STUDENT:
                     status = CheckStatus.PENDING  # only the student loop changes it
                 session.add(
@@ -177,7 +179,8 @@ async def test_reupload_is_idempotent_and_rechecks_only_pending(world, tmp_path)
         0,
     )
     assert engines.calls["assign_seats"] == [ids]
-    assert engines.calls["run_checks"] == [[ids[1], ids[4]]]  # PENDING identity, never checked
+    # PENDING identity, unavailable admission source, never checked
+    assert engines.calls["run_checks"] == [[ids[1], ids[2], ids[4]]]
     assert engines.calls["detect_duplicates"] == []
     assert engines.calls["refresh_seat_flags"] == []
     # no student or enrolment writes: only the new batch's CREATE and UPDATE entries

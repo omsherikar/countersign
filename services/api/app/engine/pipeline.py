@@ -28,8 +28,10 @@ from app.adapters.factory import build_adapters
 from app.core import audit
 from app.core.config import get_settings
 from app.db.session import session_factory
+from app.engine import status
 from app.engine.contracts import (
     CHUNK_SIZE,
+    RECHECK_STATES,
     ChecksResult,
     EngineSuite,
     FlagTally,
@@ -50,7 +52,6 @@ from app.engine.upload.upsert import upsert_rows
 from app.engine.upload.validate import file_duplicates, load_context, validate_rows
 from app.models.enums import (
     AuditAction,
-    CheckStatus,
     CheckType,
     EnrolmentStatus,
     RowErrorLevel,
@@ -61,7 +62,7 @@ from app.models.enums import (
 from app.models.institution import Institution
 from app.models.student import Enrolment
 from app.models.upload import UploadBatch, UploadRowError
-from app.models.verification import Check
+from app.models.verification import Check, Flag
 
 log = logging.getLogger("countersign.pipeline")
 
@@ -170,6 +171,8 @@ class _BatchRun:
         self.seated: list[uuid.UUID] = []
         self.pools: set[PoolRef] = set()
         self.checks = ChecksResult()
+        # every flag the batch raised or refreshed: the records they name need a new status
+        self.flag_ids: set[uuid.UUID] = set()
 
     # -- batch row helpers
 
@@ -233,6 +236,7 @@ class _BatchRun:
     def _tally(self, tally: FlagTally) -> None:
         self.counts["flags_raised"] += tally.created
         self.counts["flags_updated"] += tally.updated
+        self.flag_ids.update(tally.flag_ids)
 
     # -- the run
 
@@ -466,7 +470,8 @@ class _BatchRun:
         self._end()
 
     async def _check_set(self) -> list[uuid.UUID]:
-        """Created and updated ACTIVE, newly seated, never checked, or still PENDING (§4.4)."""
+        """Created and updated ACTIVE, newly seated, never checked, or still PENDING or
+        SOURCE_UNAVAILABLE (§4.4)."""
         batch_ids = self._batch_enrolments()
         active = [o.enrolment_id for o in self.outcomes if o.status is EnrolmentStatus.ACTIVE]
         wanted = {
@@ -483,7 +488,7 @@ class _BatchRun:
                 )
                 pending = select(Check.enrolment_id).where(
                     Check.enrolment_id.in_(part),
-                    Check.status == CheckStatus.PENDING,
+                    Check.status.in_(RECHECK_STATES),
                     Check.type != CheckType.STUDENT,
                 )
                 wanted.update((await session.execute(unchecked)).scalars())
@@ -561,6 +566,22 @@ class _BatchRun:
                 self._tally(tally)
 
             await self._chunk(work, len(pools))
+        await self._record_statuses()
+
+    async def _record_statuses(self) -> None:
+        """The records of the batch, and every record a flag of the batch names, get their
+        status from their final rows and cases (D35): duplicates and seat flags are raised
+        after the checks stage."""
+        targets = [o.enrolment_id for o in self.outcomes] + list(self.seated)
+        async with self.factory() as session:
+            for part in chunks(sorted(self.flag_ids, key=str)):
+                named = await session.execute(
+                    select(Flag.enrolment_id, Flag.related_enrolment_ids).where(Flag.id.in_(part))
+                )
+                for enrolment_id, related in named.all():
+                    targets.extend(i for i in (enrolment_id, *related) if i is not None)
+            await status.refresh(session, targets, actor_id=self.actor_id, issue=False)
+            await session.commit()
 
 
 async def run_batch(

@@ -1711,7 +1711,7 @@ async def dismiss(session: AsyncSession, user: User, signal_id: uuid.UUID, *, no
 ```
 
 - Features, per institution, over ACTIVE enrolments of the year: `admission_growth` (first-years admitted this year over second-years on the roll, the previous cohort); `nri_share` and `management_share` (NRI, and MANAGEMENT plus SPOT, first-years over all first-years); `contradiction_rate` (records with an unresolved-contradicted row over records); `contact_sharing_rate` (students sharing a mobile, email or address hash with another student over students). Institutions with fewer than `signals.anomaly.min_records` (20) records are left out of training and scoring. `peer_low` and `peer_high` are the 25th and 75th percentiles.
-- `run` reads only; it writes `signals` rows (upsert by `dedupe_key`, never deleting, never touching `status`, `case_flag_id`, `facts.cases` or `facts.dismissal`) and nothing else. Signals never call `status.mark`.
+- `run` reads only; it writes `signals` rows (upsert by `dedupe_key`, never deleting, never touching `status`, `case_flag_id`, `facts.cases`, `note`, `decided_by_id` or `decided_at`) and nothing else. Signals never call `status.mark`.
 - `open_cases` raises each case through `flags.raise_flag` (the officer as actor), writes the NOTE row through `cases.service`, updates the signal and calls `status.mark` for the named records, all in the request's transaction.
 
 ### 17.12 Reports: `app/reports/`
@@ -1858,4 +1858,4 @@ Until an area's code is merged, the others build against these signatures with f
 - An officer's correction can be overwritten by a later upload of the same row (last writer wins, as D14); both versions stay in the history.
 - A CORRECT dry run calls the sources for real (then rolls back).
 - Signals are recomputed only on `make seed`, `make eval` and `POST /signals/run`; anomaly features compare a college with all colleges of the year, not with a chosen peer group.
-- `institution_scores` keeps its Week 1 column name `integrity_index` for the completeness percentage.
+- `institution_scores` holds the completeness percentage in `completeness_pct` (migration 0004 renames `integrity_index`; null when nothing joined).

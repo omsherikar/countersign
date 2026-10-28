@@ -74,6 +74,14 @@ cutoff_dates:
   # academic_year -> last date for regular admission; refills after this raise LATE_REFILL
   "2026-27": "2026-09-15"
 
+reporting:
+  # academic_year -> the state admission authority's reporting deadline for joining records;
+  # a joining year not listed has its deadline on 30 September of its start year
+  deadline:
+    "2026-27": "2026-09-30"
+    "2025-26": "2025-09-30"
+  source: "State admission authority reporting deadline"
+
 dual_enrolment:
   # UGC 2022: one physical programme plus one ODL/online is allowed
   allowed_modes: [["PHYSICAL", "ODL"], ["PHYSICAL", "ONLINE"]]

@@ -159,9 +159,9 @@ async def test_what_blocks_an_enrolment_proof(world, session, blocker):
     if blocker == "student_pending":
         await set_check(session, enrolment.id, CheckType.STUDENT, CheckStatus.PENDING)
     elif blocker == "student_fail":
-        await set_check(session, enrolment.id, CheckType.STUDENT, CheckStatus.FAIL)
+        await set_check(session, enrolment.id, CheckType.STUDENT, CheckStatus.CONTRADICTED)
     elif blocker == "other_fail":
-        await set_check(session, enrolment.id, CheckType.ADMISSION, CheckStatus.FAIL)
+        await set_check(session, enrolment.id, CheckType.ADMISSION, CheckStatus.CONTRADICTED)
     elif blocker == "withdrawn":
         enrolment.status = EnrolmentStatus.WITHDRAWN
     elif blocker == "high_flag":
@@ -178,7 +178,7 @@ async def test_pending_studying_cleared_and_lesser_flags_do_not_block(world, ses
     enrolment = await ravi_enrolment(session)
     await make_countersigned(session, enrolment.id)
     await set_check(session, enrolment.id, CheckType.STUDYING, CheckStatus.PENDING)
-    await _flag(session, enrolment, Severity.HIGH, FlagStatus.CLEARED)
+    await _flag(session, enrolment, Severity.HIGH, FlagStatus.UPHELD)
     await _flag(session, enrolment, Severity.MEDIUM, FlagStatus.OPEN)
     assert await issuer.eligibility(session, enrolment.id) is True
     credential = await issuer.issue_if_eligible(session, enrolment.id)
@@ -258,7 +258,7 @@ async def test_degree_proofs(world, session):
     entry = (
         await session.execute(select(AuditLog).where(AuditLog.entity_id == degree.id))
     ).scalar_one()
-    assert entry.actor_id == admin.id and entry.after["kind"] == "DEGREE"
+    assert entry.actor_id == admin.id and entry.after["kind"] == "COMPLETION"
 
     provisional = await _graduate(session, "Gauri Sathe")
     no_apaar, _ = await issuer.issue_degree(session, provisional.id, actor_id=admin.id)

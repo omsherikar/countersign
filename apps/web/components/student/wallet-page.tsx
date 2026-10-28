@@ -139,7 +139,7 @@ function History({ card, now }: { card: CredentialCard; now: number }) {
 function ProofCard({ card, now }: { card: CredentialCard; now: number }) {
   const [sharing, setSharing] = React.useState(false);
   const headingId = `proof-${card.id}`;
-  const degree = card.kind === "DEGREE";
+  const degree = card.kind === "COMPLETION";
   const reason = card.revoked_reason_code && `wallet.revoked_reason.${card.revoked_reason_code}`;
   return (
     <section aria-labelledby={headingId} className="border-l-2 border-rule-margin bg-paper-raised px-4 py-4 shadow-hairline md:px-5">
@@ -194,9 +194,9 @@ function ProofCard({ card, now }: { card: CredentialCard; now: number }) {
 function NotIssued({ e }: { e: StudentEnrolment }) {
   const student = e.countersign.checks.find((c) => c.type === "STUDENT")?.status ?? "PENDING";
   const line =
-    student === "PASS"
+    student === "CONFIRMED"
       ? t("wallet.not_issued.checks")
-      : student === "FAIL"
+      : student === "CONTRADICTED"
         ? t("wallet.not_issued.denied", { institution_name: e.institution_name })
         : t("wallet.not_issued.reply");
   return (

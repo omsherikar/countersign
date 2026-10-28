@@ -72,18 +72,18 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     assert result.calls == {"APAAR": 1, "COUNSELLING": 1}
     assert result.unavailable == {}
     assert result.statuses == {
-        "IDENTITY": {"PASS": 1},
-        "ADMISSION": {"PASS": 1},
-        "SEAT": {"PASS": 1},
-        "STUDYING": {"NA": 1},
+        "IDENTITY": {"CONFIRMED": 1},
+        "ADMISSION": {"CONFIRMED": 1},
+        "SEAT": {"CONFIRMED": 1},
+        "STUDYING": {"NOT_YET_DUE": 1},
         "STUDENT": {"PENDING": 1},
     }
     checks = await _checks(session, enrolment.id)
     assert {t: c.status for t, c in checks.items()} == {
-        CheckType.IDENTITY: CheckStatus.PASS,
-        CheckType.ADMISSION: CheckStatus.PASS,
-        CheckType.SEAT: CheckStatus.PASS,
-        CheckType.STUDYING: CheckStatus.NA,
+        CheckType.IDENTITY: CheckStatus.CONFIRMED,
+        CheckType.ADMISSION: CheckStatus.CONFIRMED,
+        CheckType.SEAT: CheckStatus.CONFIRMED,
+        CheckType.STUDYING: CheckStatus.NOT_YET_DUE,
         CheckType.STUDENT: CheckStatus.PENDING,
     }
     assert countersign(checks.values())["score"] == {"passes": 3, "applicable": 4}
@@ -93,20 +93,26 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     assert checks[CheckType.ADMISSION].source == "COUNSELLING"
     assert all(c.attempts == 0 and c.checked_at is not None for c in checks.values())
     audits = (
-        (await session.execute(select(AuditLog).where(AuditLog.entity_type == "enrolment")))
+        (
+            await session.execute(
+                select(AuditLog).where(AuditLog.entity_type == "enrolment").order_by(AuditLog.seq)
+            )
+        )
         .scalars()
         .all()
     )
     assert [a.after for a in audits] == [
         {
             "checks": {
-                "IDENTITY": "PASS",
-                "ADMISSION": "PASS",
-                "SEAT": "PASS",
-                "STUDYING": "NA",
+                "IDENTITY": "CONFIRMED",
+                "ADMISSION": "CONFIRMED",
+                "SEAT": "CONFIRMED",
+                "STUDYING": "NOT_YET_DUE",
                 "STUDENT": "PENDING",
             }
-        }
+        },
+        # the record's status moved too
+        {"record_status": "COUNTERSIGNED"},
     ]
     first_checked = {t: c.checked_at for t, c in checks.items()}
 
@@ -116,14 +122,15 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     checks = await _checks(session, enrolment.id)
     assert {t: c.checked_at for t, c in checks.items()} == first_checked
     count = select(func.count()).select_from(AuditLog).where(AuditLog.entity_type == "enrolment")
-    assert (await session.execute(count)).scalar_one() == 1
+    # nothing changed on the second run, so nothing more is audited
+    assert (await session.execute(count)).scalar_one() == 2
 
 
 async def test_unseated_enrolment_fails_seat_and_points_at_the_flag(world, session, gov) -> None:
     _, cse, enrolment = await _ravi(world, gov)
     await run_checks(session, [enrolment.id], gov)
     seat = (await _checks(session, enrolment.id))[CheckType.SEAT]
-    assert seat.status is CheckStatus.FAIL
+    assert seat.status is CheckStatus.CONTRADICTED
     assert seat.detail["flag_dedupe_key"] == f"EXCESS_ADMISSION:{cse.id}:2026-27:REGULAR"
     assert seat.detail["summary"] == (
         "No Regular seat is free in CSE (2026-27); see the Excess admission flag."
@@ -141,7 +148,7 @@ async def test_second_year_with_zero_credits_fails_studying(world, session, gov)
     result = await run_checks(session, [enrolment.id], gov)
     assert result.calls["ABC"] == 1
     studying = (await _checks(session, enrolment.id))[CheckType.STUDYING]
-    assert studying.status is CheckStatus.FAIL
+    assert studying.status is CheckStatus.CONTRADICTED
     assert studying.detail["missing"] == 2 and studying.detail["expected"] == 2
     [flag] = (
         (await session.execute(select(Flag).where(Flag.type == FlagType.NO_ACADEMIC_ACTIVITY)))
@@ -159,15 +166,53 @@ async def test_second_year_with_zero_credits_fails_studying(world, session, gov)
     assert result.flags.created == 1
 
 
-async def test_apaar_down_leaves_identity_pending_and_recheck_passes(world, session, gov) -> None:
+async def test_each_row_says_who_supplied_it_when_and_whether_independent(
+    world, session, gov
+) -> None:
+    _, _, enrolment = await _ravi(world, gov)
+    await assign_seats(session, [enrolment.id], actor_id=None)
+    await run_checks(session, [enrolment.id], gov)
+    checks = await _checks(session, enrolment.id)
+    provenance = {
+        t: (c.supplied_by, c.independent, c.observed_at is not None) for t, c in checks.items()
+    }
+    assert provenance == {
+        CheckType.IDENTITY: ("APAAR registry", True, True),
+        CheckType.ADMISSION: ("Counselling list", True, True),
+        CheckType.SEAT: ("AICTE approval 2026-27 (Seat Ledger, derived)", False, True),
+        # first year: credits are not due, so no source answered
+        CheckType.STUDYING: ("", False, False),
+        # no reply yet
+        CheckType.STUDENT: ("", False, False),
+    }
+    assert all(c.resolved is None for c in checks.values())
+
+
+async def test_credits_name_abc_and_are_not_independent_yet(world, session, gov) -> None:
+    _, _, enrolment = await _ravi(world, gov, year_of_study=2)
+    gov.abc.credits_by_apaar[RAVI] = {
+        "2025-26": [{"sem": 1, "credits": 22}, {"sem": 2, "credits": 24}]
+    }
+    await run_checks(session, [enrolment.id], gov)
+    studying = (await _checks(session, enrolment.id))[CheckType.STUDYING]
+    assert studying.status is CheckStatus.CONFIRMED
+    assert (studying.supplied_by, studying.independent) == ("ABC credits", False)
+    assert studying.observed_at is not None
+
+
+async def test_apaar_down_leaves_identity_unavailable_and_recheck_confirms(
+    world, session, gov
+) -> None:
     _, _, enrolment = await _ravi(world, gov)
     gov.apaar.down = True
     result = await run_checks(session, [enrolment.id], gov)
     assert result.unavailable == {"APAAR": 1}
     identity = (await _checks(session, enrolment.id))[CheckType.IDENTITY]
-    assert identity.status is CheckStatus.PENDING
+    assert identity.status is CheckStatus.SOURCE_UNAVAILABLE
     assert identity.detail["source_unavailable"] is True
     assert identity.attempts == 1
+    # the registry was asked but observed nothing
+    assert (identity.supplied_by, identity.observed_at) == ("APAAR registry", None)
     assert await session.scalar(select(func.count()).select_from(Flag)) == 0
 
     still = await recheck_pending(session, [enrolment.id], gov)
@@ -178,9 +223,10 @@ async def test_apaar_down_leaves_identity_pending_and_recheck_passes(world, sess
     recovered = await recheck_pending(session, [enrolment.id], gov)
     assert (recovered.rechecked, recovered.now_pass, recovered.still_pending) == (1, 1, 0)
     checks = await _checks(session, enrolment.id)
-    assert checks[CheckType.IDENTITY].status is CheckStatus.PASS
+    assert checks[CheckType.IDENTITY].status is CheckStatus.CONFIRMED
     assert checks[CheckType.IDENTITY].detail["summary"].startswith("Name and date of birth match")
     assert checks[CheckType.IDENTITY].attempts == 2  # outages met, not evaluations
+    assert checks[CheckType.IDENTITY].observed_at is not None
     assert checks[CheckType.STUDENT].status is CheckStatus.PENDING  # never rechecked here
 
     nothing = await recheck_pending(session, [enrolment.id], gov)
@@ -270,5 +316,5 @@ async def test_admission_route_rules_through_run_checks(world, session, gov) -> 
     await assign_seats(session, [mgmt.id], actor_id=None)
     await run_checks(session, [mgmt.id], gov)
     admission = (await _checks(session, mgmt.id))[CheckType.ADMISSION]
-    assert admission.status is CheckStatus.PASS
+    assert admission.status is CheckStatus.CONFIRMED
     assert admission.source == "SEAT_LEDGER"

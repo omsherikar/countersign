@@ -11,7 +11,7 @@ import { FlagStatusBadge } from "@/components/brand/FlagStatusBadge";
 import { MaskedApaar } from "@/components/brand/MaskedApaar";
 import { SeverityBadge } from "@/components/brand/SeverityBadge";
 import { ApiError } from "@/lib/api";
-import { ordered, statusWord } from "@/lib/checks";
+import { awaitsSource, ordered, statusWord } from "@/lib/checks";
 import { t, tk } from "@/lib/copy";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { useEnrolment, useRecheckEnrolment } from "@/lib/queries";
@@ -74,7 +74,7 @@ function Recheck({ id, show }: { id: string; show: boolean }) {
     ? result.rechecked === 0
       ? [t("recheck.none")]
       : result.results.map((r) =>
-          r.after === "PENDING"
+          awaitsSource({ status: r.after })
             ? t("recheck.still_pending", { check: tk(`check.${r.type}`) })
             : t("recheck.result_line", { check: tk(`check.${r.type}`), before_word: tk(`check.status.${r.before}`), after_word: tk(`check.status.${r.after}`) }),
         )
@@ -200,7 +200,7 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
     );
   }
 
-  const pendingOther = Boolean(d?.checks.some((c) => c.status === "PENDING" && c.type !== "STUDENT"));
+  const pendingOther = Boolean(d?.checks.some((c) => awaitsSource(c) && c.type !== "STUDENT"));
   const seatCheck = d?.checks.find((c) => c.type === "SEAT");
   const seatFlagType = seatCheck?.detail.flag_type as FlagType | undefined;
   const seatFlag = seatFlagType ? d?.flags.find((f) => f.type === seatFlagType) : undefined;

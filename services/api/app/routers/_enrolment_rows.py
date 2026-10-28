@@ -206,6 +206,8 @@ async def build_rows(session: AsyncSession, rows: Iterable[Any]) -> list[Related
                 source_row_no=enrolment.source_row_no,
                 countersign=signs[enrolment.id],
                 flags=[flag_ref(f) for f in flags.get(enrolment.id, [])],
+                record_status=enrolment.record_status.value,
+                status_reason=enrolment.status_reason,
                 institution=IdName(id=str(institution_id), name=institution_name),
             )
         )

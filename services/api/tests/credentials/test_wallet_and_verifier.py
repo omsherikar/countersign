@@ -154,7 +154,9 @@ async def test_issue_share_verify_expire_revoke(world):
         reads = (
             (
                 await session.execute(
-                    select(AuditLog).where(AuditLog.entity_type == "credential_presentation")
+                    select(AuditLog)
+                    .where(AuditLog.entity_type == "credential_presentation")
+                    .order_by(AuditLog.seq)
                 )
             )
             .scalars()
@@ -379,7 +381,7 @@ async def test_who_may_use_the_wallet(world):
         for params, total in (
             ({"status": "REVOKED"}, 1),
             ({"status": "ACTIVE"}, 0),
-            ({"kind": "DEGREE"}, 0),
+            ({"kind": "COMPLETION"}, 0),
             ({"student_id": str(credential.student_id)}, 1),
             ({"enrolment_id": str(uuid.uuid4())}, 0),
         ):

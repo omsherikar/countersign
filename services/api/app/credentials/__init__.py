@@ -22,7 +22,13 @@ from app.models.enums import AuditAction
 
 # What the system revokes for, stored as is in `revoked_reason` (API_CONTRACT A3.18). An
 # officer's revocation stores the officer's words instead, and reads back as ADMIN.
-SYSTEM_REASON_CODES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "FLAG_CONFIRMED")
+# STUDENT_DISPUTE: the record became DISPUTED (R6)
+SYSTEM_REASON_CODES = (
+    "ENROLMENT_WITHDRAWN",
+    "ENROLMENT_TRANSFERRED",
+    "FLAG_CONFIRMED",
+    "STUDENT_DISPUTE",
+)
 # the Seat Ledger's words for the same causes
 _LEDGER_REASONS = {
     "Enrolment withdrawn": "ENROLMENT_WITHDRAWN",
@@ -49,7 +55,8 @@ async def revoke_for_enrolment(
 ) -> int:
     """Revoke every unrevoked credential of the enrolment, in the caller's transaction.
 
-    `reason` is a reason code (ENROLMENT_WITHDRAWN, ENROLMENT_TRANSFERRED, FLAG_CONFIRMED) or
+    `reason` is a reason code (ENROLMENT_WITHDRAWN, ENROLMENT_TRANSFERRED, FLAG_CONFIRMED,
+    STUDENT_DISPUTE) or
     the ledger's words for the first two; the code is what is stored and audited. Sets
     `revoked`, `revoked_at`, `revoked_reason` and `revoked_by_id` (null when the system
     revokes) and writes one audit UPDATE per credential; returns how many it revoked.

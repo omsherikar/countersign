@@ -11,9 +11,10 @@ from app.engine import evidence as ev
 from app.engine.checks.base import (
     CheckSubject,
     SourceDown,
+    answered,
     call_source,
     flag_intent,
-    pending_unavailable,
+    unavailable_outcome,
 )
 from app.engine.contracts import CheckOutcome
 from app.models.enums import AdmissionRoute, CheckStatus, CheckType, FlagType, Severity
@@ -52,7 +53,7 @@ def decide(
     if all(not r.apaar_id_known for r in results):
         return CheckOutcome(
             type=CHECK,
-            status=CheckStatus.NA,
+            status=CheckStatus.NOT_APPLICABLE,
             source=SOURCE,
             detail=ev.studying_unknown_apaar(),
             calls=calls,
@@ -67,7 +68,7 @@ def decide(
     missing = detail["missing"]
     if missing == 0:
         return CheckOutcome(
-            type=CHECK, status=CheckStatus.PASS, source=SOURCE, detail=detail, calls=calls
+            type=CHECK, status=CheckStatus.CONFIRMED, source=SOURCE, detail=detail, calls=calls
         )
     if missing == 1:
         return CheckOutcome(
@@ -86,7 +87,7 @@ def decide(
     )
     return CheckOutcome(
         type=CHECK,
-        status=CheckStatus.FAIL,
+        status=CheckStatus.CONTRADICTED,
         source=SOURCE,
         detail=detail,
         flags=(flag,),
@@ -97,18 +98,28 @@ def decide(
 async def evaluate(
     subject: CheckSubject, adapters: AdapterSet, gate: asyncio.Semaphore
 ) -> CheckOutcome:
+    # no semester result exists yet, so credits are not due (R4)
     if subject.year_of_study <= 1:
         return CheckOutcome(
-            type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_first_year()
+            type=CHECK,
+            status=CheckStatus.NOT_YET_DUE,
+            source=SOURCE,
+            detail=ev.studying_first_year(),
         )
     years = completed_years(subject)
     if not years:  # a year-2 lateral entrant
         return CheckOutcome(
-            type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_lateral_entry()
+            type=CHECK,
+            status=CheckStatus.NOT_YET_DUE,
+            source=SOURCE,
+            detail=ev.studying_lateral_entry(),
         )
     if not subject.apaar_id:
         return CheckOutcome(
-            type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_no_apaar()
+            type=CHECK,
+            status=CheckStatus.NOT_APPLICABLE,
+            source=SOURCE,
+            detail=ev.studying_no_apaar(),
         )
     apaar_id = subject.apaar_id
     results: list[AbcResult] = []
@@ -117,6 +128,6 @@ async def evaluate(
             gate, SOURCE, lambda label=label: adapters.abc.credits(apaar_id, label)
         )
         if isinstance(result, SourceDown):
-            return pending_unavailable(CHECK, result, calls=len(results) + 1)
+            return unavailable_outcome(CHECK, result, calls=len(results) + 1)
         results.append(result)
-    return decide(subject, years, results)
+    return answered(decide(subject, years, results), SOURCE)

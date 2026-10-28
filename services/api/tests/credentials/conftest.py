@@ -116,7 +116,7 @@ async def make_countersigned(session: AsyncSession, enrolment_id: uuid.UUID) -> 
     """The student said Yes and no source disagrees: every FAIL becomes PASS too."""
     await session.execute(
         update(Check)
-        .where(Check.enrolment_id == enrolment_id, Check.status == CheckStatus.FAIL)
-        .values(status=CheckStatus.PASS)
+        .where(Check.enrolment_id == enrolment_id, Check.status == CheckStatus.CONTRADICTED)
+        .values(status=CheckStatus.CONFIRMED)
     )
-    await set_check(session, enrolment_id, CheckType.STUDENT, CheckStatus.PASS)
+    await set_check(session, enrolment_id, CheckType.STUDENT, CheckStatus.CONFIRMED)

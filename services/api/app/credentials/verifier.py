@@ -426,7 +426,7 @@ async def _degree_by_short_id(session: AsyncSession, short_id: str) -> Credentia
     return (
         await session.execute(
             select(Credential).where(
-                Credential.short_id == short_id, Credential.kind == CredentialKind.DEGREE
+                Credential.short_id == short_id, Credential.kind == CredentialKind.COMPLETION
             )
         )
     ).scalar_one_or_none()
@@ -451,7 +451,7 @@ async def verify_degree_jws(session: AsyncSession, jws: str, *, ip: str) -> dict
         a = str(claims.get("a") or "")
         common = {
             "method": SIGNATURE,
-            "kind": CredentialKind.DEGREE,
+            "kind": CredentialKind.COMPLETION,
             "issued_at": iso(credential.issued_at),
             "status_checked_at": iso(token.iat),
         }
@@ -494,7 +494,7 @@ async def verify_degree_id(session: AsyncSession, raw_short_id: str, *, ip: str)
     record = await degree.record_for(session, credential.enrolment_id)
     common = {
         "method": REGISTER_LOOKUP,
-        "kind": CredentialKind.DEGREE,
+        "kind": CredentialKind.COMPLETION,
         "issued_at": iso(credential.issued_at),
         "status_checked_at": iso(datetime.now(UTC)),
     }

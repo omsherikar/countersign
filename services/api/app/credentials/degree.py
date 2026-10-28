@@ -181,7 +181,7 @@ async def degree_for(session: AsyncSession, enrolment_id: uuid.UUID) -> Credenti
             select(Credential)
             .where(
                 Credential.enrolment_id == enrolment_id,
-                Credential.kind == CredentialKind.DEGREE,
+                Credential.kind == CredentialKind.COMPLETION,
             )
             .order_by(Credential.revoked, Credential.issued_at.desc(), Credential.id.desc())
             .limit(1)
@@ -220,7 +220,7 @@ async def graduates(session: AsyncSession, user: User, query: GraduateQuery) -> 
         has_degree = exists(
             select(Credential.id).where(
                 Credential.enrolment_id == Enrolment.id,
-                Credential.kind == CredentialKind.DEGREE,
+                Credential.kind == CredentialKind.COMPLETION,
                 Credential.revoked.is_(False),
             )
         )
@@ -291,7 +291,7 @@ async def _latest_degrees(
                 select(Credential)
                 .where(
                     Credential.enrolment_id.in_(enrolment_ids),
-                    Credential.kind == CredentialKind.DEGREE,
+                    Credential.kind == CredentialKind.COMPLETION,
                 )
                 .order_by(Credential.revoked.desc(), Credential.issued_at, Credential.id)
             )

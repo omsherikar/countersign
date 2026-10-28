@@ -3,8 +3,10 @@
 `run_checks` loads one subject per ACTIVE enrolment (one query per chunk), evaluates the
 five checks for all of them concurrently with every adapter call behind one semaphore,
 then writes check rows, flags and audit entries sequentially. The session is never used
-inside the gather. `recheck_pending` does the same for PENDING checks other than STUDENT.
+inside the gather. `recheck_pending` does the same for PENDING and SOURCE_UNAVAILABLE checks
+other than STUDENT.
 `refresh_student` re-derives only the STUDENT check from the notices (ENGINES §16.4).
+Each of them ends by recomputing the record status of the enrolments it wrote (D35).
 """
 
 from __future__ import annotations
@@ -23,11 +25,14 @@ from app.core import audit
 from app.core.audit import AuditEntry
 from app.core.crypto import decrypt
 from app.core.rules import get_rules
+from app.engine import status
 from app.engine.checks import admission, identity, seat, student, studying
 from app.engine.checks.base import CheckSubject
 from app.engine.contracts import (
     CHECK_ORDER,
     DEFAULT_CHECK_CONCURRENCY,
+    NOT_COUNTED_STATES,
+    RECHECK_STATES,
     CheckOutcome,
     ChecksResult,
     FlagTally,
@@ -249,6 +254,9 @@ class _Writer:
                     detail=outcome.detail,
                     checked_at=self.now,
                     attempts=1 if met_outage else 0,
+                    supplied_by=outcome.supplied_by,
+                    observed_at=outcome.observed_at,
+                    independent=outcome.independent,
                 )
                 self.session.add(row)
                 self.existing[(subject.enrolment_id, outcome.type)] = row
@@ -271,6 +279,12 @@ class _Writer:
                     row.detail = outcome.detail
                     row.source = outcome.source
                     row.checked_at = self.now
+                if previous is not outcome.status:
+                    # an officer's decision was about the state that is now gone (R2)
+                    row.resolved = None
+                row.supplied_by = outcome.supplied_by
+                row.observed_at = outcome.observed_at
+                row.independent = outcome.independent
                 if met_outage:
                     row.attempts = (row.attempts or 0) + 1
             if outcome.flags:
@@ -328,6 +342,13 @@ async def run_checks(
         result.changed += await writer.write(subject, outcomes)
         _count_outcomes(result, outcomes)
     await writer.finish()
+    await status.refresh(
+        session,
+        [s.enrolment_id for s in subjects],
+        actor_id=actor_id,
+        issue=False,
+        now=writer.now,
+    )
     result.flags.merge(writer.flags)
     return result
 
@@ -354,6 +375,13 @@ async def refresh_student(
         result.changed += await writer.write(subject, [outcome])
         _count_outcomes(result, [outcome])
     await writer.finish()
+    await status.refresh(
+        session,
+        [s.enrolment_id for s in subjects],
+        actor_id=actor_id,
+        issue=False,
+        now=writer.now,
+    )
     result.flags.merge(writer.flags)
     return result
 
@@ -366,7 +394,8 @@ async def recheck_pending(
     concurrency: int = DEFAULT_CHECK_CONCURRENCY,
     actor_id: uuid.UUID | None = None,
 ) -> RecheckResult:
-    """Re-run the PENDING checks other than STUDENT of the ACTIVE enrolments among the ids.
+    """Re-run the PENDING and SOURCE_UNAVAILABLE checks other than STUDENT of the ACTIVE
+    enrolments among the ids.
 
     `enrolments` counts the enrolments that had something to re-run.
     """
@@ -381,7 +410,7 @@ async def recheck_pending(
             .where(
                 and_(
                     Check.enrolment_id.in_(ids),
-                    Check.status == CheckStatus.PENDING,
+                    Check.status.in_(RECHECK_STATES),
                     Check.type.in_(RECHECKABLE),
                     Enrolment.status == EnrolmentStatus.ACTIVE,
                 )
@@ -408,14 +437,21 @@ async def recheck_pending(
     for subject, outcomes in zip(subjects, evaluated, strict=True):
         await writer.write(subject, outcomes)
     await writer.finish()
+    await status.refresh(
+        session,
+        [s.enrolment_id for s in subjects],
+        actor_id=actor_id,
+        issue=False,
+        now=writer.now,
+    )
     result.enrolments = len(subjects)
     for _type, _before, after in writer.transitions:
         result.rechecked += 1
-        if after is CheckStatus.PASS:
+        if after is CheckStatus.CONFIRMED:
             result.now_pass += 1
-        elif after is CheckStatus.FAIL:
+        elif after is CheckStatus.CONTRADICTED:
             result.now_fail += 1
-        elif after is CheckStatus.NA:
+        elif after in NOT_COUNTED_STATES:
             result.now_na += 1
         else:
             result.still_pending += 1

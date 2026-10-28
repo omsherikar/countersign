@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 
 from app.core.security import hash_password
 from app.db.session import session_factory
+from app.engine.status import refresh
 from app.engine.suite import DefaultEngines
 from app.main import app
 from app.models.audit import AuditLog
@@ -118,6 +119,8 @@ async def ids() -> AsyncIterator[Ids]:
         await suite.run_checks(session, [asha.id], gov)
         await suite.detect_duplicates(session, abc.id, "2026-27", abc_ids)
         await suite.refresh_seat_flags(session, list(ledger.touched_pools))
+        # as at the end of an upload batch, after the duplicate and seat flags
+        await refresh(session, [*abc_ids, twin_xyz.id], issue=False)
         await session.commit()
         result = Ids(
             abc=abc.id,
@@ -183,8 +186,8 @@ async def test_flag_list_for_officers(ids, as_role) -> None:
 
     unresolved = (await admin.get("/flags", params={"status": "UNRESOLVED"})).json()
     assert unresolved["total"] == 4
-    assert (await admin.get("/flags", params={"status": "OPEN,CLEARED"})).json()["total"] == 4
-    assert (await admin.get("/flags", params={"status": "CLEARED"})).json()["total"] == 0
+    assert (await admin.get("/flags", params={"status": "OPEN,UPHELD"})).json()["total"] == 4
+    assert (await admin.get("/flags", params={"status": "UPHELD"})).json()["total"] == 0
     bad = await admin.get("/flags", params={"status": "SHUT"})
     assert bad.status_code == 422 and bad.json()["error"]["code"] == "VALIDATION_ERROR"
     assert (await admin.get("/flags", params={"type": "EXCESS_ADMISSION"})).json()["total"] == 1
@@ -317,8 +320,28 @@ async def test_enrolment_detail(ids, as_role) -> None:
         "STUDENT",
     ]
     identity = body["checks"][0]
-    assert identity["status"] == "PASS" and identity["source"] == "APAAR"
+    assert identity["status"] == "CONFIRMED" and identity["source"] == "APAAR"
     assert identity["attempts"] == 0 and identity["checked_at"].endswith("Z")
+    assert (identity["supplied_by"], identity["independent"], identity["resolved"]) == (
+        "APAAR registry",
+        True,
+        None,
+    )
+    assert identity["observed_at"].endswith("Z")
+    studying = body["checks"][3]
+    assert (studying["status"], studying["supplied_by"], studying["observed_at"]) == (
+        "NOT_YET_DUE",
+        "",
+        None,
+    )
+    # one contradiction outranks the confirmations (D35)
+    assert body["record_status"] == "UNDER_REVIEW"
+    assert body["status_reason"] == "Joining record is contradicted."
+    # no case covers the joining record yet, so the record's open case gives the next step
+    assert body["next_step"] == (
+        "Waiting for an officer to review the Duplicate within institution case."
+    )
+    assert body["record_status_at"].endswith("Z")
     assert "123456784417" not in str(body)
     assert body["countersign"]["score"] == {"passes": 2, "applicable": 4}  # counselling not found
     assert [f["type"] for f in body["flags"]] == ["DUPLICATE_WITHIN_UPLOAD"]
@@ -369,10 +392,15 @@ async def test_enrolment_list_rows_and_filters(ids, as_role) -> None:
 
     unseated = (await admin.get(url, params={"seated": "false"})).json()
     assert {r["id"] for r in unseated["items"]} == {str(i) for i in ids.unseated}
-    seat_fail = (await admin.get(url, params={"check_status": "FAIL", "check_type": "SEAT"})).json()
+    seat_fail = (
+        await admin.get(url, params={"check_status": "CONTRADICTED", "check_type": "SEAT"})
+    ).json()
     assert seat_fail["total"] == len(ids.unseated)
+    assert {r["record_status"] for r in seat_fail["items"]} == {"UNDER_REVIEW"}
     assert (await admin.get(url, params={"check_type": "SEAT"})).json()["total"] == 21
-    pending = await admin.get(url, params={"check_status": "PENDING", "check_type": "IDENTITY"})
+    pending = await admin.get(
+        url, params={"check_status": "SOURCE_UNAVAILABLE", "check_type": "IDENTITY"}
+    )
     assert [r["id"] for r in pending.json()["items"]] == [str(ids.asha)]
     flagged = (await admin.get(url, params={"flagged": "true", "page_size": 50})).json()
     assert flagged["total"] == 4  # the 2 unseated (one is R. K.), Ravi and the twin
@@ -411,7 +439,7 @@ async def test_dashboard_kpis(ids, as_role) -> None:
     by_type = {f["type"]: f["open"] for f in body["flags_by_type"]}
     assert list(by_type)[:3] == ["EXCESS_ADMISSION", "QUOTA_BREACH", "LATE_REFILL"]
     assert by_type["DUPLICATE_CROSS_INSTITUTION"] == 2 and by_type["EXCESS_ADMISSION"] == 1
-    assert len(by_type) == 12
+    assert len(by_type) == len(FlagType)
     mh = next(s for s in body["by_state"] if s["state_code"] == "MH")
     assert (mh["flags_open"], mh["admitted"]) == (3, 21)
     south = next(r for r in body["by_region"] if r["region"] == "SOUTH")
@@ -447,15 +475,19 @@ async def test_enrolment_recheck_after_the_source_is_back(ids, as_role) -> None:
         registrar = await as_role("registrar@abc.edu.demo")
         gov.apaar.down = True
         still = (await registrar.post(f"/enrolments/{ids.asha}/recheck", json={})).json()
-        assert still["results"] == [{"type": "IDENTITY", "before": "PENDING", "after": "PENDING"}]
+        assert still["results"] == [
+            {"type": "IDENTITY", "before": "SOURCE_UNAVAILABLE", "after": "SOURCE_UNAVAILABLE"}
+        ]
 
         gov.apaar.down = False
         body = (await registrar.post(f"/enrolments/{ids.asha}/recheck", json={})).json()
         assert body["enrolment_id"] == str(ids.asha)
         assert body["rechecked"] == 1
-        assert body["results"] == [{"type": "IDENTITY", "before": "PENDING", "after": "PASS"}]
+        assert body["results"] == [
+            {"type": "IDENTITY", "before": "SOURCE_UNAVAILABLE", "after": "CONFIRMED"}
+        ]
         assert body["flags_raised"] == 0
-        assert body["countersign"]["checks"][0] == {"type": "IDENTITY", "status": "PASS"}
+        assert body["countersign"]["checks"][0] == {"type": "IDENTITY", "status": "CONFIRMED"}
         detail = (await registrar.get(f"/enrolments/{ids.asha}")).json()
         assert detail["checks"][0]["attempts"] == 2
 

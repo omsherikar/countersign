@@ -147,10 +147,23 @@ class CheckType(StrEnum):
 
 
 class CheckStatus(StrEnum):
-    PASS = "PASS"
-    FAIL = "FAIL"
+    """The evidence state of one row of a record (D34)."""
+
+    CONFIRMED = "CONFIRMED"
+    CONTRADICTED = "CONTRADICTED"
     PENDING = "PENDING"
-    NA = "NA"
+    NOT_YET_DUE = "NOT_YET_DUE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
+
+
+class RecordStatus(StrEnum):
+    """One status per ACTIVE enrolment, computed from its rows and unresolved cases (D35)."""
+
+    AWAITING_EVIDENCE = "AWAITING_EVIDENCE"
+    COUNTERSIGNED = "COUNTERSIGNED"
+    UNDER_REVIEW = "UNDER_REVIEW"
+    DISPUTED = "DISPUTED"
 
 
 class FlagType(StrEnum):
@@ -166,6 +179,9 @@ class FlagType(StrEnum):
     STUDENT_DENIED = "STUDENT_DENIED"
     GHOST_RING = "GHOST_RING"
     ANOMALY = "ANOMALY"
+    NOT_IN_JOINING_RECORD = "NOT_IN_JOINING_RECORD"
+    ELIGIBILITY_BREACH = "ELIGIBILITY_BREACH"
+    MISSING_FROM_UPLOAD = "MISSING_FROM_UPLOAD"
 
 
 class Severity(StrEnum):
@@ -177,21 +193,23 @@ class Severity(StrEnum):
 class FlagStatus(StrEnum):
     OPEN = "OPEN"
     DOCS_REQUESTED = "DOCS_REQUESTED"
-    CLEARED = "CLEARED"
+    UPHELD = "UPHELD"
     ESCALATED = "ESCALATED"
-    CONFIRMED = "CONFIRMED"
+    WITHDRAWN = "WITHDRAWN"
+    CORRECTED = "CORRECTED"
 
 
 class CaseActionKind(StrEnum):
-    CLEAR = "CLEAR"
+    UPHOLD = "UPHOLD"
     REQUEST_DOCS = "REQUEST_DOCS"
     ESCALATE = "ESCALATE"
-    CONFIRM = "CONFIRM"
+    WITHDRAW = "WITHDRAW"
     NOTE = "NOTE"
     COLLEGE_RESPONSE = "COLLEGE_RESPONSE"
     ASSIGN = "ASSIGN"
     REOPEN = "REOPEN"
     SYSTEM_NOTE = "SYSTEM_NOTE"
+    CORRECT = "CORRECT"
 
 
 class NoticeChannel(StrEnum):
@@ -212,7 +230,24 @@ class NoticeDelivery(StrEnum):
 
 class CredentialKind(StrEnum):
     ENROLMENT = "ENROLMENT"
-    DEGREE = "DEGREE"
+    COMPLETION = "COMPLETION"
+
+
+class VersionSource(StrEnum):
+    UPLOAD = "UPLOAD"
+    DECISION = "DECISION"
+    SEED = "SEED"
+
+
+class SignalType(StrEnum):
+    GHOST_RING = "GHOST_RING"
+    ANOMALY = "ANOMALY"
+
+
+class SignalStatus(StrEnum):
+    NEW = "NEW"
+    CASE_OPENED = "CASE_OPENED"
+    DISMISSED = "DISMISSED"
 
 
 class ConsentPurpose(StrEnum):

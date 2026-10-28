@@ -1,3 +1,6 @@
+from app.models.enums import FlagType
+
+
 async def test_national_summary(admin):
     body = (await admin.get("/dashboard/summary")).json()
     assert body["academic_year"] == "2026-27"
@@ -21,7 +24,7 @@ async def test_national_summary(admin):
         "QUOTA_BREACH",
         "LATE_REFILL",
     ]
-    assert len(body["flags_by_type"]) == 12
+    assert len(body["flags_by_type"]) == len(FlagType)
     open_by_type = {f["type"]: f["open"] for f in body["flags_by_type"]}
     assert {t: n for t, n in open_by_type.items() if n} == {
         "LATE_REFILL": 2,

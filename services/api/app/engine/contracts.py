@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +32,19 @@ UNRESOLVED_FLAG_STATUSES: tuple[FlagStatus, ...] = (
     FlagStatus.OPEN,
     FlagStatus.DOCS_REQUESTED,
     FlagStatus.ESCALATED,
+)
+# states a recheck or the next upload asks the source about again
+RECHECK_STATES: tuple[CheckStatus, ...] = (CheckStatus.PENDING, CheckStatus.SOURCE_UNAVAILABLE)
+# states with nothing to count yet: the score leaves them out of "applicable"
+NOT_COUNTED_STATES: tuple[CheckStatus, ...] = (
+    CheckStatus.NOT_APPLICABLE,
+    CheckStatus.NOT_YET_DUE,
+)
+# an officer's outcome closed the case
+DECIDED_FLAG_STATUSES: tuple[FlagStatus, ...] = (
+    FlagStatus.UPHELD,
+    FlagStatus.WITHDRAWN,
+    FlagStatus.CORRECTED,
 )
 
 NameVerdict = Literal["MATCH", "REVIEW", "NO_MATCH"]
@@ -114,6 +127,11 @@ class CheckOutcome:
     flags: tuple[FlagIntent, ...] = ()
     calls: tuple[str, ...] = ()
     unavailable: tuple[str, ...] = ()
+    # provenance (D34): who supplied the fact, when it answered, and whether that source is
+    # independent of the college that made the claim; empty when no source answered
+    supplied_by: str = ""
+    observed_at: datetime | None = None
+    independent: bool = False
 
 
 @dataclass(slots=True)

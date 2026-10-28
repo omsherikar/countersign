@@ -69,7 +69,7 @@ function Fields({ result }: { result: VerifyResult }) {
  */
 export function ResultView({ result, source }: { result: VerifyResult; source: VerifySource }) {
   const now = useNow();
-  const degree = source === "degree" || source === "lookup" || result.kind === "DEGREE";
+  const degree = source === "degree" || source === "lookup" || result.kind === "COMPLETION";
   const checkedAt = result.status_checked_at ? Date.parse(result.status_checked_at) : null;
   const revocationLine =
     checkedAt && now && now - checkedAt > 60_000 ? t("verify.revocation_at", { time: TIME.format(new Date(checkedAt)) }) : t("verify.revocation");

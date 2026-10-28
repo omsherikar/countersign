@@ -166,7 +166,7 @@ export const studentCopy = {
   "verify.state.EXPIRED": "Expired",
   "verify.state.INVALID": "Not valid",
   "verify.kind.ENROLMENT": "Enrolment proof",
-  "verify.kind.DEGREE": "Degree proof",
+  "verify.kind.COMPLETION": "Degree proof",
   "verify.signature": "Signature checked against Countersign's published keys.",
   "verify.revocation_at": "Revocation checked at {time}.",
   "verify.holder_bound": "The student shared this proof for this check, from their own wallet.",

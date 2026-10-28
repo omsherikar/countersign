@@ -13,13 +13,15 @@ export type Region =
   | "SOUTH_WEST" | "SOUTH" | "SOUTH_CENTRAL" | "EAST" | "NORTH_EAST";
 
 export type CheckType = "IDENTITY" | "ADMISSION" | "SEAT" | "STUDYING" | "STUDENT";
-export type CheckStatus = "PASS" | "FAIL" | "PENDING" | "NA";
+export type CheckStatus = "CONFIRMED" | "CONTRADICTED" | "PENDING" | "NOT_YET_DUE" | "NOT_APPLICABLE" | "SOURCE_UNAVAILABLE";
+export type RecordStatus = "AWAITING_EVIDENCE" | "COUNTERSIGNED" | "UNDER_REVIEW" | "DISPUTED";
 export type FlagType =
   | "EXCESS_ADMISSION" | "QUOTA_BREACH" | "LATE_REFILL" | "INVALID_APAAR" | "NAME_MISMATCH"
   | "DUPLICATE_CROSS_INSTITUTION" | "DUPLICATE_WITHIN_UPLOAD" | "DUAL_ENROLMENT_ALLOWED"
-  | "NO_ACADEMIC_ACTIVITY" | "STUDENT_DENIED" | "GHOST_RING" | "ANOMALY";
+  | "NO_ACADEMIC_ACTIVITY" | "STUDENT_DENIED" | "GHOST_RING" | "ANOMALY"
+  | "NOT_IN_JOINING_RECORD" | "ELIGIBILITY_BREACH" | "MISSING_FROM_UPLOAD";
 export type Severity = "LOW" | "MEDIUM" | "HIGH";
-export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "CLEARED" | "ESCALATED" | "CONFIRMED";
+export type FlagStatus = "OPEN" | "DOCS_REQUESTED" | "UPHELD" | "ESCALATED" | "WITHDRAWN" | "CORRECTED";
 export type ConsentStatus = "LINKED" | "REFUSED" | "PENDING" | "INTERNATIONAL";
 export type AdmissionRoute = "COUNSELLING" | "MANAGEMENT" | "NRI" | "SPOT" | "LATERAL" | "INTERNATIONAL" | "TFW";
 export type SeatType = "REGULAR" | "NRI" | "TFW" | "LATERAL" | "INTERNATIONAL";
@@ -180,7 +182,13 @@ export interface CheckBrief { type: CheckType; status: CheckStatus }
 export interface Countersign { score: Score | null; checks: CheckBrief[] }
 
 /** Replaces the Week 1 Check. */
-export interface Check { type: CheckType; status: CheckStatus; source: CheckSource; checked_at: string | null; attempts: number; detail: CheckDetail }
+export interface Check {
+  type: CheckType; status: CheckStatus; source: CheckSource; checked_at: string | null; attempts: number; detail: CheckDetail;
+  /** Provenance (D34): who supplied the fact, when, and whether independently of the college. */
+  supplied_by?: string; observed_at?: string | null; independent?: boolean;
+  /** Set when an officer's decision resolved this row's contradiction (R2). */
+  resolved?: { outcome: FlagStatus; case_id: string; case_action_seq: number; reason_code: string | null; at: string } | null;
+}
 
 // ---------- uploads ----------
 export interface UploadCounts {
@@ -262,6 +270,7 @@ export interface EnrolmentRow {
   seat_code: string | null; status: EnrolmentStatus; admission_date: string; status_date: string;
   uploaded_at: string; upload_batch_id: string | null; source_row_no: number | null;
   countersign: Countersign; flags: FlagRef[];
+  record_status?: RecordStatus; status_reason?: string | null;
 }
 export interface EnrolmentListQuery {
   page?: number; page_size?: number; programme_id?: string; status?: EnrolmentStatus; academic_year?: string; q?: string;
@@ -351,15 +360,16 @@ export type StudentNoticeState = "NOT_SENT" | "UNREACHABLE" | "SENT" | "EXPIRED"
 export type IdKind = "APAAR" | "PROVISIONAL";
 export type ResendBlock = "LIVE" | "ANSWERED" | "LIMIT" | "CONSENT_WITHDRAWN" | "NO_CHANNEL" | "NOT_ACTIVE" | "ROLE";
 export type CaseAction =
-  | "CLEAR" | "REQUEST_DOCS" | "ESCALATE" | "CONFIRM" | "NOTE" | "ASSIGN" | "REOPEN" | "COLLEGE_RESPONSE" | "SYSTEM_NOTE";
-export type OfficerAction = Exclude<CaseAction, "COLLEGE_RESPONSE" | "SYSTEM_NOTE">;
+  | "UPHOLD" | "REQUEST_DOCS" | "ESCALATE" | "WITHDRAW" | "NOTE" | "ASSIGN" | "REOPEN" | "COLLEGE_RESPONSE" | "SYSTEM_NOTE" | "CORRECT";
+// CORRECT is recorded in case history; the API does not offer it as an action yet
+export type OfficerAction = Exclude<CaseAction, "COLLEGE_RESPONSE" | "SYSTEM_NOTE" | "CORRECT">;
 export type OfficerRole = Extract<Role, "AICTE_ADMIN" | "RO_OFFICER">;
-export type CredentialKind = "ENROLMENT" | "DEGREE";
+export type CredentialKind = "ENROLMENT" | "COMPLETION";
 export type CredentialStatus = "ACTIVE" | "REVOKED" | "EXPIRED";
 export type PresentationState = "LIVE" | "EXPIRED";
 export type VerifyResultCode = "VALID" | "REVOKED" | "EXPIRED" | "INVALID";
 export type VerifyMethod = "signature" | "register_lookup";
-export type RevokedReasonCode = "ENROLMENT_WITHDRAWN" | "ENROLMENT_TRANSFERRED" | "FLAG_CONFIRMED" | "ADMIN";
+export type RevokedReasonCode = "ENROLMENT_WITHDRAWN" | "ENROLMENT_TRANSFERRED" | "FLAG_CONFIRMED" | "STUDENT_DISPUTE" | "ADMIN";
 export type ClaimKey =
   | "name" | "dob" | "apaar_masked" | "provisional_id" | "institution" | "programme" | "academic_year"
   | "year_of_study" | "countersigned" | "university" | "year_of_award" | "proof_id";
@@ -537,6 +547,7 @@ export interface EnrolmentDetail {
   academic_year: string; cohort_year: string; year_of_study: number;
   admission_route: AdmissionRoute; counselling_ref: string | null; category: Category;
   status: EnrolmentStatus; status_date: string; admission_date: string; uploaded_at: string;
+  record_status?: RecordStatus; status_reason?: string | null; next_step?: string | null; record_status_at?: string | null;
   upload: { batch_id: string; filename: string; row_no: number | null } | null;
   seat: { id: string; seat_code: string; seat_type: SeatType; academic_year: string; assigned_at: string | null } | null;
   countersign: Countersign;

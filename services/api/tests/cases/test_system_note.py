@@ -50,17 +50,17 @@ async def test_an_engine_refresh_of_a_decided_flag_adds_a_system_note(cw, logins
 
     await refresh("; open and refreshed")  # an open flag gets no note
     assert await system_notes() == []
-    await set_status(flag_id, FlagStatus.CLEARED)
+    await set_status(flag_id, FlagStatus.UPHELD)
     await refresh("; open and refreshed")  # the same evidence again changes nothing
     assert await system_notes() == []
     await refresh("; refreshed after clearing")
     notes = await system_notes()
     assert len(notes) == 1
     assert notes[0].note == EVIDENCE_UPDATED_NOTE and notes[0].actor_id is None
-    assert notes[0].from_status is notes[0].to_status is FlagStatus.CLEARED
+    assert notes[0].from_status is notes[0].to_status is FlagStatus.UPHELD
     async with session_factory()() as session:
         flag = await session.get(Flag, flag_id)
-    assert flag.status is FlagStatus.CLEARED  # the engine still decides nothing
+    assert flag.status is FlagStatus.UPHELD  # the engine still decides nothing
 
     for email in ("ro.west@aicte.demo", "registrar@abc.edu.demo"):
         history = (await (await logins(email)).get(f"/flags/{flag_id}")).json()["history"]

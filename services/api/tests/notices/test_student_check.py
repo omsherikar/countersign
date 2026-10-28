@@ -109,7 +109,7 @@ def test_row_1_a_no_on_one_channel_beats_a_yes_on_the_other():
     out = derive(subject(yes, no), now=NOW)
     assert (out.type, out.status, out.source) == (
         CheckType.STUDENT,
-        CheckStatus.FAIL,
+        CheckStatus.CONTRADICTED,
         "STUDENT_NOTICE",
     )
     assert out.detail == {
@@ -147,13 +147,21 @@ def test_row_1_takes_the_earliest_no_and_a_missing_comment_reads_none():
     out = derive(subject(late, early), now=NOW)
     assert out.detail["summary"] == "Denied by the student on 29 Oct 2026 (DigiLocker)."
     assert out.flags[0].evidence["facts"][-1]["value"] == "None"
+    # the answer that decides is the student's own, independent of the college
+    assert (out.supplied_by, out.observed_at, out.independent) == (
+        "Student reply",
+        datetime(2026, 10, 29, 6, tzinfo=UTC),
+        True,
+    )
 
 
 def test_row_2_a_yes_passes_with_the_reply_date_in_india():
     # 21:00 UTC on 29 Oct is 30 Oct in India
     yes = notice(EMAIL, response=YES, responded_at=datetime(2026, 10, 29, 21, 0, tzinfo=UTC))
     out = derive(subject(yes, notice(DIGILOCKER)), now=NOW)
-    assert out.status is CheckStatus.PASS and out.flags == ()
+    assert out.status is CheckStatus.CONFIRMED and out.flags == ()
+    assert (out.supplied_by, out.independent) == ("Student reply", True)
+    assert out.observed_at == datetime(2026, 10, 29, 21, 0, tzinfo=UTC)
     assert out.detail == {
         "summary": "Confirmed by the student on 30 Oct 2026 (email).",
         "notice_state": "CONFIRMED",
@@ -174,7 +182,7 @@ def test_a_no_changed_to_yes_passes_and_keeps_the_flag_with_changed_evidence():
         comment="Pressed the wrong button.",
     )
     out = derive(subject(changed), now=NOW)
-    assert out.status is CheckStatus.PASS
+    assert out.status is CheckStatus.CONFIRMED
     assert out.detail["summary"] == "Confirmed by the student on 31 Oct 2026 (DigiLocker)."
     assert out.detail["changed"] is True
     assert out.detail["responded_at"] == "2026-10-31T06:00:00Z"
@@ -198,7 +206,7 @@ def test_a_yes_changed_to_no_fails_with_the_date_of_the_no():
         changed_at=datetime(2026, 10, 30, 6, tzinfo=UTC),
     )
     out = derive(subject(changed), now=NOW)
-    assert out.status is CheckStatus.FAIL
+    assert out.status is CheckStatus.CONTRADICTED
     assert out.detail["summary"] == "Denied by the student on 30 Oct 2026 (email)."
     assert out.detail["changed"] is True
     labels = [f["label"] for f in out.flags[0].evidence["facts"]]

@@ -164,7 +164,7 @@ async def test_issue_print_and_verify_a_degree(world):
             student_id = (await session.get(Enrolment, meera)).student_id
         wallet = (await admin.get("/credentials", params={"student_id": str(student_id)})).json()
         [card] = wallet["items"]
-        assert card["kind"] == "DEGREE" and card["holder_bound"] is False
+        assert card["kind"] == "COMPLETION" and card["holder_bound"] is False
         assert card["university_name"] == "Maharashtra State Technical University"
         assert (await student.get(f"/credentials/{card['id']}")).status_code == 404
 
@@ -172,7 +172,7 @@ async def test_issue_print_and_verify_a_degree(world):
         by_id = (await anyone.get(f"/verify/degree/{proof['short_id'].lower()}")).json()
         assert by_qr["result"] == by_id["result"] == "VALID"
         assert (by_qr["method"], by_id["method"]) == ("signature", "register_lookup")
-        assert by_qr["kind"] == by_id["kind"] == "DEGREE"
+        assert by_qr["kind"] == by_id["kind"] == "COMPLETION"
         assert by_qr["holder_bound"] is by_id["holder_bound"] is False
         assert by_qr["expires_at"] is None and by_id["expires_at"] is None
         assert by_qr["university_name"] == by_id["university_name"]
@@ -284,7 +284,7 @@ async def test_a_shared_degree_is_not_holder_bound_but_still_tamper_evident(worl
     assert row.presentation.endswith("~")  # no key binding: a degree has no holder key
     async with public() as anyone:
         body = (await anyone.get(f"/verify/{share['code']}")).json()
-        assert body["result"] == "VALID" and body["kind"] == "DEGREE"
+        assert body["result"] == "VALID" and body["kind"] == "COMPLETION"
         assert body["holder_bound"] is False
         assert body["university_name"] is None  # not disclosed
         assert [d["key"] for d in body["disclosed"]] == ["name", "institution", "programme"]

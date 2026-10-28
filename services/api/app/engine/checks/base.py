@@ -8,12 +8,13 @@ shared semaphore), and `run_checks` writes the rows.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.base import AdapterRequestError, RealAdapterDisabled, SourceUnavailable
@@ -37,6 +38,11 @@ if TYPE_CHECKING:
     from app.notices.student_check import NoticeFact
 
 log = logging.getLogger("countersign.checks")
+
+# sources whose facts do not come from the college that made the claim (D38); the Seat
+# Ledger is derived from the college's own upload, and ABC credits count as the college's
+# own until their issuing body is known
+INDEPENDENT_SOURCES = frozenset({"APAAR", "COUNSELLING", "SII", "STUDENT_NOTICE"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +104,7 @@ class SourceDown:
 async def call_source[T](
     gate: asyncio.Semaphore, source: str, call: Callable[[], Awaitable[T]]
 ) -> T | SourceDown:
-    """Run one adapter call inside the semaphore; outages become SourceDown, never FAIL."""
+    """Run one adapter call inside the semaphore; outages become SourceDown, never CONTRADICTED."""
     try:
         async with gate:
             return await call()
@@ -113,14 +119,42 @@ async def call_source[T](
         return SourceDown(source, evidence.source_unavailable(source, f"HTTP {exc.status_code}"))
 
 
-def pending_unavailable(check: CheckType, down: SourceDown, calls: int = 1) -> CheckOutcome:
+def supplied_by(source: str, cohort_year: str | None = None) -> str:
+    """The name a row's provenance shows for a source code (D34)."""
+    if source == "SEAT_LEDGER":
+        return f"AICTE approval {cohort_year} (Seat Ledger, derived)"
+    return evidence.SOURCE_NAMES[source]
+
+
+def answered(
+    outcome: CheckOutcome,
+    source: str,
+    *,
+    observed_at: datetime | None = None,
+    cohort_year: str | None = None,
+) -> CheckOutcome:
+    """The outcome with the provenance of the source that answered it; observed now unless
+    the source gave its own time."""
+    return dataclasses.replace(
+        outcome,
+        supplied_by=supplied_by(source, cohort_year),
+        observed_at=observed_at or datetime.now(UTC),
+        independent=source in INDEPENDENT_SOURCES,
+    )
+
+
+def unavailable_outcome(check: CheckType, down: SourceDown, calls: int = 1) -> CheckOutcome:
+    """SOURCE_UNAVAILABLE: the source did not answer, so the row never contradicts (R4). The
+    provenance names the source asked; it observed nothing."""
     return CheckOutcome(
         type=check,
-        status=CheckStatus.PENDING,
+        status=CheckStatus.SOURCE_UNAVAILABLE,
         source=down.source,
         detail=down.detail,
         calls=(down.source,) * calls,
         unavailable=(down.source,),
+        supplied_by=supplied_by(down.source),
+        independent=down.source in INDEPENDENT_SOURCES,
     )
 
 

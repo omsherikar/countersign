@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     case_files_dir: str = "/data/case-files"
     demo_mode: bool = False  # enables demo-only tooling such as the audit tamper command
 
+    # DigiLocker sign-in, an OpenID Connect client (in the demo, mockgov's labelled simulator).
+    # The client id and secret must equal mockgov's: it signs the id token with the secret.
+    # The token call goes through the DigiLocker adapter (MOCKGOV_BASE_URL).
+    digilocker_client_id: str = "countersign-demo"
+    digilocker_client_secret: str = "countersign-demo-digilocker-client-secret"
+    # the sign-in page the browser opens
+    digilocker_authorize_url: str = "http://localhost:8001/digilocker/oauth/authorize"
+    # the `iss` the id token must carry
+    digilocker_issuer: str = "http://localhost:8001/digilocker"
+
     @field_validator("cors_origins", "smtp_allowed_hosts", mode="before")
     @classmethod
     def _split_list(cls, value: object) -> object:

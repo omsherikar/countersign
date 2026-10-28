@@ -498,7 +498,8 @@ async def institution_recheck(
     adapters: Adapters,
     body: InstitutionRecheckBody | None = None,
 ) -> InstitutionRecheck:
-    """Re-run every PENDING check except STUDENT of the institution's ACTIVE enrolments."""
+    """Re-run every PENDING and SOURCE_UNAVAILABLE check except STUDENT of the institution's
+    ACTIVE enrolments."""
     started = time.perf_counter()
     year = (body.academic_year if body else None) or get_settings().academic_year
     institution = await scoped_institution(session, user, institution_id)

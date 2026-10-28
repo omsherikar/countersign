@@ -398,10 +398,10 @@ export function evaluate(e: RollEntry) {
 
   // IDENTITY (APAAR)
   const sp = e.special;
-  if (international) checks.push(check("IDENTITY", "NA", "APAAR", "International student; identity is checked through the passport, not APAAR."));
-  else if (!linked) checks.push(check("IDENTITY", "NA", "APAAR", "APAAR not linked; admission is not blocked."));
+  if (international) checks.push(check("IDENTITY", "NOT_APPLICABLE", "APAAR", "International student; identity is checked through the passport, not APAAR."));
+  else if (!linked) checks.push(check("IDENTITY", "NOT_APPLICABLE", "APAAR", "APAAR not linked; admission is not blocked."));
   else if (sp.identity === "UNAVAILABLE")
-    checks.push(check("IDENTITY", "PENDING", "APAAR", "APAAR registry did not respond. This check stays pending until a recheck or the next upload.", { source_unavailable: true, source_error: "HTTP 503" }, sp.attempts ?? 1, "2026-10-28T09:12:44Z"));
+    checks.push(check("IDENTITY", "SOURCE_UNAVAILABLE", "APAAR", "APAAR registry did not respond. This check stays pending until a recheck or the next upload.", { source_unavailable: true, source_error: "HTTP 503" }, sp.attempts ?? 1, "2026-10-28T09:12:44Z"));
   else if (sp.identity === "REVIEW")
     checks.push(
       check("IDENTITY", "PENDING", "APAAR", `Name on upload is close to the APAAR registry but not a clear match (similarity ${e.nameScore} of 100); an officer should review.`, {
@@ -412,10 +412,10 @@ export function evaluate(e: RollEntry) {
       }),
     );
   else if (sp.identity === "NOT_IN_REGISTRY")
-    checks.push(check("IDENTITY", "FAIL", "APAAR", `APAAR ending ${e.apaarLast4} is not in the APAAR registry.`, { apaar_last4: e.apaarLast4 }));
+    checks.push(check("IDENTITY", "CONTRADICTED", "APAAR", `APAAR ending ${e.apaarLast4} is not in the APAAR registry.`, { apaar_last4: e.apaarLast4 }));
   else if (sp.identity === "NAME")
     checks.push(
-      check("IDENTITY", "FAIL", "APAAR", `Name on upload differs from the APAAR registry (similarity ${e.nameScore} of 100).`, {
+      check("IDENTITY", "CONTRADICTED", "APAAR", `Name on upload differs from the APAAR registry (similarity ${e.nameScore} of 100).`, {
         name_score: e.nameScore,
         dob_match: true,
         apaar_last4: e.apaarLast4,
@@ -423,7 +423,7 @@ export function evaluate(e: RollEntry) {
     );
   else
     checks.push(
-      check("IDENTITY", "PASS", "APAAR", `Name and date of birth match the APAAR registry (similarity ${e.nameScore} of 100).`, {
+      check("IDENTITY", "CONFIRMED", "APAAR", `Name and date of birth match the APAAR registry (similarity ${e.nameScore} of 100).`, {
         name_score: e.nameScore,
         dob_match: true,
         apaar_last4: e.apaarLast4,
@@ -433,41 +433,41 @@ export function evaluate(e: RollEntry) {
   // ADMISSION
   if (r.admission_route === "COUNSELLING" || r.admission_route === "LATERAL")
     checks.push(
-      check("ADMISSION", "PASS", "COUNSELLING", `Found in the ${stateName} counselling allotments for ${code} (${start}), round ${e.round}.`, {
+      check("ADMISSION", "CONFIRMED", "COUNSELLING", `Found in the ${stateName} counselling allotments for ${code} (${start}), round ${e.round}.`, {
         round: e.round,
         allotment_ref: r.counselling_ref,
         ref_mismatch: false,
       }),
     );
   else if (r.admission_route === "INTERNATIONAL")
-    checks.push(check("ADMISSION", "PASS", "SII", `Study in India confirms this admission to ${code} (${r.cohort_year}).`));
+    checks.push(check("ADMISSION", "CONFIRMED", "SII", `Study in India confirms this admission to ${code} (${r.cohort_year}).`));
   else if (e.seat)
-    checks.push(check("ADMISSION", "PASS", "SEAT_LEDGER", `${routeWord} admission is allowed for ${code} and holds a ${seatWord} seat.`, { seat_type: e.seatType }));
+    checks.push(check("ADMISSION", "CONFIRMED", "SEAT_LEDGER", `${routeWord} admission is allowed for ${code} and holds a ${seatWord} seat.`, { seat_type: e.seatType }));
   else
-    checks.push(check("ADMISSION", "FAIL", "SEAT_LEDGER", `${routeWord} admission has no ${seatWord} seat in ${code} (${r.cohort_year}).`, { seat_type: e.seatType }));
+    checks.push(check("ADMISSION", "CONTRADICTED", "SEAT_LEDGER", `${routeWord} admission has no ${seatWord} seat in ${code} (${r.cohort_year}).`, { seat_type: e.seatType }));
 
   // SEAT
   if (e.seat)
     checks.push(
-      check("SEAT", "PASS", "SEAT_LEDGER", `Holds seat ${e.seat.seat_code} (${SEAT_TYPE_WORD[e.seat.seat_type]}, ${e.seat.academic_year} approval).`, {
+      check("SEAT", "CONFIRMED", "SEAT_LEDGER", `Holds seat ${e.seat.seat_code} (${SEAT_TYPE_WORD[e.seat.seat_type]}, ${e.seat.academic_year} approval).`, {
         seat_code: e.seat.seat_code,
         seat_type: e.seat.seat_type,
       }),
     );
   else
     checks.push(
-      check("SEAT", "FAIL", "SEAT_LEDGER", `No ${seatWord} seat is free in ${code} (${r.cohort_year}); see the ${e.seatFlagName} flag.`, {
+      check("SEAT", "CONTRADICTED", "SEAT_LEDGER", `No ${seatWord} seat is free in ${code} (${r.cohort_year}); see the ${e.seatFlagName} flag.`, {
         flag_type: e.seatFlagName === "Quota breach" ? "QUOTA_BREACH" : "EXCESS_ADMISSION",
       }),
     );
 
   // STUDYING (ABC)
   const expected = (r.year_of_study - 1) * 2;
-  if (r.year_of_study === 1) checks.push(check("STUDYING", "NA", "ABC", "First year, no result yet."));
-  else if (!linked) checks.push(check("STUDYING", "NA", "ABC", "APAAR not linked; ABC credits cannot be checked."));
+  if (r.year_of_study === 1) checks.push(check("STUDYING", "NOT_YET_DUE", "ABC", "First year, no result yet."));
+  else if (!linked) checks.push(check("STUDYING", "NOT_APPLICABLE", "ABC", "APAAR not linked; ABC credits cannot be checked."));
   else if (sp.studying === "NONE")
     checks.push(
-      check("STUDYING", "FAIL", "ABC", `No credits recorded in ABC for ${expected} of ${expected} semesters since admission.`, {
+      check("STUDYING", "CONTRADICTED", "ABC", `No credits recorded in ABC for ${expected} of ${expected} semesters since admission.`, {
         expected,
         missing: expected,
         semesters: [
@@ -484,7 +484,7 @@ export function evaluate(e: RollEntry) {
         awaiting_semester: expected,
       }),
     );
-  else checks.push(check("STUDYING", "PASS", "ABC", `Credits recorded in ABC for all ${expected} semesters since admission.`, { expected, missing: 0 }));
+  else checks.push(check("STUDYING", "CONFIRMED", "ABC", `Credits recorded in ABC for all ${expected} semesters since admission.`, { expected, missing: 0 }));
 
   // STUDENT
   checks.push(check("STUDENT", "PENDING", "STUDENT_NOTICE", "Notice not sent yet."));
@@ -499,8 +499,8 @@ export function compact(checks: Check[]): Countersign {
     const c = checks.find((x) => x.type === t)!;
     return { type: t, status: c.status };
   });
-  const applicable = brief.filter((c) => c.status !== "NA").length;
-  const passes = brief.filter((c) => c.status === "PASS").length;
+  const applicable = brief.filter((c) => c.status !== "NOT_APPLICABLE" && c.status !== "NOT_YET_DUE").length;
+  const passes = brief.filter((c) => c.status === "CONFIRMED").length;
   return { score: { passes, applicable }, checks: brief };
 }
 
@@ -616,14 +616,14 @@ export function enrolmentDetail(e: RollEntry): Omit<EnrolmentDetail, "flags"> {
   };
 }
 
-/** POST /enrolments/{id}/recheck: re-runs PENDING checks except STUDENT; a source that answers now passes. */
+/** POST /enrolments/{id}/recheck: re-runs PENDING and SOURCE_UNAVAILABLE checks except STUDENT; a source that answers now passes. */
 export function recheck(e: RollEntry) {
   const before = e.checks.map((c) => ({ type: c.type, status: c.status }));
   if (e.special.identity === "UNAVAILABLE") e.special = { ...e.special, identity: undefined };
   evaluate(e);
   const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const results = before
-    .filter((b) => b.status === "PENDING" && b.type !== "STUDENT")
+    .filter((b) => (b.status === "PENDING" || b.status === "SOURCE_UNAVAILABLE") && b.type !== "STUDENT")
     .map((b) => {
       const after = e.checks.find((c) => c.type === b.type)!;
       after.checked_at = now;

@@ -44,6 +44,8 @@ class User(UUIDPk, Timestamps, Base):
     university_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("universities.id"))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_login_at: Mapped[datetime | None]
+    # the DigiLocker subject of a STUDENT who signed in through DigiLocker (D37)
+    digilocker_sub: Mapped[str | None] = mapped_column(String, unique=True)
 
     institution: Mapped[Institution | None] = relationship(lazy="joined")
     region: Mapped[Region | None] = relationship(lazy="joined")

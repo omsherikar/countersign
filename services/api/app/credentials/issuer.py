@@ -66,7 +66,7 @@ DEGREE_DISCLOSABLE = (
     "year_of_award",
 )
 ALWAYS_DISCLOSED = ("institution", "programme")
-REASON_CODES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "FLAG_CONFIRMED")
+REASON_CODES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "FLAG_CONFIRMED", "STUDENT_DISPUTE")
 ADMIN_REASON = "ADMIN"
 
 ISSUER_NAME = "Countersign"
@@ -99,7 +99,7 @@ CHECK_WORDS = {
     CheckType.STUDYING: "Studying",
     CheckType.STUDENT: "Student",
 }
-_VCT_KIND = {ENROLMENT_VCT: CredentialKind.ENROLMENT, DEGREE_VCT: CredentialKind.DEGREE}
+_VCT_KIND = {ENROLMENT_VCT: CredentialKind.ENROLMENT, DEGREE_VCT: CredentialKind.COMPLETION}
 
 
 # ------------------------------------------------------------------ wire helpers
@@ -290,9 +290,9 @@ async def _eligible(
 ) -> bool:
     if enrolment.status is not EnrolmentStatus.ACTIVE:
         return False
-    if checks.get(CheckType.STUDENT) is not CheckStatus.PASS:
+    if checks.get(CheckType.STUDENT) is not CheckStatus.CONFIRMED:
         return False
-    if any(status is CheckStatus.FAIL for status in checks.values()):
+    if any(status is CheckStatus.CONTRADICTED for status in checks.values()):
         return False
     if await _has_unresolved_high_flag(session, enrolment):
         return False
@@ -303,7 +303,8 @@ async def _eligible(
 
 # revocations a later upload can undo (the enrolment comes back ACTIVE); an officer's own
 # revocation or a confirmed flag stays until an officer acts again
-SYSTEM_RELEASES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED")
+# a dispute an officer later upheld does not block a new attestation either (R6)
+SYSTEM_RELEASES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "STUDENT_DISPUTE")
 
 
 async def _revoked_by_officer(session: AsyncSession, enrolment_id: uuid.UUID) -> bool:
@@ -464,7 +465,7 @@ async def issue_if_eligible(session: AsyncSession, enrolment_id: uuid.UUID) -> C
     claims["academic_year"] = enrolment.academic_year
     claims["year_of_study"] = enrolment.year_of_study
     claims["countersigned"] = {
-        "checks": [t.value for t in CHECK_ORDER if checks.get(t) is CheckStatus.PASS],
+        "checks": [t.value for t in CHECK_ORDER if checks.get(t) is CheckStatus.CONFIRMED],
         "on": ist_date(now).isoformat(),
     }
     return await _sign_and_store(
@@ -497,7 +498,7 @@ async def issue_degree(
         raise ApiError(404, "NOT_FOUND", "Enrolment not found.")
     if enrolment.status is not EnrolmentStatus.GRADUATED:
         raise not_graduated()
-    existing = await _active_credential(session, enrolment.id, CredentialKind.DEGREE)
+    existing = await _active_credential(session, enrolment.id, CredentialKind.COMPLETION)
     if existing is not None:
         return existing, False
     student, institution, programme = await _parts(session, enrolment)
@@ -522,14 +523,14 @@ async def issue_degree(
     credential = await _sign_and_store(
         session,
         enrolment=enrolment,
-        kind=CredentialKind.DEGREE,
+        kind=CredentialKind.COMPLETION,
         claims=claims,
         holder=None,
         expires_at=None,
         actor_id=actor_id,
     )
     if credential is None:  # issued by a concurrent request a moment ago
-        winner = await _active_credential(session, enrolment.id, CredentialKind.DEGREE)
+        winner = await _active_credential(session, enrolment.id, CredentialKind.COMPLETION)
         assert winner is not None
         return winner, False
     return credential, True

@@ -8,7 +8,13 @@ from app.adapters.base import AdapterSet, CounsellingResult, SiiResult
 from app.core.cohort import start_year
 from app.core.rules import get_rules
 from app.engine import evidence as ev
-from app.engine.checks.base import CheckSubject, SourceDown, call_source, pending_unavailable
+from app.engine.checks.base import (
+    CheckSubject,
+    SourceDown,
+    answered,
+    call_source,
+    unavailable_outcome,
+)
 from app.engine.contracts import CheckOutcome
 from app.models.enums import CheckStatus, CheckType
 
@@ -25,7 +31,7 @@ def admission_check_for(subject: CheckSubject) -> str:
 def decide_counselling(subject: CheckSubject, result: CounsellingResult) -> CheckOutcome:
     cohort_start = start_year(subject.cohort_year)
     if result.found:
-        status = CheckStatus.PASS
+        status = CheckStatus.CONFIRMED
         detail = ev.admission_counselling_found(
             state_name=subject.state_name,
             programme_code=subject.programme_code,
@@ -35,7 +41,7 @@ def decide_counselling(subject: CheckSubject, result: CounsellingResult) -> Chec
             counselling_ref=subject.counselling_ref,
         )
     else:
-        status = CheckStatus.FAIL
+        status = CheckStatus.CONTRADICTED
         detail = ev.admission_counselling_not_found(
             state_name=subject.state_name,
             programme_code=subject.programme_code,
@@ -53,14 +59,14 @@ def decide_seat_rules(subject: CheckSubject) -> CheckOutcome:
     target = subject.target_seat_type
     if not subject.target_capacity:
         status, detail = (
-            CheckStatus.FAIL,
+            CheckStatus.CONTRADICTED,
             ev.admission_seat_rules_no_pool(route, code, year, target),
         )
     elif subject.seat_in_cohort_approval and subject.seat_type is target:
-        status, detail = CheckStatus.PASS, ev.admission_seat_rules_pass(route, code, target)
+        status, detail = CheckStatus.CONFIRMED, ev.admission_seat_rules_pass(route, code, target)
     else:
         status, detail = (
-            CheckStatus.FAIL,
+            CheckStatus.CONTRADICTED,
             ev.admission_seat_rules_no_seat(route, code, year, target),
         )
     return CheckOutcome(type=CHECK, status=status, source="SEAT_LEDGER", detail=detail)
@@ -74,10 +80,10 @@ def decide_sii(subject: CheckSubject, result: SiiResult) -> CheckOutcome:
         and result.academic_year == subject.cohort_year
     )
     if confirmed:
-        status = CheckStatus.PASS
+        status = CheckStatus.CONFIRMED
         detail = ev.admission_sii_confirms(subject.programme_code, subject.cohort_year)
     else:
-        status, detail = CheckStatus.FAIL, ev.admission_sii_no_match()
+        status, detail = CheckStatus.CONTRADICTED, ev.admission_sii_no_match()
     return CheckOutcome(type=CHECK, status=status, source="SII", detail=detail, calls=("SII",))
 
 
@@ -86,12 +92,12 @@ async def evaluate(
 ) -> CheckOutcome:
     kind = admission_check_for(subject)
     if kind == SEAT_TYPE_RULES:
-        return decide_seat_rules(subject)
+        return answered(decide_seat_rules(subject), "SEAT_LEDGER", cohort_year=subject.cohort_year)
     if kind == STUDY_IN_INDIA:
         if not subject.passport_no:
             return CheckOutcome(
                 type=CHECK,
-                status=CheckStatus.FAIL,
+                status=CheckStatus.CONTRADICTED,
                 source="SII",
                 detail=ev.admission_sii_no_match(),
             )
@@ -102,8 +108,8 @@ async def evaluate(
             lambda: adapters.sii.verify(passport, subject.name_normalised, subject.nationality),
         )
         if isinstance(sii, SourceDown):
-            return pending_unavailable(CHECK, sii)
-        return decide_sii(subject, sii)
+            return unavailable_outcome(CHECK, sii)
+        return answered(decide_sii(subject, sii), "SII")
     # The upload's counselling_ref is the allotment reference, not the roll number the
     # list matches exactly, so it is compared after the match instead of sent as roll_no.
     found = await call_source(
@@ -119,5 +125,5 @@ async def evaluate(
         ),
     )
     if isinstance(found, SourceDown):
-        return pending_unavailable(CHECK, found)
-    return decide_counselling(subject, found)
+        return unavailable_outcome(CHECK, found)
+    return answered(decide_counselling(subject, found), "COUNSELLING")

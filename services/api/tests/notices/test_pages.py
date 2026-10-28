@@ -79,7 +79,7 @@ async def test_the_student_sees_their_notices_and_proofs(world, mailer, public, 
     )
     assert body["credentials"] == [proof]
     student_check = body["enrolments"][0]["countersign"]["checks"][-1]
-    assert student_check == {"type": "STUDENT", "status": "PASS"}
+    assert student_check == {"type": "STUDENT", "status": "CONFIRMED"}
 
 
 async def test_notice_states_newest_first(world, mailer):

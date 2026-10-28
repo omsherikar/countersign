@@ -343,7 +343,7 @@ def _card(
     recent: list[dict[str, Any]],
     now: datetime,
 ) -> dict[str, Any]:
-    is_degree = credential.kind is CredentialKind.DEGREE
+    is_degree = credential.kind is CredentialKind.COMPLETION
     return {
         "id": str(credential.id),
         "kind": credential.kind.value,

@@ -56,6 +56,9 @@ FLAG_NAMES = {
     FlagType.STUDENT_DENIED: "Student denied",
     FlagType.GHOST_RING: "Shared contact ring",
     FlagType.ANOMALY: "Unusual pattern",
+    FlagType.NOT_IN_JOINING_RECORD: "Not in joining record",
+    FlagType.ELIGIBILITY_BREACH: "Seat category not eligible",
+    FlagType.MISSING_FROM_UPLOAD: "Missing from upload",
 }
 MODE_WORDS = {
     ProgrammeMode.PHYSICAL: "physical",

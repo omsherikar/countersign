@@ -72,8 +72,9 @@ def parse_statuses(raw: str | None) -> list[FlagStatus] | None:
                 wanted = [FlagStatus(token)]
             except ValueError:
                 message = (
-                    "Status must be one of OPEN, DOCS_REQUESTED, CLEARED, ESCALATED, CONFIRMED "
-                    "or UNRESOLVED"
+                    "Status must be one of "
+                    + ", ".join(status.value for status in FlagStatus)
+                    + " or UNRESOLVED"
                 )
                 raise ApiError(
                     422,

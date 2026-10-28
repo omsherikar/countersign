@@ -134,6 +134,9 @@ class EnrolmentRow(BaseModel):
     source_row_no: int | None = None
     countersign: Countersign = Field(default_factory=Countersign)
     flags: list[FlagRef] = Field(default_factory=list)
+    # the record status (D35) and the sentence that explains it
+    record_status: str = "AWAITING_EVIDENCE"
+    status_reason: str | None = None
 
 
 class RelatedEnrolmentRow(EnrolmentRow):
