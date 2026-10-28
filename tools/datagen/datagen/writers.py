@@ -99,14 +99,20 @@ def normalize_zip(path: Path) -> None:
     os.replace(tmp, path)
 
 
-def write_xlsx(path: Path, rows: list[dict]) -> None:
+def headers_for(world: World, aicte_id: str) -> list[str]:
+    """The template columns, under the college's own headers when it uses some."""
+    own = world.header_maps.get(aicte_id, {})
+    return [own.get(column, column) for column in UPLOAD_COLUMNS]
+
+
+def write_xlsx(path: Path, rows: list[dict], headers: list[str] = UPLOAD_COLUMNS) -> None:
     wb = Workbook(write_only=True)
     wb.properties.created = FIXED_XLSX_TIME
     wb.properties.modified = FIXED_XLSX_TIME
     wb.properties.creator = "datagen"
     wb.properties.lastModifiedBy = "datagen"
     ws = wb.create_sheet("students")
-    ws.append(UPLOAD_COLUMNS)
+    ws.append(headers)
     for row in rows:
         # A blank stays an empty cell, as in a sheet a registrar fills in by hand.
         ws.append([None if row[c] == "" else row[c] for c in UPLOAD_COLUMNS])
@@ -114,10 +120,10 @@ def write_xlsx(path: Path, rows: list[dict]) -> None:
     normalize_zip(path)
 
 
-def write_csv(path: Path, rows: list[dict]) -> None:
+def write_csv(path: Path, rows: list[dict], headers: list[str] = UPLOAD_COLUMNS) -> None:
     with open(path, "w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh, lineterminator="\n")
-        writer.writerow(UPLOAD_COLUMNS)
+        writer.writerow(headers)
         for row in rows:
             writer.writerow([row[c] for c in UPLOAD_COLUMNS])
 
@@ -224,7 +230,7 @@ def demo_digilocker_accounts(
     return out
 
 
-def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
+def write_all(world: World, out: Path, *, xlsx: bool = True, submissions=None) -> dict:
     import time
 
     out.mkdir(parents=True, exist_ok=True)
@@ -243,12 +249,19 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         },
     )
     dump_json(out / "users.json", users_payload(world))
+    dump_json(
+        out / "column_mappings.json",
+        {aid: {header: column for column, header in own.items()}
+         for aid, own in sorted(world.header_maps.items())},
+    )  # fmt: skip
     world.timings["write_institutions_users"] = time.perf_counter() - t
 
     t = time.perf_counter()
     files: list[tuple[str, list[dict]]] = []
     for inst in world.institutions:
         aid = inst["aicte_permanent_id"]
+        if aid in world.overdue:
+            continue  # an overdue college sent no file
         rows = world.rows_by_inst[aid]
         rows.sort(key=row_sort_key(inst))
         files.append((upload_filename(aid, year), rows))
@@ -263,14 +276,15 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
             materialise(row)
             row["row_no"] = i
             row["_file"] = name
-        write_csv(out / name, rows)
+        write_csv(out / name, rows, headers_for(world, name.split("/")[1].split("_")[0]))
     world.timings["write_csv"] = time.perf_counter() - t
 
     world.xlsx_written = False
     if xlsx:
         t = time.perf_counter()
         for name, rows in files + updates:
-            write_xlsx(out / name.replace(".csv", ".xlsx"), rows)
+            headers = headers_for(world, name.split("/")[1].split("_")[0])
+            write_xlsx(out / name.replace(".csv", ".xlsx"), rows, headers)
         world.timings["write_xlsx"] = time.perf_counter() - t
         world.xlsx_written = True
 
@@ -322,7 +336,7 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "upload_files": len(files),
         "update_files": len(updates),
         "update_rows": sum(len(rows) for _, rows in updates),
-        "students": len(world.all_rows),
+        "students": sum(len(rows) for _, rows in files),
         "apaar_registry": len(registry),
         "counselling": len(counselling),
         "abc_credits": len(abc),
@@ -356,6 +370,12 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         # Notices the live demo answers by hand; notice_replies.jsonl leaves them unanswered.
         "demo_unanswered_notices": planner.unanswered,
         "reporting_deadline": {year: world.cfg.reporting_deadline(year)},
+        # When each file arrived; the seed sets its batch's upload time from it.
+        "uploads": submissions.submitted([n for n, _ in files], [n for n, _ in updates])
+        if submissions
+        else [],
+        "late_colleges": list(world.late),
+        "overdue_colleges": list(world.overdue),
         "demo_digilocker_accounts": demo_accounts,
         # The deck's sample record (ABC College CSE), or null without the named scenarios.
         "sample_card": sample_card,

@@ -103,7 +103,7 @@ def test_every_uploaded_student_who_joined_has_their_own_record(small):
         (g["rows"][1]["file"], g["rows"][1]["row_no"])
         for g in planted(small, "DUPLICATE_WITHIN_UPLOAD")
     }
-    files = [f"uploads/{aid}_2026-27.csv" for aid in small.institutions()] + small.update_files()
+    files = [f"uploads/{aid}_2026-27.csv" for aid in small.all_uploads()] + small.update_files()
     insts = small.institutions()
     held_back = unpublished(small)
     registry = {r["apaar_id"]: r["name"] for r in small.jsonl("apaar_registry.jsonl")}
@@ -187,11 +187,10 @@ def test_the_sample_card(small):
 
 
 def test_colleges_that_left_students_out(small):
-    recs = planted(small, "MISSING_FROM_UPLOAD")
+    recs = [r for r in planted(small, "MISSING_FROM_UPLOAD") if not r.get("overdue")]
     assert len(recs) == CFG["omitted_colleges"]["small"]
     assert any(r["institution_aicte_id"] == "1-XYZ-0002" and r["scenario"] == "xyz_missing"
                for r in recs)  # fmt: skip
-    recs = [r for r in recs if r.get("scenario") != "overdue"]
     by_roll = {r["roll_no"]: r for r in records(small)}
     registry = {r["apaar_id"] for r in small.jsonl("apaar_registry.jsonl")}
     counselling = {c["roll_no"]: c for c in small.jsonl("counselling.jsonl")}

@@ -159,6 +159,10 @@ class World:
         self.joining_records: list[dict] = []
         # statuses.py: rows behind the PROVISIONAL_CLAIM and SOMEONE_ELSE demo accounts.
         self.demo_rows: dict[str, dict] = {}
+        # submissions.py: colleges that sent no file, sent it late, or use their own headers.
+        self.overdue: list[str] = []
+        self.late: list[str] = []
+        self.header_maps: dict[str, dict[str, str]] = {}
         self._name_keys: dict[tuple[str, str], str] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]

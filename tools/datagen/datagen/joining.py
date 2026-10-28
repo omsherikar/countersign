@@ -312,7 +312,7 @@ class JoiningPlanner:
             missing=len(students), missing_students=students, joined=joined,
             uploaded_and_joined=joined - len(students),
             completeness_pct=round(100 * (joined - len(students)) / joined, 1),
-            scenario=extra.pop("scenario", "xyz_missing" if aid == XYZ_ID else None),
+            scenario="xyz_missing" if aid == XYZ_ID and self.w.cfg.scenarios else None,
             note=extra.pop(
                 "note",
                 f"{len(students)} first-years in the state admission authority's joining "

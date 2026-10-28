@@ -20,6 +20,7 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     from .signals import SignalPlanner
     from .statuses import StatusPlanner
     from .students import World
+    from .submissions import SubmissionPlanner
     from .updates import UpdatePlanner
     from .writers import write_all
 
@@ -45,21 +46,26 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     world.timings["graduates"] = time.perf_counter() - t
     # Everything below draws from streams of its own, so the rows above keep their values.
     t = time.perf_counter()
+    submissions = SubmissionPlanner(world, planter)
+    submissions.choose()
+    overdue = set(world.overdue)
     eligibility = EligibilityPlanner(world, planter)
-    added = eligibility.add_rows()
+    added = eligibility.add_rows(avoid=overdue)
     signals = SignalPlanner(world, planter)
     added += signals.plant()
     world.history = signals.history
     world.settle(added, random.Random(f"settle:{seed}"))
     eligibility.mark()
-    eligibility.plant(avoid=signals.colleges)
+    keep_clear = signals.colleges | overdue
+    eligibility.plant(avoid=keep_clear)
     world.timings["eligibility_signals"] = time.perf_counter() - t
     t = time.perf_counter()
-    statuses = StatusPlanner(world, planter, avoid=signals.colleges)
+    statuses = StatusPlanner(world, planter, avoid=keep_clear)
     statuses.plant_provisional()
-    joining = JoiningPlanner(world, planter, avoid=signals.colleges)
+    joining = JoiningPlanner(world, planter, avoid=keep_clear)
     joining.plan(self_issued_state=statuses.choose_self_issued_state())
     statuses.plant(joining)
+    submissions.record(joining)
     world.demo_rows = {
         role: row
         for role, row in (
@@ -70,7 +76,7 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     }
     world.timings["joinings_statuses"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
-    summary = write_all(world, out, xlsx=want_xlsx)
+    summary = write_all(world, out, xlsx=want_xlsx, submissions=submissions)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)
     with open(out / "summary.json", "w", encoding="utf-8", newline="\n") as fh:
         json.dump(summary, fh, indent=2, ensure_ascii=False)

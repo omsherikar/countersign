@@ -36,24 +36,29 @@ def test_every_contract_file_exists(small):
     ]:  # fmt: skip
         assert (small.path / name).is_file(), name
     insts = small.json("institutions.json")["institutions"]
+    overdue = set(small.json("manifest.json")["overdue_colleges"])
     for inst in insts:
         aid = inst["aicte_permanent_id"]
-        assert (small.path / "uploads" / f"{aid}_2026-27.csv").is_file()
-        assert (small.path / "uploads" / f"{aid}_2026-27.xlsx").is_file()
+        sent = aid not in overdue
+        assert (small.path / "uploads" / f"{aid}_2026-27.csv").is_file() is sent
+        assert (small.path / "uploads" / f"{aid}_2026-27.xlsx").is_file() is sent
     updates = small.update_files()
     assert updates
     for name in updates:
         assert re.fullmatch(r"uploads/[^_]+_2026-27_update1\.csv", name)
         assert (small.path / name.replace(".csv", ".xlsx")).is_file()
-    assert len(list((small.path / "uploads").glob("*.csv"))) == len(insts) + len(updates)
-    assert len(list((small.path / "uploads").glob("*.xlsx"))) == len(insts) + len(updates)
+    files = len(insts) - len(overdue) + len(updates)
+    assert len(list((small.path / "uploads").glob("*.csv"))) == files
+    assert len(list((small.path / "uploads").glob("*.xlsx"))) == files
 
 
 def test_csv_columns_match_contract(small):
-    """The contract's nineteen columns in order, then the optional eligibility markers."""
+    """The contract's nineteen columns in order, then the optional eligibility markers; a
+    college with its own headers uses them in the same order."""
     assert UPLOAD_COLUMNS == CONTRACT_COLUMNS + ELIGIBILITY_COLUMNS
-    for aid in ["1-ABC-0001", "1-XYZ-0002"]:
-        assert small.upload_columns(aid) == UPLOAD_COLUMNS
+    assert small.upload_columns("1-ABC-0001") == UPLOAD_COLUMNS
+    own = small.json("column_mappings.json")["1-XYZ-0002"]
+    assert [own.get(h, h) for h in small.upload_columns("1-XYZ-0002")] == UPLOAD_COLUMNS
 
 
 def test_xlsx_mirrors_csv(small):
@@ -68,11 +73,13 @@ def test_xlsx_mirrors_csv(small):
     assert first[1] == "Ravi Kumar Sharma"
     assert str(first[11]) == "1"
     assert first[18] == rows[0]["admission_date"]
+    mappings = small.json("column_mappings.json")
     for name in small.update_files():
         csv_rows = small.file(name)
         wb = load_workbook(small.path / name.replace(".csv", ".xlsx"), read_only=True)
         values = list(wb["students"].iter_rows(values_only=True))
-        assert list(values[0]) == UPLOAD_COLUMNS
+        own = mappings.get(name.split("/")[1].split("_")[0], {})
+        assert [own.get(h, h) for h in values[0]] == UPLOAD_COLUMNS
         assert len(values) - 1 == len(csv_rows)
         for cells, row in zip(values[1:], csv_rows, strict=True):
             # A read-only sheet leaves out trailing empty cells, as the api's reader expects.
@@ -184,7 +191,8 @@ def test_manifest_and_summary(small):
     manifest = small.json("manifest.json")
     assert set(manifest) == {
         "size", "seed", "generated_at", "counts", "demo_unanswered_notices", "reporting_deadline",
-        "demo_digilocker_accounts", "sample_card",
+        "demo_digilocker_accounts", "sample_card", "uploads", "late_colleges",
+        "overdue_colleges",
     }  # fmt: skip
     assert manifest["reporting_deadline"] == {"2026-27": "2026-09-30"}
     assert manifest["size"] == "small" and manifest["seed"] == 42
@@ -193,6 +201,7 @@ def test_manifest_and_summary(small):
     assert counts["students"] == sum(len(r) for r in small.all_uploads().values())
     assert counts["apaar_registry"] == len(small.jsonl("apaar_registry.jsonl"))
     assert counts["upload_files"] == len(small.all_uploads())
+    assert counts["institutions"] == len(small.all_uploads()) + len(manifest["overdue_colleges"])
     assert counts["update_files"] == len(small.update_files())
     assert counts["update_rows"] == sum(len(small.file(f)) for f in small.update_files())
     summary = small.json("summary.json")

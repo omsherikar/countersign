@@ -99,6 +99,7 @@ class SignalPlanner:
         a CIWG plant: the anomaly colleges stay clear of them."""
         w = self.w
         out = {ABC_ID, XYZ_ID} | set(w.update_files) | {aid for aid, _ in w.seat_cases}
+        out |= set(w.overdue)
         for rec in w.ground_truth:
             if rec["anomaly_type"] in {"GHOST_RING", "CIWG_ADMISSION"}:
                 out |= set(rec["institution_aicte_ids"])

@@ -59,7 +59,7 @@ def test_history_lists_last_years_admissions_per_college(small):
         assert list(entry["programmes"]) == ran
         assert entry["admitted"] == sum(entry["programmes"].values())
         second = {}
-        for row in small.upload(inst["aicte_permanent_id"]):
+        for row in small.all_uploads().get(inst["aicte_permanent_id"], []):
             if row["year_of_study"] == "2" and row["admission_route"] != "LATERAL":
                 second[row["programme_code"]] = second.get(row["programme_code"], 0) + 1
         for code, n in entry["programmes"].items():
@@ -72,7 +72,7 @@ def test_the_spike_college_grows_far_above_its_peers(small):
     recs = anomalies(small, "admission_growth")
     assert len(recs) == CFG["admission_spike"]["small"]
     history = {e["institution_aicte_id"]: e for e in small.json("history.json")["institutions"]}
-    values = {aid: growth(small, history, aid) for aid in history}
+    values = {aid: growth(small, history, aid) for aid in small.all_uploads()}
     for rec in recs:
         aid = rec["institution_aicte_id"]
         assert rec["expected_flag"] is None and rec["severity_expected"] is None
@@ -91,7 +91,7 @@ def test_the_spike_college_grows_far_above_its_peers(small):
 def test_the_share_college_admits_far_more_nri_and_management(small):
     recs = anomalies(small, "management_share")
     assert len(recs) == CFG["nri_management_share"]["small"]
-    values = {aid: share(small, aid) for aid in small.institutions()}
+    values = {aid: share(small, aid) for aid in small.all_uploads()}
     for rec in recs:
         aid = rec["institution_aicte_id"]
         assert rec["expected_signal"] == "ANOMALY" and rec["rows"] == []

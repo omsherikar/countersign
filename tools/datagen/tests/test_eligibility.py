@@ -19,7 +19,7 @@ def planted(small, kind: str) -> dict[tuple[str, int], dict]:
 
 
 def every_row(small):
-    for aid in small.institutions():
+    for aid in small.all_uploads():
         name = f"uploads/{aid}_2026-27.csv"
         for i, row in enumerate(small.file(name), start=2):
             yield name, i, row

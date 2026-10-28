@@ -41,7 +41,7 @@ def referenced_rows(gen, skip: set[str] = frozenset()) -> set[tuple[str, int]]:
 
 def test_one_line_per_initial_upload_row_in_file_order(small):
     expected = []
-    for aid in sorted(small.institutions()):
+    for aid in sorted(small.all_uploads()):
         name = f"uploads/{aid}_2026-27.csv"
         expected += [(name, n) for n in range(2, len(small.file(name)) + 2)]
     lines = replies(small)
