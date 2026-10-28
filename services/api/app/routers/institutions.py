@@ -12,6 +12,7 @@ from sqlalchemy import Select, String, cast, func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core import audit
+from app.core.cohort import cohort_year_sql
 from app.core.config import get_settings
 from app.core.crypto import mask_apaar
 from app.core.deps import RequestId, SessionDep, require_roles, scoped_institution
@@ -190,6 +191,8 @@ async def institution_detail(
             for pool_id, status_value, n in counts:
                 seat_counts[pool_id][status_value] = n
 
+    # "Admitted" against an approval is the approval's cohort in the current roll: rows
+    # from the current academic year whose year of study puts them in that intake.
     enrol_counts = (
         await session.execute(
             select(
@@ -199,8 +202,9 @@ async def institution_detail(
             )
             .where(
                 Enrolment.institution_id == institution.id,
-                Enrolment.academic_year == year,
+                Enrolment.academic_year == get_settings().academic_year,
                 Enrolment.status == EnrolmentStatus.ACTIVE,
+                cohort_year_sql(Enrolment.academic_year, Enrolment.year_of_study) == year,
             )
             .group_by(Enrolment.programme_id)
         )

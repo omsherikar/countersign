@@ -97,7 +97,8 @@ async def test_detail_scope_and_shape(
         "approved_intake": 120,
         "cutoff_date": "2026-09-15",
     }
-    assert cse["enrolments"] == 16 and cse["unseated"] == 16
+    # 15 first-years; the year-2 lateral entrant belongs to the 2025-26 batch
+    assert cse["enrolments"] == 15 and cse["unseated"] == 15
     pools = {p["seat_type"]: p for p in cse["pools"]}
     assert [p["seat_type"] for p in cse["pools"]] == [
         "REGULAR",

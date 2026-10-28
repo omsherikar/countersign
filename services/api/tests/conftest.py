@@ -7,6 +7,8 @@ Redis is never required: /healthz reports it as down and the test accepts either
 from __future__ import annotations
 
 import asyncio
+import csv
+import json
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -32,14 +34,16 @@ os.environ.setdefault("LOG_LEVEL", "WARNING")
 
 import httpx  # noqa: E402
 import pytest  # noqa: E402
-from sqlalchemy import func, select, text  # noqa: E402
+from sqlalchemy import func, select, text, update  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import dispose_engine, session_factory  # noqa: E402
 from app.main import app, run_migrations  # noqa: E402
+from app.models.enums import EnrolmentStatus  # noqa: E402
 from app.models.institution import Institution  # noqa: E402
+from app.models.student import Enrolment  # noqa: E402
 from app.seed.importer import Summary, import_directory  # noqa: E402
 
 
@@ -162,3 +166,114 @@ async def institution_id(aicte_id: str) -> str:
             )
         ).scalar_one()
     return str(row)
+
+
+# ------------------------------------------------------------ three cohorts
+
+# ABC CSE as datagen shapes it: one approval per cohort, and a single 2026-27 upload
+# holding years 1 to 3. Year 2 includes lateral entrants, who join the 2025-26 batch.
+THREE_COHORT_INTAKE = {"2024-25": 60, "2025-26": 90, "2026-27": 120}
+THREE_COHORT_ROWS = [  # (year_of_study, admission_route, rows)
+    (1, "COUNSELLING", 120),
+    (1, "MANAGEMENT", 13),  # the last of these is withdrawn after import
+    (2, "COUNSELLING", 80),
+    (2, "LATERAL", 6),
+    (3, "COUNSELLING", 50),
+]
+UPLOAD_COLUMNS = [
+    "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
+    "passport_no", "programme_code", "academic_year", "year_of_study", "admission_route",
+    "counselling_ref", "category", "consent_status",
+]  # fmt: skip
+
+
+def write_three_cohorts(root: Path) -> int:
+    """Write a datagen-shaped directory under root; returns the row_no to withdraw."""
+    (root / "uploads").mkdir(parents=True)
+    institutions = {
+        "regions": [{"code": "WEST", "name": "Western", "hq_city": "Mumbai"}],
+        "states": [{"code": "MH", "name": "Maharashtra", "region": "WEST"}],
+        "universities": [
+            {"code": "MSTU", "name": "Maharashtra State Technical University", "state_code": "MH"}
+        ],
+        "institutions": [
+            {
+                "aicte_permanent_id": "1-ABC-0001",
+                "name": "ABC College of Engineering",
+                "type": "PRIVATE_SELF_FINANCED",
+                "state_code": "MH",
+                "university_code": "MSTU",
+                "address_city": "Pune",
+                "established_year": 2004,
+                "programmes": [
+                    {
+                        "code": "CSE",
+                        "name": "B.Tech Computer Science and Engineering",
+                        "level": "UG",
+                        "discipline": "ENGINEERING",
+                        "shift": "FIRST",
+                        "approvals": [
+                            {"academic_year": year, "approved_intake": intake}
+                            for year, intake in THREE_COHORT_INTAKE.items()
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    (root / "institutions.json").write_text(json.dumps(institutions), encoding="utf-8")
+    users = [
+        {"email": "admin@aicte.demo", "password": PASSWORD, "role": "AICTE_ADMIN",
+         "name": "AICTE Administrator"},
+        {"email": "registrar@abc.edu.demo", "password": PASSWORD, "role": "INSTITUTION",
+         "name": "Registrar, ABC College of Engineering", "institution_aicte_id": "1-ABC-0001"},
+    ]  # fmt: skip
+    (root / "users.json").write_text(json.dumps(users), encoding="utf-8")
+
+    n = 0
+    with (root / "uploads" / "1-ABC-0001_2026-27.csv").open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=UPLOAD_COLUMNS)
+        writer.writeheader()
+        for year_of_study, route, count in THREE_COHORT_ROWS:
+            for _ in range(count):
+                n += 1
+                writer.writerow(
+                    {
+                        "apaar_id": f"7000{n:08d}",
+                        "name": f"Cohort Student {n:04d}",
+                        "dob": f"{2008 - year_of_study}-01-{1 + n % 28:02d}",
+                        "gender": "F" if n % 2 else "M",
+                        "mobile": f"98700{n:05d}",
+                        "email": f"cohort.{n:04d}@example.demo",
+                        "address": f"{n} Station Road, Pune",
+                        "nationality": "IN",
+                        "passport_no": "",
+                        "programme_code": "CSE",
+                        "academic_year": "2026-27",
+                        "year_of_study": year_of_study,
+                        "admission_route": route,
+                        "counselling_ref": "",
+                        "category": "GENERAL",
+                        "consent_status": "LINKED",
+                    }
+                )
+            if (year_of_study, route) == (1, "MANAGEMENT"):
+                withdrawn_row_no = n + 1  # row 1 is the header
+    return withdrawn_row_no
+
+
+@pytest.fixture
+async def three_cohorts(tmp_path) -> AsyncIterator[None]:
+    """Replace the shared data with the three-cohort ABC CSE set, then clear it again."""
+    await truncate_all()
+    withdrawn_row_no = write_three_cohorts(tmp_path)
+    await import_directory(session_factory(), tmp_path)
+    async with session_factory()() as session:
+        await session.execute(
+            update(Enrolment)
+            .where(Enrolment.source_row_no == withdrawn_row_no)
+            .values(status=EnrolmentStatus.WITHDRAWN)
+        )
+        await session.commit()
+    yield
+    await truncate_all()
