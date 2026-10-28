@@ -890,6 +890,7 @@ Placeholder words: `{source_name}` from copy deck `source.*` (APAAR registry, Co
 | SEAT | PASS | holds a seat of its cohort approval | `Holds seat {seat_code} ({seat_type_word}, {cohort_year} approval).` |
 | SEAT | FAIL | no seat | `No {seat_type_word} seat is free in {programme_code} ({cohort_year}); see the {flag_name} flag.` |
 | STUDYING | NA | first year | `First year, no result yet.` |
+| STUDYING | NA | lateral entrant in year 2 (route `LATERAL`; a lateral's completed years start at year 2) | `Joined in year 2 as a lateral entrant; no completed year to check yet.` |
 | STUDYING | NA | no APAAR | `APAAR not linked; ABC credits cannot be checked.` |
 | STUDYING | NA | ABC does not know the APAAR | `ABC has no record of this APAAR; see the Identity check.` |
 | STUDYING | PASS | credits in every expected semester | `Credits recorded in ABC for all {expected} semesters since admission.` |

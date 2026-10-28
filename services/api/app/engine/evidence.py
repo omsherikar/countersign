@@ -349,6 +349,10 @@ def studying_first_year() -> dict[str, Any]:
     return {"summary": "First year, no result yet."}
 
 
+def studying_lateral_entry() -> dict[str, Any]:
+    return {"summary": "Joined in year 2 as a lateral entrant; no completed year to check yet."}
+
+
 def studying_no_apaar() -> dict[str, Any]:
     return {"summary": "APAAR not linked; ABC credits cannot be checked."}
 

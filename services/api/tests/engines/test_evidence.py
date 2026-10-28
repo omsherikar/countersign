@@ -140,6 +140,9 @@ def test_seat_sentences() -> None:
 def test_studying_sentences() -> None:
     S = ev.SemesterCredits
     assert ev.studying_first_year()["summary"] == "First year, no result yet."
+    assert ev.studying_lateral_entry()["summary"] == (
+        "Joined in year 2 as a lateral entrant; no completed year to check yet."
+    )
     assert ev.studying_no_apaar()["summary"] == "APAAR not linked; ABC credits cannot be checked."
     assert ev.studying_unknown_apaar()["summary"] == (
         "ABC has no record of this APAAR; see the Identity check."
