@@ -81,13 +81,24 @@ export function SheetDialog({
   className?: string;
   lang?: string;
 }) {
+  // Opened from state rather than a Radix trigger, so remember the opener and hand focus back to it on close.
+  const opener = React.useRef<HTMLElement | null>(null);
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
         <DialogPrimitive.Content
           lang={lang}
-          onOpenAutoFocus={onOpenAutoFocus}
+          onOpenAutoFocus={(e) => {
+            opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            onOpenAutoFocus?.(e);
+          }}
+          onCloseAutoFocus={(e) => {
+            if (opener.current?.isConnected) {
+              e.preventDefault();
+              opener.current.focus();
+            }
+          }}
           className={cn(
             "fixed z-50 flex flex-col bg-paper-raised text-md text-ink shadow-lg outline-none",
             "inset-x-0 bottom-0 max-h-[92dvh] rounded-t-lg border-t border-line",
@@ -130,6 +141,11 @@ export function useSecondsLeft(until: number | null): number | null {
   const now = React.useSyncExternalStore(until === null ? noSubscribe : subscribeClock, clockNow, serverClock);
   if (until === null) return null;
   return Math.max(0, Math.ceil(until / 1000 - now));
+}
+
+/** The time in epoch ms, read without making render impure; `live` ticks it once a second. 0 on the server. */
+export function useNow(live = false): number {
+  return React.useSyncExternalStore(live ? subscribeClock : noSubscribe, clockNow, serverClock) * 1000;
 }
 
 /**

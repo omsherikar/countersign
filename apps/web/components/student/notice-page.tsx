@@ -75,6 +75,11 @@ export function NoticePage({ token }: { token: string }) {
   const [conflict, setConflict] = React.useState<"CHANGED_ONCE" | "WINDOW_CLOSED" | null>(null);
   const noButton = React.useRef<HTMLButtonElement>(null);
   const status = React.useRef<HTMLDivElement>(null);
+  const changeHeading = React.useRef<HTMLHeadingElement>(null);
+  const startChange = () => {
+    setMode("change");
+    requestAnimationFrame(() => changeHeading.current?.focus());
+  };
 
   const data = notice.data;
   const institution = data?.institution_name;
@@ -154,7 +159,9 @@ export function NoticePage({ token }: { token: string }) {
       <>
         {mode === "change" ? (
           <>
-            <h1 className="text-2xl">{tr("notice.change_heading")}</h1>
+            <h1 ref={changeHeading} tabIndex={-1} className="text-2xl outline-none">
+              {tr("notice.change_heading")}
+            </h1>
             <p className="mt-2 text-ink-muted">{tr("notice.change_once")}</p>
             <Claim notice={data} tr={tr} className="mt-6" />
             <Choices
@@ -166,12 +173,19 @@ export function NoticePage({ token }: { token: string }) {
               onNo={() => setSheetOpen(true)}
               noRef={noButton}
             />
-            <button type="button" className="mt-4 inline-flex h-11 items-center text-md text-ink-blue underline" onClick={() => setMode("view")}>
+            <button
+              type="button"
+              className="mt-4 inline-flex h-11 items-center text-md text-ink-blue underline"
+              onClick={() => {
+                setMode("view");
+                requestAnimationFrame(() => status.current?.focus());
+              }}
+            >
               {tr("notice.no_cancel")}
             </button>
           </>
         ) : data.response ? (
-          <Answered notice={data} tr={tr} done={done} conflict={conflict} onChange={() => setMode("change")} statusRef={status} />
+          <Answered notice={data} tr={tr} done={done} conflict={conflict} onChange={startChange} statusRef={status} />
         ) : (
           <>
             <Claim notice={data} tr={tr} />
