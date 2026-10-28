@@ -245,6 +245,15 @@ async def test_the_access_log_shows_roles_only_never_own_reads(cw, logins) -> No
     assert [i["at"] for i in items] == sorted((i["at"] for i in items), reverse=True)
     for email in ("admin@aicte.demo", "registrar@abc.edu.demo"):
         assert (await (await logins(email)).get("/students/me/access-log")).status_code == 403
+    # reading the log is audited too, and, being the student's own read, never listed
+    viewed = (
+        await admin.get(
+            "/admin/audit", params={"entity_id": str(cw.ravi_student), "action": "READ"}
+        )
+    ).json()["items"][0]
+    assert viewed["via"] == "access-log" and viewed["actor_role"] == "STUDENT"
+    again = (await student.get("/students/me/access-log", params={"page_size": 200})).json()
+    assert again["total"] == body["total"]
 
 
 ON = "2026-10-29"

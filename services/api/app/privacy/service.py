@@ -424,6 +424,10 @@ async def access_log(
     stmt = _access_stmt(student_id, own_user_id)
     total = await _count(session, stmt)
     rows = (await session.execute(stmt.offset(page.offset).limit(page.page_size))).all()
+    # the view is itself a read of the record, by the student, so it never shows here
+    await audit.record(
+        session, own_user_id, AuditAction.READ, "student", student_id, after={"via": "access-log"}
+    )
     return _page([_access_row(*row) for row in rows], total, page)
 
 
