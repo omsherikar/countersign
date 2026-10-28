@@ -1,10 +1,10 @@
 # Later pages (Weeks 2 to 4)
 
-Lower fidelity than `03-pages-week1.md`: purpose, sketch, elements with their expected data, states and the key copy. Shared rules from `03-pages-week1.md` §0 apply. Week 2 pages read the endpoints and fields of `API_CONTRACT.md` Addendum 2 (§A2.x below); where an earlier proposal here differed, the contract replaced it. Endpoints marked (proposed) in Weeks 3 and 4 are not in the contract yet.
+Lower fidelity than `03-pages-week1.md`: purpose, sketch, elements with their expected data, states and the key copy. Shared rules from `03-pages-week1.md` §0 apply. Week 2 pages read the endpoints and fields of `API_CONTRACT.md` Addendum 2 (§A2.x below); where an earlier proposal here differed, the contract replaced it. Week 3 pages read the endpoints of DECISIONS D23 to D33, written out in API_CONTRACT Addendum 3. Endpoints marked (proposed) in Week 4 are not in the contract yet.
 
 ## Week 2
 
-Nav from Week 2: the registrar's Upload and Flags items and the officers' Cases item become live. Every Week 2 page is read only for flags (officer actions arrive in Week 3). Copy ids refer to `05-copy-deck.md`; its §3 rule "Seats against admissions" applies to every page below.
+Nav from Week 2: the registrar's Upload and Flags items and the officers' Cases item become live. Every Week 2 page is read only for flags (officer actions are W3-8). Copy ids refer to `05-copy-deck.md`; its §3 rule "Seats against admissions" applies to every page below.
 
 ### W2-1. `/college/upload` (the form)
 
@@ -116,7 +116,7 @@ One shared component. Input: the compact `countersign {score, checks: [{type, st
 - Five segments in the order Identity, Admission, Seat, Studying, Student. PASS filled; FAIL filled with a cross; PENDING hollow; NA hatched grey. PENDING is never red.
 - Text: [strip.score]; [strip.score_pending] only when a check other than Student is pending (`{pending}` leaves Student out). `score: null` prints [strip.not_checked] beside five hollow grey segments.
 - The strip is one focusable control (one Tab stop per row). Hover, focus or tap opens a small popover listing the five checks: [strip.segment_tip] lines in lists, [strip.segment_tip_full] lines on enrolment detail. `aria-label` is [strip.aria]. All three use the pending words of copy deck §3: in lists a pending check other than Student reads "Pending" (lists carry no detail); Student reads "Notice not sent yet".
-- Week 2 truth: the Student check is pending for every active enrolment, so nobody reads "4 of 4". The demo student reads "3 of 4" (Identity, Admission and Seat countersigned, Studying n/a, Student pending).
+- Before any reply the Student check is pending, so the demo student reads "3 of 4" (Identity, Admission and Seat countersigned, Studying n/a, Student pending); after Ravi answers Yes the strip reads "4 of 4" (W3-1).
 
 ### W2-4. Enrolment tables (Enrolments tab, `/college/enrolments`)
 
@@ -222,7 +222,6 @@ Replaced by the contract: row fields `evidence.summary`, `opened_at`, `programme
 Overview / Cases / Excess admission, ABC College of Engineering
 Excess admission                                    High · Open · opened 28 Oct 2026
 ABC College of Engineering · CSE · 2026-27
-Read only for now. Clearing, requesting documents, escalating and confirming open in Week 3.
 
 Evidence
 132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat.
@@ -243,11 +242,11 @@ History
 ```
 
 Data, `GET /flags/{id}` (§A2.16):
-- Header: type name, [flag.meta], [flag.where] (or [flag.where_no_programme]), then [flag.readonly_officer] or, for the registrar, [flag.readonly_college]. No action bar.
+- Header: type name, [flag.meta], [flag.where] (or [flag.where_no_programme]), then, for the registrar, [flag.readonly_college]. Officers get the action bar and history of W3-8; the registrar gets Respond (W3-7).
 - Evidence: `evidence.summary` verbatim; facts table (Fact, Value, Source) in the order sent, a null source left blank; [flag.rule] when `rule_source` is set. The registrar receives the redacted summary and facts; the page prints what it gets.
 - [flag.enrolment_heading]: `enrolment` as one enrolments-table row with an Institution column; left out when null (Excess admission, Quota breach).
 - [flag.related_heading]: `related_enrolments` as enrolments-table rows with an Institution column; officers see both institutions of a cross-institution flag. [flag.related_hidden] when `related_hidden` is above 0. Empty [empty.related]. Student cells link to enrolment detail.
-- History: one line, [case.history.opened] with `created_at` (`history` is `[]` in Week 2).
+- History: [case.history.opened] with `created_at`, then the `history` rows of W3-8.
 - Footer [privacy.read_logged]; the api writes READ audit entries for every student shown.
 
 States: 404 [err.NOT_FOUND_flag] with a link back to the list.
@@ -269,74 +268,461 @@ Replaced by the contract: `opened_at` (now `created_at`), `attachments`, and the
 
 ## Week 3
 
+Week 3 pages read the endpoints of DECISIONS D23 to D33 by the names below; request and response shapes, scoping and errors are written out in API_CONTRACT Addendum 3, and where this file and the contract differ, the contract wins. Copy ids refer to `05-copy-deck.md`.
+
+Nav from Week 3: the student's Notices, My proofs and Privacy, the university's Degree print, and the AICTE officer's Audit and Data requests are live links. Only Week 4 items (Reports, Why this score, Private matching) stay disabled.
+
+Phone first. The notice page (W3-1) and the verify pages (W3-4) are public and mostly opened on a phone; the student pages (W3-2, W3-3) are too. Each is specified at 390 px wide: one column, 16 px side gutters, body text 16 px, primary buttons full width and at least 48 px tall, other targets at least 44 px, nothing hover-only, no horizontal scroll, and the loading, empty and error states fit the same column.
+
+### Changes to Week 2 pages
+
+- Countersign strip (W2-3): the Student check is live. A Yes countersigns it, a No does not, and otherwise it is pending and reads [check.pending.student] "No reply yet" in lists. A pending Student check stays out of ", n pending". The demo student reads "3 of 4" until Ravi answers, then "4 of 4".
+- Enrolment detail (W2-5): the Student row prints the api sentence verbatim (deck §15) with the Result word from `detail.notice_state` (deck §3); the page gains the Student notice block and Resend notice (W3-10).
+
+```
+Countersign checks
+Check      Result         Source         Checked                 Detail
+Identity   Countersigned  APAAR registry 28 Oct 2026, 15:32 IST  Name and date of birth match the APAAR registry (similarity 100 of 100).
+...
+Student    No reply yet   Student reply  28 Oct 2026, 15:40 IST  Notice sent on 28 Oct 2026; no reply yet.
+```
+
+- Flag lists (W2-7): the officers' case queue gains the Assignee column and the Assignee and Response filters (W3-8).
+- Flag detail (W2-8): officers get history and actions (W3-8); the registrar gets Respond while documents are requested (W3-7) and [flag.readonly_college] otherwise.
+- Dashboards (W2-9): the Countersigned tile rises above 0 as students confirm; its tooltip is [kpi.countersigned_tip].
+- `/student`: under the strip, one of [student.check_student_pending], [student.check_student_sent], [student.check_student_expired] or [student.check_student_denied] (deck §8); the Notices and My proofs sections show the newest notice and proof and link to W3-2; [privacy.how_link] links to `/student/privacy`; the consent badge tooltip ends with [student.consent_change].
+- `/university`: the Degree print teaser goes; the nav item is live.
+- `/verify`: the Week 1 shell is replaced by W3-4.
+
 ### W3-1. `/student/notices/[token]` (public notice page)
 
-```
-[mark] Countersign
-ABC College of Engineering says
-you joined B.Tech Computer Science and Engineering
-Academic year 2026-27 · Year 1
-They uploaded this on 14 Jul 2026 for APAAR XXXX XXXX 4417.
+Purpose: the person whose details a college uploaded says yes or no, from one link, without signing in.
 
-Is that right?
-[ Yes, that is right ]
-[ No, that is not me ]
-If you say no, an AICTE officer will look into it. Nothing changes for you until then.
-▸ What is this?
+```
+390 px
++--------------------------------------+
+| [mark] Countersign        [ हिन्दी ] |
+|                                      |
+| ABC College of Engineering says      |
+| you joined B.Tech Computer Science   |
+| and Engineering                      |
+| Academic year 2026-27 · Year 1       |
+| They uploaded this on 14 Jul 2026    |
+| for APAAR XXXX XXXX 4417.            |
+|                                      |
+| Is that right?                       |
+| By replying, you let AICTE record    |
+| your answer ...     [consent.notice] |
+| [       Yes, that is right       ]   |
+| [       No, that is not me       ]   |
+| If you say no, an AICTE officer will |
+| look into it. Nothing changes for    |
+| you until then.                      |
+| > What is this?                      |
++--------------------------------------+
 ```
 
-Data: `GET /notices/{token}` (proposed: `institution_name, programme_name, academic_year, year_of_study, apaar_masked|provisional_id, uploaded_at, expires_at, response, responded_at`). `POST /notices/{token}/respond {response: "YES"|"NO", comment?}`.
-States: fresh; answered Yes [notice.yes_done]; answered No [notice.no_done]; already answered (shows the answer and "Change my answer" once within 7 days); expired [notice.expired]; invalid token [notice.invalid].
-Consent: the page shows [consent.notice] in small text above the buttons; the Yes response records a `consents` row (`NOTICE`, `GIVEN`).
-Hindi: a language toggle "हिन्दी" switches the headline, buttons and next-step line to [notice.*.hi] (marked for review in the copy deck).
+Data: `GET /notices/{token}` and `POST /notices/{token}/respond {response: "YES" | "NO", comment?}`, both public and limited to 30 per minute per IP (D32). The page reads the institution name, programme name and short name, academic year, year of study, `apaar_masked` or the provisional id, the upload date, `expires_at`, `response`, `responded_at`, and whether the one change of answer is used and until when it is allowed. Opening the page writes a READ audit entry with no actor (D29). A Yes records a NOTICE consent with the text of [consent.notice] (D24). A second respond within 7 days of the first reply is the one allowed change; after that the api answers 409 `NOTICE_ALREADY_CHANGED`.
+
+What the page never shows: the student's name, date of birth, email or mobile. The claim and the masked id are enough for the right person to recognise it, and nothing more reaches whoever holds the link.
+
+States:
+- Loading: a skeleton of the claim and two button shapes; [shell.loading_slow] after 3 s.
+- Fresh: as sketched. Page title [notice.page_title].
+- No pressed: a sheet with [notice.no_confirm], an optional textarea labelled [notice.no_comment_label] (500 characters) with [notice.no_comment_hint] under it, then [notice.no_submit] and [notice.no_cancel]. Focus goes to the textarea; Esc or Go back closes the sheet and returns focus to the No button.
+- Sending: the pressed button reads [notice.sending]; both buttons are disabled.
+- Answered Yes: [notice.yes_done], [notice.yes_next] with the link [notice.see_proofs] (`/student/wallet`, sign-in needed), then [notice.change_window] and [notice.change].
+- Answered No: [notice.no_done], then [notice.change_window] and [notice.change]. The comment is not shown back.
+- Opened again within 7 days, answer not changed: [notice.answered], [notice.change_window], [notice.change].
+- Change: [notice.change_heading], [notice.change_once], the claim, both buttons with the current answer marked [notice.current_answer] (word and icon) and disabled; the other button confirms as in Fresh (No opens the same sheet); then [notice.changed_done].
+- Change used, or a 409 `NOTICE_ALREADY_CHANGED`: [notice.change_used]; no buttons.
+- Change window over: [notice.answered] and [notice.change_closed]; no buttons.
+- Expired (410 `NOTICE_EXPIRED`): [notice.expired]; no claim, no form.
+- Not valid (404 `NOTICE_NOT_FOUND`, the same body for a malformed and an unknown token): [notice.invalid]; no claim, no form.
+- Rate limited (429): [notice.rate_limited] with a countdown; the buttons stay disabled until it ends.
+- Network or server error: [err.NETWORK] or [err.INTERNAL] with [err.retry]; the choice and the comment are kept, and a retry never sends twice.
+
+Hindi: the toggle [notice.lang_hi] / [notice.lang_en] is a `<button aria-pressed>` whose label carries its own `lang`. With Hindi on, every string above uses its `.hi` row (deck §8), states and errors included, the content carries `lang="hi"`, and institution and programme names print as sent. The choice lasts for the visit.
+
+Phone (390 px): the claim at 22 px, body 16 px; Yes above No, both full width, 48 px tall, 12 px apart and of equal weight (No is neither red nor a text link); the consent line in small text, at least 13 px; What is this? is a native disclosure.
 
 ### W3-2. `/student/notices` and `/student/wallet`
 
-Notices list: Date, From (institution), Claim, Your reply (Confirmed / Denied / No reply yet), link to the notice page.
-Wallet: one card per credential: kind ("Enrolment proof", "Degree"), issuer line "Issued by Countersign for ABC College of Engineering", issued date, status Active or Revoked. Buttons "Share proof", "Show details". Share sheet per Flow 5 with [consent.credential_share]; QR with the human code under it and "Shares n of m fields", "Valid for 10 minutes". History list "Shared with a verifier at 10:42".
-Data: `GET /credentials`, `POST /credentials/{id}/present {fields}` -> `{code, qr_svg|url, expires_at}` (proposed).
+#### Notices
+
+```
+390 px
+Notices
+Messages asking you to confirm what a college told AICTE about you.
+
+28 Oct 2026 · ABC College of Engineering
+You joined B.Tech CSE (2026-27)
+By email and DigiLocker
+Your reply: Yes, on 28 Oct 2026
+```
+
+Data: the student's notices in `GET /students/me` `notices[]` (D23): institution, programme, academic year, channels, sent date, `expires_at`, `response`, `responded_at` and the change date. One block per claim (a notice sent by email and DigiLocker is one block), newest first; from 768 px a table with the [notices.col.*] headers.
+- Your reply: [notices.reply.YES], [notices.reply.NO], [notices.reply.NONE] or [notices.reply.EXPIRED]; [notices.changed] in small text after a change; [notices.denied_line] under a No.
+- An unanswered live notice shows [notices.reply_hint]. The list cannot link to the notice page: only a hash of each link is stored (D23).
+- [notices.consent_off] above the list when the student withdrew notice consent.
+- States: loading skeleton blocks; empty [empty.notices_student]; error [err.INTERNAL] with [err.retry].
+
+#### Wallet
+
+```
+390 px
+My proofs
+Proofs you can show an employer or anyone else who needs to check
+your enrolment. You choose what they see.
++------------------------------------+
+| Enrolment proof           ✓ Active |
+| ABC College of Engineering         |
+| B.Tech Computer Science and        |
+| Engineering                        |
+| Issued by Countersign for ABC      |
+| College of Engineering             |
+| Issued 28 Oct 2026                 |
+| Valid until 31 Aug 2027            |
+| [         Share proof          ]   |
+| Show details                       |
+| Sharing history                    |
+| 28 Oct 2026, 10:40: QR created,    |
+| shares 3 of 8 fields               |
+| Shared with a verifier at 10:42    |
++------------------------------------+
+```
+
+Share sheet, then its result:
+
+```
+Share this proof
+Choose what to share
+Institution and programme are always shared. Tick anything else the
+verifier needs.
+[x] Institution (always shared)  ABC College of Engineering
+[x] Programme (always shared)    B.Tech Computer Science and Engineering
+[ ] Name                         Ravi Kumar Sharma
+[ ] Academic year                2026-27
+[x] Year of study                1
+[ ] Date of birth                21 Mar 2007
+[ ] APAAR (masked)               XXXX XXXX 4417
+[ ] Checks that agree (countersigned)
+    Identity, Admission, Seat and Student, as of 28 Oct 2026
+Shares 3 of 8 fields
+I am creating a proof that shows only the fields I ticked. ...
+[ ] I agree
+[            Create QR            ]
+
+            [ QR, 240 px ]
+    K7PQ-3M2X-9ZAB-4TNE-W8RC-6HDF
+Shares 3 of 8 fields
+Shared: Institution, Programme, Year of study
+Valid for 10 minutes · Expires in 9:42
+The verifier can type this code at localhost:3000/verify instead of scanning.
+[ Copy code ]  [ Copy link ]
+[              Done               ]
+```
+
+Data: the student's own proofs from `GET /credentials` (kind, `short_id`, issuer, issued and expiry dates, revocation with its reason and date, the disclosable claims with their values, and each share with its dates and `verify_count`); `POST /credentials/{id}/present {fields, consent: true}` returns `{code, url, qr_svg, expires_at, disclosed, total}` (D26). A proof is issued by the api, never requested from this page: an enrolment proof appears once the Student check is countersigned, no check is not countersigned and no High flag is unresolved. Errors: 409 `CREDENTIAL_REVOKED` [err.CREDENTIAL_REVOKED]; 422 without consent [wallet.consent_required].
+
+Elements:
+- One card per proof: [wallet.kind.*], a status badge (icon and [wallet.status.*] word), institution and programme (a degree proof: university, programme and year of award), [wallet.issued_by] or [wallet.issued_by_degree], [wallet.issued_on], [wallet.valid_until], [wallet.share], and [wallet.details], which opens a definition list of every claim under [wallet.details_heading] with [wallet.proof_id].
+- Revoked: badge Revoked, [wallet.revoked_line], the [wallet.revoked_reason.*] sentence and [wallet.revoked_help]; no Share. Expired: [wallet.expired_line]; no Share.
+- No proof for an active enrolment: a card [wallet.not_issued_heading] with [wallet.not_issued.reply], [wallet.not_issued.checks] or [wallet.not_issued.denied] by the Student check. It never names a flag or a failed check.
+- Share sheet: a modal dialog from 768 px, a full-height bottom sheet below (`role="dialog"`, `aria-modal="true"`, labelled by [wallet.share_heading]). The 8 fields of D26 in the deck §8 order, each a real checkbox with its label and the value it would share; institution and programme are checked, `aria-disabled="true"` and announced with [wallet.always_shared]. [wallet.shares] updates as boxes change, inside an `aria-live="polite"` region. [consent.credential_share] sits above [wallet.consent_label]; Create QR without the tick shows [wallet.consent_required] and focuses the checkbox. While sending, the button reads [wallet.creating].
+- Result: `qr_svg` inline with `role="img"` and [wallet.qr_alt], at least 240 px with its quiet zone; the code under it in monospace, 18 px, selectable, exactly as sent; [wallet.shares] and [wallet.shared_fields]; [wallet.valid_for] and the countdown [wallet.expires_in] (screen readers hear [wallet.expires_in_sr] at 5 and at 1 minute only); [wallet.code_hint]; [wallet.copy_code] and [wallet.copy_link], confirming with [wallet.code_copied] or [wallet.copied] in the live region; [wallet.done]. At expiry the QR gives way to a dashed box with [wallet.expired_share] and [wallet.new_qr]; the old code stays, struck through, with the word Expired beside it.
+- Sharing history: per proof, newest first: [wallet.history.created], then [wallet.history_item] rows (D27), [wallet.history_item_more] or [wallet.history.unused] as deck §8 says, and [wallet.history_note] under the list; empty [wallet.history_empty].
+- Keyboard: Share proof opens the sheet with focus on the first unlocked checkbox (Name); Tab and Shift+Tab stay inside; Space toggles; Enter on Create QR sends; after Create QR focus moves to the code; Esc or Done closes and returns focus to Share proof.
+- States: loading skeleton card; no enrolment and no proof [empty.credentials_student]; error [err.INTERNAL] with [err.retry].
+
+Phone (390 px): one card per row, buttons full width; the bottom sheet scrolls inside itself with Create QR pinned to its foot.
 
 ### W3-3. `/student/privacy`
 
-Sections: Consents (purpose in words, status, date, the exact text shown, "Withdraw" where allowed), Who viewed my record (from audit READ rows: role and date only, never officer names), Data requests (Access, Correction, Erasure forms -> `data_requests`). Copy [privacy.*].
+Purpose: the student sees what they agreed to and who looked at their record, and asks for a copy, a correction or an erasure (D30).
 
-### W3-4. `/verify` and `/verify/[code]`
+```
+390 px
+Privacy
+What you agreed to, who has viewed your record, and requests
+about your data.
+> Read the privacy notice
 
-Entry page as Week 1 but live: camera scan (getUserMedia, fallback to paste), code input, "Check" -> `GET /verify/{code}` (public, 60/min).
-Result page states:
-- Valid: large heading [verify.valid], issuer, issued date, the disclosed fields as a definition list, "Revocation checked just now", nothing else.
-- Revoked [verify.revoked]; expired presentation [verify.expired]; malformed [verify.invalid]; rate limited [err.RATE_LIMITED].
-Never shows a full APAAR, never offers search.
+What you agreed to
+Using your APAAR to check your enrolment
+Given on 28 Oct 2026
+Recorded by your college when it uploaded your enrolment
+> Show the exact text
+Unlinking your APAAR is a correction request, because ...
+[ Ask to unlink my APAAR ]
 
-### W3-5. `/university/degrees` and print view
+Notices asking you to confirm an enrolment
+Given on 28 Oct 2026
+Given when you replied Yes to a notice
+> Show the exact text
+[ Withdraw ]
 
-List: `GET /university/graduates?q` (proposed): name, institution, programme, year, masked APAAR, degree credential status. Row action "Print degree insert" or "Issue degree proof".
-Print view: A4, no nav, `@media print`; university name, student name, programme, institution, year of award, "APAAR XXXX XXXX 4417", QR (DEGREE credential), "Scan to verify" with the verify URL. Button "Print" calls `window.print()`.
+Who viewed your record
+Every time someone opens your record it is logged. You see
+their role and the date, never their name.
+Date          Who
+28 Oct 2026   An AICTE officer
+28 Oct 2026   Your college
+28 Oct 2026   Someone who opened your notice link
 
-### W3-6. `/admin/audit`
+Requests about your data
+[ Make a request ]
+Correction, sent 28 Oct 2026   Open
+Waiting for a reply from AICTE
+```
 
-Table from `GET /admin/audit?page&actor_id&entity_type`: Seq, Time, Actor (email), Action, Entity type, Entity id (short), Hash (first 8, full on hover). Filters by entity type and actor. "Verify chain" button as on `/admin/system`; result banner "Chain intact, 1,842 entries" or "Chain broken at entry 917" (the row is highlighted and scrolled into view).
+Data: `GET /privacy/notice` (public, versioned), `GET /students/me/consents`, `POST /students/me/consents/{purpose}/withdraw` for NOTICE and CREDENTIAL_SHARE, `GET /students/me/access-log` (READ entries about the student and their enrolments, role and date only), `POST /students/me/data-requests {kind, details}`, `GET /students/me/export.json`, and the student's own requests with their replies as API_CONTRACT Addendum 3 lists them.
+
+Elements:
+- Privacy notice: [privacy.notice_link] opens the notice in place (a disclosure) with [privacy.notice_version].
+- Consents (deck §20): purpose words, state, the via line, and the exact stored text behind [privacy.consent_text_show] with [privacy.consent_version]. Withdraw opens a confirmation dialog with [consent.withdraw.NOTICE] or [consent.withdraw.CREDENTIAL_SHARE], [privacy.withdraw_confirm] and [privacy.withdraw_cancel], focus on Keep it; success shows [privacy.withdraw_done.*] in a live region and the row then reads [privacy.withdrawn_on]. The APAAR row has no Withdraw: it shows [consent.unlink_apaar] and [privacy.unlink_apaar], which opens the request form on Correction prefilled with [privacy.request.unlink_prefill]. Empty [privacy.consent_none].
+- Access log: a two-column table (Date, Who), newest first, 25 rows then [privacy.access.more]. Who is a role phrase from deck §20, never a name, an email, an IP or another college. Empty [privacy.access_empty].
+- Requests: [privacy.request.new] opens a form: a radio group [privacy.request.kind_label] with the three kinds and their hints, the details field labelled for the kind (required for Correction and Erasure, with [privacy.request.details_required] under an empty field), and [privacy.request.submit]. Access: the form gives way to [privacy.export_ready], [privacy.export_download] and [privacy.export_note] ([privacy.export_preparing] while the file is fetched). Correction and Erasure: [privacy.request.sent], and the list gains the request with [privacy.request.row], the [data_request_status.*] word with an icon, [privacy.request.waiting] while Open, and [privacy.request.reply] with the officer's text once resolved. Empty [privacy.request.none].
+- States: each section loads and fails on its own (skeleton; [err.tile_failed] with retry); the page never blanks.
+
+Phone (390 px): sections stack; the access log stays a two-column table; buttons full width.
+
+### W3-4. `/verify`, `/verify/[code]` and `/verify/d/[jws]` (public verifier)
+
+Purpose: anyone holding a student's QR or code checks it, sees only what the student shared, and learns nothing else (D27). No sign-in, no nav, no search, never a list.
+
+```
+390 px, entry                            390 px, result
++------------------------------------+   +------------------------------------+
+| [mark] Countersign  Verify a proof |   | ✓ Valid                            |
+| Verify an enrolment or degree      |   | Valid proof                        |
+| proof                              |   | Enrolment proof                    |
+| Scan the QR on the document, or    |   | Issued by Countersign for ABC      |
+| type the code printed under it.    |   | College of Engineering on          |
+| [       Scan with camera       ]   |   | 28 Oct 2026.                       |
+| Code                               |   | Signature checked against          |
+| [K7PQ-3M2X-9ZAB-4TNE-W8RC-6HDF ]   |   | Countersign's published keys.      |
+| 24 letters and digits. Dashes and  |   | Revocation checked just now.       |
+| spaces are optional.               |   | The student shared this proof for  |
+| [            Check             ]   |   | this check, from their own wallet. |
+| > Have the proof text instead of a |   | Shared by the student              |
+|   code?                            |   | Institution                        |
+| What you will see: ...             |   |   ABC College of Engineering       |
+| > What is Countersign?             |   | Programme                          |
++------------------------------------+   |   B.Tech Computer Science and      |
+                                         |   Engineering                      |
+                                         | Year of study   1                  |
+                                         | Nothing else is shown. The student |
+                                         | chose what to share.               |
+                                         | [     Check another proof      ]   |
+                                         +------------------------------------+
+```
+
+Data:
+- `/verify`: the camera scan uses the browser's BarcodeDetector when present (getUserMedia for the preview); a scanned Countersign link opens its own path (`/verify/{code}` or `/verify/d/{jws}`). Without BarcodeDetector the Scan button is hidden and [verify.scan_unsupported] shows. Check upper-cases the code, drops spaces and dashes, regroups it in fours and opens `/verify/{code}`; a wrong length shows [verify.code_format] and sends nothing. [verify.paste_link] discloses a textarea [verify.paste_label] with [verify.paste_hint] and [verify.paste_check], which sends `POST /verify {presentation}` and shows the result on the same page.
+- `/verify/[code]`: `GET /verify/{code}`, public, 60 per minute per IP (D32), returning `{result, kind, issuer, issued_at, disclosed: [{key, label, value}], holder_bound, status_checked_at}`. Each check is audited with a hashed IP and adds a row to the student's sharing history.
+- `/verify/d/[jws]`: `GET /verify/d/{jws}` for the printed degree QR (D28): the signature against the published keys and the proof's revocation status; fields name, programme, institution, university, year of award, and the APAAR's last four (or a masked provisional id).
+
+Result states (deck §10). Each has a badge with an icon and its [verify.state.*] word, a heading and a sub line; never colour alone.
+- VALID: [verify.valid], [verify.kind.*], [verify.valid_sub], [verify.signature], [verify.revocation] (or [verify.revocation_at]), [verify.holder_bound] when `holder_bound`, [verify.shared_heading] with `disclosed` as a definition list in the order sent (label and value as sent), [verify.not_shared]. A pasted proof adds [verify.pasted_note].
+- REVOKED: [verify.revoked] and [verify.revoked_sub]; no fields.
+- EXPIRED: [verify.expired] and [verify.expired_sub]; no fields.
+- INVALID: [verify.invalid] and [verify.invalid_sub]; no fields.
+- Degree QR, valid: [verify.degree_valid], [verify.degree_sub], [verify.signature], [verify.revocation], [verify.degree_heading] with its fields, [verify.degree_printed], [verify.degree_wallet]. Degree QR, revoked: [verify.revoked] with [verify.degree_revoked_sub]. Degree QR, bad signature: as INVALID.
+- Unknown code (404 `PRESENTATION_NOT_FOUND`): [err.PRESENTATION_NOT_FOUND] with the code box again, prefilled and focused.
+- Rate limited (429): [verify.rate_limited] with a countdown on Check.
+- Loading: Check reads [verify.checking] and the result area shows a skeleton; a network or server error shows [err.NETWORK] or [err.INTERNAL] with [err.retry].
+- Camera not allowed: [verify.camera_denied]; focus goes to the code box.
+
+Every result page ends with [verify.check_another] (to `/verify`) and [verify.about_link]; page title [verify.result_title]. Never a full APAAR, never a field the student did not disclose, never a search box or a list.
+
+Phone (390 px): the entry page is the sketch; the camera preview is a square the width of the column with [verify.scan_hint] under it and [verify.scan_stop]; in the result, a label sits above its value when the value would not fit beside it.
+
+### W3-5. `/university/degrees` and `/university/degrees/[enrolmentId]/print`
+
+Graduates
+
+```
+Affiliated institutions / Degree print
+Degree print
+Graduates of your affiliated institutions. Issue a degree proof, then print the insert with the
+masked APAAR and a QR anyone can scan.
+[Search by name or the last four digits of APAAR]                                     318 graduates
+Graduate          APAAR / Provisional  Institution                  Programme  Year of award  Degree proof
+<graduate name>   XXXX XXXX 4417       ABC College of Engineering   CSE        2026           ✓ Issued 28 Oct 2026  [Print degree insert] [Download PDF]
+<graduate name>   PRV-XXXXXXXX         ABC College of Engineering   ME         2026           Not issued            [Issue degree proof]
+Viewing student records is logged.
+```
+
+Data: `GET /university/graduates?q&page` (the university's own affiliates; the AICTE officer sees all), `POST /university/degrees/{enrolment_id}/issue`, `GET /university/degrees/{enrolment_id}` (print data with `qr_svg`) and `GET /university/degrees/{enrolment_id}/insert.pdf` (D28).
+- Columns per deck §11; Degree proof is the [degree.status.*] word with an icon. Search sets `q`, debounced 250 ms. Count [degree.count]; the pager as on other tables. Footer [privacy.read_logged].
+- Row actions: [degree.issue] opens the issue sheet: [degree.issue_heading], [degree.issue_body], [degree.issue_note], [degree.issue_revocation_note], and [degree.provisional_note] for a graduate without APAAR, then [degree.issue_confirm] and [degree.issue_cancel] ([degree.issuing] while sending); success shows [degree.issued_toast] and the row gains [degree.print_insert] and [degree.pdf]. [degree.pdf] is an `<a href>` to `/api/university/degrees/{id}/insert.pdf` with [degree.pdf_note] as its description. A revoked proof shows [degree.status.revoked] and offers [degree.issue] again.
+- States: loading skeleton rows; empty [empty.graduates]; no search match [empty.graduates_search]; error card with retry; 409 `CREDENTIAL_NOT_ELIGIBLE` [err.CREDENTIAL_NOT_ELIGIBLE] in the sheet.
+
+Print view
+
+```
+screen only:  [ Print ]   Back to graduates   Print on A4, portrait. Navigation and colours are left out.
+----------------------------------------------------------------------------------------------- A4
+Maharashtra State Technical University
+This insert accompanies the degree awarded to
+Name            <graduate name>
+Programme       B.Tech Computer Science and Engineering
+Institution     ABC College of Engineering
+Year of award   2026
+APAAR           XXXX XXXX 4417
+                                                    [ QR, 30 mm ]
+                                                    Proof id <short id>
+                                                    Scan to verify at localhost:3000/verify
+Proof issued 28 Oct 2026. Signed by Countersign for Maharashtra State Technical University.
+A changed insert does not verify.
+```
+
+- Data: `GET /university/degrees/{enrolmentId}`. Labels `degree.print.*` (deck §11). The APAAR line prints `apaar_masked` exactly as sent; a graduate without APAAR prints [degree.print.provisional] with the provisional id.
+- The QR is the inline `qr_svg` of `{WEB_ORIGIN}/verify/d/{jws}`, at least 30 mm square on paper, with [degree.print.proof_id] and [degree.scan_line] as text under it. The link itself (about 350 characters) is never printed.
+- `@media print`: no nav, top bar, breadcrumbs, buttons or hint; no colour backgrounds or tinted panels; black text on white with hairline rules; the QR at full contrast; everything on one A4 page. Page title [degree.print_title].
+- [degree.print] calls `window.print()`; [degree.print_back] returns to the list. A revoked proof does not print: [err.CREDENTIAL_REVOKED] with Back to graduates. No proof yet: the page offers [degree.issue] first.
+- States: loading skeleton of the insert; error card; 404 [err.NOT_FOUND_enrolment].
+
+### W3-6. `/admin/audit` (AICTE officer)
+
+```
+Overview / Audit
+Audit
+Every change, and every view of student records, in order. Each entry carries the hash of the one before ...
+[ Verify chain ]   ✓ Chain intact, 1,842 entries · Checked 28 Oct 2026, 16:02 IST
+Entity [All ▾]  Action [All ▾]  Actor [All ▾]  Entity id [          ]  From entry [      ]
+Views of student records are logged as Viewed entries.
+Entry  Time                    Actor               Action   Entity      Entity id  Hash
+1842   28 Oct 2026, 16:01 IST  admin@aicte.demo    Viewed   enrolment   3f9a1c2e   9f8e7d6c
+1841   28 Oct 2026, 15:58 IST  Public, verifier    Viewed   credential  a01b22c3   1a2b3c4d
+1,842 entries                                                          1 to 25 of 1,842
+
+after make audit-tamper SEQ=917
+(!) Chain broken at entry 917                                       [ Show entry 917 ]
+Entry 917 no longer matches its recorded hash, so it was changed after it was written.
+Entries before it are intact.
+ 917   14 Jul 2026, 09:30 IST  admin@aicte.demo    Updated  flag        0b6fe1a4   5d4c3b2a   ✕ Chain breaks here
+```
+
+Data: `GET /admin/audit?page&page_size&entity_type&action&actor_id&entity_id&seq_from` and `GET /admin/audit/verify` (`{ok, length, first_broken_seq, checked_at}`), D29.
+- Columns per deck §12: Entry (`seq`, monospace, right-aligned), Time, Actor (`actor_email`, or [audit.actor_system], or the [audit.via.*] words), Action ([audit_action.*]), Entity (`entity_type`), Entity id and Hash (first 8 characters in monospace, the full value on focus and hover with [audit.hash_tip]). Dense 32 px rows, newest first.
+- Filters in the URL with the `a_` prefix: Entity, Action and Actor are selects; Entity id and From entry are text inputs applied on Enter. [audit.count] and the pager; empty [empty.audit]; no match [empty.audit_filtered] with [empty.clear_filters].
+- Verify chain: [audit.verify], [audit.verifying] while it runs, then an `aria-live="polite"` banner: [audit.chain_ok] with [audit.chain_checked], or [audit.chain_broken] with [audit.chain_broken_detail] and [audit.show_entry]. Show entry sets From entry to that entry, loads its page, marks the row with an icon and [audit.break_marker] (never by colour alone), scrolls it into view and moves focus to it.
+- [audit.read_note] under the filters. No student name and no unmasked id appear; `before` and `after` are not shown on this page.
+- States: loading skeleton rows; error card with retry. Other roles are redirected with the toast.
+- Demo: `make audit-tamper SEQ=n` edits one entry from the command line only and refuses unless `DEMO_MODE=true`; Verify chain then reads "Chain broken at entry n", and `make demo-reset` restores the chain. The browser has no tamper control.
 
 ### W3-7. Respond on `/college/flags/[flagId]`
 
-The list and the read-only detail are live from Week 2 (W2-7, W2-8). Week 3 adds "Respond" when the status is Documents requested: note (required) + files; `POST /flags/{id}/response` (proposed). After submit: [college.respond_sent]. The read-only note goes.
-
-### W3-8. Case actions on officer flag detail
-
-The Week 2 detail (W2-8) gains history and actions:
+The registrar sees the flag as in W2-8 and its history (W3-8, read only); while the status is Documents requested a Respond panel sits above the evidence:
 
 ```
+Documents requested · Reply due by 4 Nov 2026
+Regional officer, Western asked on 28 Oct 2026:
+"Send admission form and ID copy"
+
+Respond to the document request
+Your reply to the officer
+[                                                                  ]
+Required. Say what you are sending and how it answers the request.
+Attach documents (PDF, PNG or JPEG, up to 3 files, 5 MB each)
+[ Add file ]
+admission_form.pdf, 412 KB                 [ Remove admission_form.pdf ]
+1 of 3 files
+[ Send to the officer ]
+```
+
+Data: `POST /flags/{id}/response` as `multipart/form-data` with `note` and up to 3 files (PDF, PNG or JPEG, 5 MB each), by a registrar of the flag's own college, only while the flag is DOCS_REQUESTED (D25). The response keeps the status and sets `response_received`.
+- Request line: [college.request_line] with the officer's role (never their name) and date, the request note in quotes, and [college.due_line] when a due date is set.
+- Form: [college.respond_note], required (`aria-required="true"`), with [college.respond_note_hint]; [college.respond_add_file] is a labelled file input (`accept=".pdf,.png,.jpg,.jpeg"`, multiple, keyboard reachable); each chosen file is listed as [case.attachment] with a [college.respond_remove_file] button; [college.respond_file_count]. Checked in the browser before sending: [college.respond_too_many], [college.respond_file_type], [college.respond_file_size]. An empty note shows [college.respond_note_required] under the field and moves focus there.
+- Sending: [college.respond_sending], inputs disabled, upload progress for large files.
+- After success: [college.respond_sent]; the history gains the Responded row; the panel shows [college.respond_waiting] and [college.respond_more] (another response is allowed while the flag stays Documents requested).
+- Errors inline above the button, the chosen files kept: 413 [err.ATTACHMENT_TOO_LARGE]; 415 [err.ATTACHMENT_TYPE]; 409 [err.FLAG_TRANSITION_INVALID] (the officer decided meanwhile: the panel closes and the page refetches).
+- Any other status: no panel; [flag.readonly_college].
+- The registrar never sees the student's comment on a notice (D24) or another institution's name.
+
+### W3-8. Case actions, history and the queue (officers)
+
+Flag detail (W2-8) gains the action bar, the sheets and the history; the case queue (W2-7) gains assignment.
+
+```
+Overview / Cases / Name or date of birth mismatch, ABC College of Engineering
+Name or date of birth mismatch                  Medium · Documents requested · opened 28 Oct 2026
+ABC College of Engineering · CSE · 2026-27
+[ Response received ]   Reply due by 4 Nov 2026   Assignee: Unassigned
+
+[ Clear flag ] [ Request documents ] [ Escalate ] [ Confirm ]          [ Add note ] [ Assign ]
+
+Evidence ...
+
 History
-14 Jul 09:31  System        Flag opened
-15 Jul 11:02  RO West       Request documents: "Send admission register extract for CSE"
-16 Jul 10:40  ABC Registrar Response + admission_register_cse.pdf (412 KB)
-
-Actions
-[ Clear ] [ Request documents ] [ Escalate ] [ Confirm ]            [ Add note ]
+When                    Who                                    What
+28 Oct 2026, 15:32 IST  System                                 Flag opened
+28 Oct 2026, 16:05 IST  <officer name>, Regional officer,      Requested documents
+                        Western                                Open to Documents requested, Reply by 4 Nov 2026
+                                                               "Send admission form and ID copy"
+28 Oct 2026, 16:20 IST  <registrar name>, Registrar            Responded
+                                                               "Student's full name per 10th certificate is Ravi Kumar Sharma"
+                                                               admission_form.pdf, 412 KB
+Each download is logged.
 ```
 
-Data: `history[]` from `case_actions` with actor name and role, `attachments`; actions `POST /flags/{id}/actions {action, note, due_date?, assignee_id?}` (proposed), attachments via multipart.
-Action sheets (all require a note): [case.clear_confirm], [case.request_docs_prompt], [case.escalate_prompt], [case.confirm_confirm]. The Confirm sheet repeats "Nothing is deleted. The enrolment keeps its status; the case record and your note are what change." The read-only note goes; the Assignee column appears in the queue.
+Data: `GET /flags/{id}` with `history[]` from `case_actions` (actor name and role, or no actor for System rows; `action`, `note`, `from_status`, `to_status`, `due_date`, assignee, attachments), plus `docs_due_on`, `response_received` and `assignee`; `POST /flags/{id}/actions {action, note, due_date?, assignee_id?}`; `GET /flags/{id}/attachments/{attachment_id}` (scope checked, audited); `GET /users?role=RO_OFFICER|AICTE_ADMIN` for the assignee picker (D25).
+
+Header: [flag.meta]; the [case.response_badge] chip (tooltip [case.response_badge_tip]) when `response_received`; [case.due_line], or [case.due_passed] once the date is past, while the flag is Documents requested (plain text, never red); the assignee's name or [case.assignee_none].
+
+Action bar (deck §6 lists the buttons per role and status): the AICTE officer on Open or Documents requested sees Clear flag, Request documents, Escalate, Confirm, Add note and Assign; on Escalated the same without Escalate; on Cleared or Confirmed, Reopen, Add note and Assign with [case.closed_admin]. The regional officer, on its region's flags, sees the same on Open and Documents requested; on Escalated only Add note, with [case.escalated_ro]; on Cleared or Confirmed, Add note and Assign with [case.closed_line]. A refused action is not shown at all, rather than shown disabled without a reason.
+
+Sheets: each a modal dialog labelled by its title, focus on the note field, Tab kept inside, Esc and [case.cancel] closing it and returning focus to the button that opened it.
+- Clear: [case.clear_confirm]; note [case.note_label], required.
+- Request documents: [case.request_docs_prompt] as the note label; [case.due_date] with [case.due_date_hint] (a native date input, today or later); [case.request_docs_email]; [case.request_docs_send]. Sets `docs_due_on` and emails every registrar of the college ([email.docs_request.*]).
+- Escalate: [case.escalate_prompt] and [case.escalate_note].
+- Confirm: [case.confirm_confirm], then [case.confirm_revokes] when the flag names an enrolment; note required; the button repeats [case.confirm] and is not red.
+- Reopen (AICTE officer, Cleared or Confirmed): [case.reopen_prompt]; note required.
+- Add note: the note only; the status does not change.
+- Assign: a combobox [case.assign_label] (`role="combobox"`, typing filters, arrow keys move, Enter chooses) listing [case.assign_option] rows from `GET /users`, with [case.assign_me] first and [case.assign_none] last, [case.assign_empty] when nothing matches; no note needed.
+- An empty note shows [case.note_required] under the field, keeps focus there and sends nothing. 409 `FLAG_TRANSITION_INVALID` shows [err.FLAG_TRANSITION_INVALID] in the sheet and the flag refetches; 403 and 404 render as on every page.
+- After success: the action's toast ([case.cleared_toast], [case.docs_toast], [case.escalated_toast], [case.confirmed_toast], [case.reopened_toast], [case.note_toast], [case.assigned_toast], [case.unassigned_toast]) in an `aria-live` region; the status badge flashes its soft tint once (DESIGN §7); the history gains the row.
+
+History (deck §6): oldest first, starting with [case.history.opened]; columns When, Who, What; the status change and the due date in small text; the note in quotes on its own line; attachments as links whose accessible name is [case.attachment_download], with [case.attachments_logged] under the list. System rows read [case.history.system] and print [case.history.SYSTEM_NOTE] or the api's note ([case.system_note.reply_changed] after a student changes a No to a Yes). On a Student denied flag the evidence fact Comment from the student is shown to officers only.
+
+Queue (`/aicte/cases`, `/ro/cases`): the Assignee column ([col.assignee]; [case.assignee_none] when null) and two filters in the URL with the `f_` prefix: [flags.filter.assignee] (All, [flags.filter.assignee_me], [flags.filter.assignee_none], or an officer) sending `assignee`, and [flags.filter.response] (All, [flags.filter.response_received]) sending `response_received=true`. A row with a response carries the [case.response_badge] chip beside its status word.
+
+### W3-9. `/admin/data-requests` (AICTE officer)
+
+```
+Overview / Data requests
+Data requests
+Students' requests to correct or erase their data. Each one gets a written reply the student reads on their Privacy page.
+Status [Open ▾]  Request [All ▾]                                                       1 open request
+Received     Request     Student              Details                                            Status  Resolved
+28 Oct 2026  Correction  Ravi Kumar Sharma    Please unlink my APAAR from my enrolment at ABC    Open            [ Resolve ]
+                         XXXX XXXX 4417       College of Engineering.
+Viewing student records is logged.
+```
+
+Data: `GET /data-requests` (AICTE officer only) and `POST /data-requests/{id}/resolve {status: "DONE" | "REJECTED", response}` (D30). The queue holds Correction and Erasure requests; an Access request is fulfilled at once and never waits here.
+- Columns and words per deck §12 ([admin.requests.*], [data_request_kind.*], [data_request_status.*] with an icon). Default Status Open, oldest first; filters in the URL with the `r_` prefix. Count [admin.requests.count]. Details wrap; the student cell shows the name with the masked APAAR or provisional id under it.
+- Resolve sheet: [admin.requests.resolve_heading]; [admin.requests.request_line] and the details in quotes; the kind's hint ([admin.requests.correction_hint], plus [admin.requests.unlink_hint] when the text asks to unlink an APAAR; for an erasure, [admin.requests.erasure_retention] above a reply prefilled with [admin.requests.erasure_reply]); the radio group [admin.requests.outcome] (Done, Decline); the reply [admin.requests.response_label], required, with [admin.requests.response_hint] and [admin.requests.response_required]; [admin.requests.submit] ([admin.requests.sending] while sending). Keyboard and focus as the case sheets.
+- After success: [admin.requests.resolved_toast]; the row shows its new status and resolved date; the student reads the reply on their Privacy page.
+- States: loading skeleton rows; empty [admin.requests.empty]; no match [admin.requests.empty_filtered]; error card with retry. Other roles are redirected with the toast.
+
+### W3-10. Student notice block and Resend notice on enrolment detail
+
+Enrolment detail (W2-5) gains a block under Countersign checks for the AICTE officer, the regional officer and the registrar. The university sees the Student check row but not this block.
+
+```
+Student notice                                                     [ Resend notice ]
+Email: Sent, 28 Oct 2026
+DigiLocker: Not delivered, 28 Oct 2026 (no DigiLocker account)
+Expired on 27 Nov 2026 without a reply.
+```
+
+Data: the enrolment's notices on `GET /enrolments/{id}` (channel, `delivery_status`, `last_error`, sent and expiry dates, `response`, `responded_at`, the change date, and the comment for officers only) and `POST /enrolments/{id}/notices/resend` (D23: when no notice is live, by the registrar of the college or an officer, at most 3 per enrolment per academic year).
+- One [enrolment.notice.channel_line] per channel of the newest notice, with [enrolment.notice.failed_reason] for a failed delivery; then [enrolment.notice.expires], [enrolment.notice.expired] or [enrolment.notice.reply] with [enrolment.notice.changed]. Officers also see [enrolment.notice.comment] and the comment. No notice: [enrolment.notice.none].
+- Resend notice: [resend.button] with the tooltip [resend.tip]; disabled with [resend.live_tip] while a notice is live; replaced by [enrolment.notice.consent_off] when the student withdrew notice consent. Pressing it opens a dialog with [resend.confirm_heading], [resend.confirm], [resend.send] and [resend.cancel]; success shows [resend.sent] in an `aria-live` region and the block refetches. 429 `RESEND_LIMIT`: [err.RESEND_LIMIT], the button stays disabled. 409 `NOTICE_LIVE`: [err.NOTICE_LIVE].
+- States: the block loads with the page; if the notices part fails, [err.tile_failed] with retry in its place.
 
 ## Week 4
 
