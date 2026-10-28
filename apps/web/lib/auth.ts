@@ -1,6 +1,6 @@
 import "server-only";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { MOCK_API } from "@/lib/api";
 import { userFromToken } from "@/lib/mock/session";
@@ -37,7 +37,8 @@ export async function getMe(): Promise<User | null> {
  * the wrong role goes to its own landing route with `denied` set so the
  * shell can say why.
  */
-export async function requireRole(role: Role, here: string): Promise<User> {
+export async function requireRole(role: Role, fallbackPath: string): Promise<User> {
+  const here = (await headers()).get("x-pathname") ?? fallbackPath;
   const me = await getMe();
   if (!me) redirect(`/login?next=${encodeURIComponent(here)}`);
   if (me.role !== role) redirect(`${landingFor(me.role)}?denied=${role}`);
