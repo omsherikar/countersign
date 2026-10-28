@@ -765,6 +765,9 @@ export const copy = {
   "flags_by_type.total": "{total} open flags",
 
   /* ---- Web-only strings, not in the deck yet ---- */
+  "app.flags.unresolved": "Unresolved",
+  "app.filter.sort": "Sort",
+  "app.flags.history_by": "System",
   "student.consent_LINKED": "Your APAAR is linked with your consent.",
   "student.consent_REFUSED": "You chose not to share your APAAR; a provisional id is used.",
   "student.consent_PENDING": "Your consent is not recorded yet; a provisional id is used.",
