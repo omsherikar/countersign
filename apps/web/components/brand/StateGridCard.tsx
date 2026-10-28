@@ -1,4 +1,5 @@
 import * as React from "react";
+import { t } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
 /** Mirrors `Region` and the `by_state` row of `DashboardSummary` in lib/types.ts. */
@@ -13,6 +14,8 @@ export interface StateRow {
   institutions: number;
   programmes: number;
   approved_seats: number;
+  /** A2.18: the intake set against approved seats; absent before the Week 2 api. */
+  admitted?: number;
   enrolments: number;
   flags_open: number;
 }
@@ -22,7 +25,7 @@ export const REGION_LABEL: Record<Region, string> = {
   NORTH_WEST: "North-Western",
   CENTRAL: "Central",
   WEST: "Western",
-  WEST_CENTRAL: "Vadodara",
+  WEST_CENTRAL: "West-Central",
   SOUTH_WEST: "South-Western",
   SOUTH: "Southern",
   SOUTH_CENTRAL: "South-Central",
@@ -58,7 +61,9 @@ export interface StateGridCardProps extends Omit<React.HTMLAttributes<HTMLDivEle
  */
 export function StateGridCard({ row, integrityIndex = null, selected = false, onSelect, className, ...rest }: StateGridCardProps) {
   const step = integrityIndex === null ? null : indexStep(integrityIndex);
-  const fill = row.approved_seats > 0 ? Math.round((row.enrolments / row.approved_seats) * 100) : null;
+  // Fill is admitted (one intake) over approved seats (the same intake), never students on roll over seats.
+  const admitted = typeof row.admitted === "number" ? row.admitted : null;
+  const fill = admitted !== null && row.approved_seats > 0 ? Math.round((admitted / row.approved_seats) * 100) : null;
   const Tag: "button" | "div" = onSelect ? "button" : "div";
   return (
     <Tag
@@ -81,22 +86,30 @@ export function StateGridCard({ row, integrityIndex = null, selected = false, on
       </div>
       <span className="truncate text-sm font-medium">{row.state_name}</span>
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs" style={{ fontVariantNumeric: "tabular-nums lining-nums" }}>
-        <dt className="text-ink-muted">Institutions</dt>
+        <dt className="text-ink-muted">{t("kpi.institutions")}</dt>
         <dd className="text-right">{INDIAN.format(row.institutions)}</dd>
-        <dt className="text-ink-muted">Approved seats</dt>
+        <dt className="text-ink-muted">{t("kpi.programmes")}</dt>
+        <dd className="text-right">{INDIAN.format(row.programmes)}</dd>
+        <dt className="text-ink-muted">{t("kpi.approved_seats")}</dt>
         <dd className="text-right">{INDIAN.format(row.approved_seats)}</dd>
-        <dt className="text-ink-muted">Enrolments</dt>
-        <dd className="text-right">
-          {INDIAN.format(row.enrolments)}
-          {fill !== null && <span className="ml-1 text-ink-faint">({fill}%)</span>}
-        </dd>
-        <dt className="text-ink-muted">Open flags</dt>
+        {admitted !== null && (
+          <>
+            <dt className="text-ink-muted">{t("col.admitted")}</dt>
+            <dd className="text-right" title={fill !== null ? t("app.hint.fill", { pct: fill }) : undefined}>
+              {INDIAN.format(admitted)}
+              {fill !== null && <span className="ml-1 text-ink-muted">({fill}%)</span>}
+            </dd>
+          </>
+        )}
+        <dt className="text-ink-muted">{t("app.on_roll")}</dt>
+        <dd className="text-right">{INDIAN.format(row.enrolments)}</dd>
+        <dt className="text-ink-muted">{t("kpi.flags_open")}</dt>
         <dd className={cn("text-right", row.flags_open > 0 ? "font-medium text-check-fail-ink" : "text-ink-muted")}>
           {INDIAN.format(row.flags_open)}
         </dd>
         {integrityIndex !== null && (
           <>
-            <dt className="text-ink-muted">Integrity Index</dt>
+            <dt className="text-ink-muted">{t("index.label")}</dt>
             <dd className="text-right font-medium">{Math.round(integrityIndex)}</dd>
           </>
         )}
