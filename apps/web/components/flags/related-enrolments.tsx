@@ -54,7 +54,9 @@ export function RelatedEnrolmentsTable({
               <td className="code">
                 <MaskedApaar apaarMasked={e.student.apaar_masked} provisionalId={e.student.provisional_id} />
               </td>
-              <td className="wrap max-w-[16rem] min-w-[10rem] text-ink-muted">{e.institution.name}</td>
+              <td className="max-w-[13rem] truncate text-ink-muted" title={e.institution.name}>
+                {e.institution.name}
+              </td>
               <td className="code">{e.programme_code}</td>
               <td className="num">{e.year_of_study}</td>
               <td>{tk(`route.${e.admission_route}`)}</td>

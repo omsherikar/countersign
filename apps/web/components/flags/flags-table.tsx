@@ -269,12 +269,12 @@ export function FlagsTable({
                   </span>
                 </td>
                 {showInstitution && (
-                  <td className="wrap max-w-[16rem] min-w-[12rem] text-ink-muted">
-                    {f.institution.name} <span className="code text-xs">{f.institution.state_code}</span>
+                  <td className="max-w-[15rem] truncate text-ink-muted" title={`${f.institution.name}, ${f.institution.state_name}`}>
+                    {f.institution.name}
                   </td>
                 )}
                 <td className="code">{f.programme?.code ?? ""}</td>
-                <td className="max-w-[32rem] min-w-[16rem]">
+                <td className="max-w-[28rem] min-w-[14rem]">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Link href={`${detailBase}/${f.id}`} data-row-link className="block truncate">
