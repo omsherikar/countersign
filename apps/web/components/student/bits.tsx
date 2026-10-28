@@ -118,7 +118,7 @@ export function SheetDialog({
               <span className="sr-only">{closeLabel}</span>
             </DialogPrimitive.Close>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">{children}</div>
+          {children ? <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">{children}</div> : null}
           {footer ? <div className="border-t border-rule px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] md:px-6">{footer}</div> : null}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

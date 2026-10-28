@@ -390,7 +390,14 @@ function Answered({
   return (
     <>
       <div ref={statusRef} tabIndex={-1} role="status" className="flex items-start gap-3 outline-none">
-        <span className="mt-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-check-pass/40 bg-check-pass-soft text-check-pass-ink" aria-hidden="true">
+        <span
+          className={cn(
+            "mt-1 inline-flex size-7 shrink-0 items-center justify-center rounded-full border",
+            // Green means countersigned (DESIGN 3.2): only a Yes earns it; a No is recorded, not passed.
+            notice.response === "YES" ? "border-check-pass/40 bg-check-pass-soft text-check-pass-ink" : "border-flag-open/40 bg-flag-open-soft text-flag-open-ink",
+          )}
+          aria-hidden="true"
+        >
           <Check className="size-4" />
         </span>
         <div className="min-w-0">{lead}</div>
@@ -429,7 +436,7 @@ function LoadFailure({ error, tr, secondsLeft, onRetry }: { error: ApiError; tr:
   const limited = error.code === "RATE_LIMITED";
   return (
     <div role={final ? undefined : "alert"} className="border-l-2 border-rule-margin bg-paper-raised px-4 py-5 shadow-hairline">
-      <p className={cn(final ? "font-display text-xl leading-snug font-semibold" : "text-md")}>{errorText(error, tr, secondsLeft)}</p>
+      <p className={cn(final ? "font-display text-lg leading-snug font-semibold" : "text-md")}>{errorText(error, tr, secondsLeft)}</p>
       {!final && !limited && (
         <button type="button" className={cn(outlineButton, "mt-4")} onClick={onRetry}>
           <RefreshCw className="size-4" aria-hidden="true" />

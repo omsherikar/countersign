@@ -286,9 +286,9 @@ function ShareResult({
         <QrImage svg={result.qr_svg} alt={t("wallet.qr_alt")} className="size-60 rounded-md border border-line" />
       )}
       <p className="mt-3 text-sm text-ink-muted">{t("wallet.code_label")}</p>
-      <p ref={codeRef} tabIndex={-1} className="font-mono text-lg font-medium tracking-wide break-all select-all outline-none focus-visible:outline-2">
-        <span className={cn(expired && "text-ink-muted line-through")}>{result.code}</span>
-        {expired && <span className="ml-2 font-sans text-sm font-semibold text-ink">{t("wallet.status.expired")}</span>}
+      <p ref={codeRef} tabIndex={-1} className="font-mono text-lg font-medium tracking-wide outline-none focus-visible:outline-2">
+        <span className={cn("break-all select-all", expired && "text-ink-muted line-through")}>{result.code}</span>
+        {expired && <span className="block font-sans text-sm font-semibold whitespace-nowrap text-ink">{t("wallet.status.expired")}</span>}
       </p>
       <p className="mt-3 font-medium">{t("wallet.shares", { n: result.disclosed.length, m: result.total })}</p>
       <p className="text-ink-muted">{t("wallet.shared_fields", { fields: shared })}</p>

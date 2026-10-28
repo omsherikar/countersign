@@ -353,16 +353,16 @@ function RequestStatus({ row }: { row: DataRequestRow }) {
 }
 
 /** The export link: a real link to the file, fetched in place so a failure shows as a message. */
-function ExportLink() {
+function ExportLink({ compact = false }: { compact?: boolean }) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
   const path = "/students/me/export.json";
   return (
-    <div className="mt-3">
+    <div className={compact ? "mt-1" : "mt-3"}>
       <a
         href={`${API_BASE}${path}`}
         download="countersign-my-data.json"
-        className={cn(primaryButton, "no-underline md:w-auto", busy && "pointer-events-none opacity-60")}
+        className={cn(compact ? "inline-flex min-h-11 items-center gap-2" : cn(primaryButton, "no-underline md:w-auto"), busy && "pointer-events-none opacity-60")}
         aria-disabled={busy || undefined}
         onClick={(e) => {
           e.preventDefault();
@@ -375,7 +375,7 @@ function ExportLink() {
             .finally(() => setBusy(false));
         }}
       >
-        <Download className="size-5" aria-hidden="true" />
+        <Download className={compact ? "size-4" : "size-5"} aria-hidden="true" />
         {busy ? t("privacy.export_preparing") : t("privacy.export_download")}
       </a>
       {error ? (
@@ -510,7 +510,7 @@ function Requests({ draft, setDraft }: { draft: RequestDraft | null; setDraft: (
         {sent}
       </p>
 
-      {exportReady ? (
+      {exportReady && !draft ? (
         <div className="mt-4 border-l-2 border-check-pass bg-paper-raised px-4 py-4">
           <p className="font-semibold">{t("privacy.export_ready")}</p>
           <ExportLink />
@@ -526,11 +526,10 @@ function Requests({ draft, setDraft }: { draft: RequestDraft | null; setDraft: (
           }}
           onDone={(row) => {
             setDraft(null);
-            if (row.kind === "ACCESS") setExportReady(true);
-            else {
-              setSent(t("privacy.request.sent"));
-              requestAnimationFrame(() => newButton.current?.focus());
-            }
+            setExportReady(row.kind === "ACCESS");
+            if (row.kind === "ACCESS") return;
+            setSent(t("privacy.request.sent"));
+            requestAnimationFrame(() => newButton.current?.focus());
           }}
         />
       ) : (
@@ -564,6 +563,7 @@ function Requests({ draft, setDraft }: { draft: RequestDraft | null; setDraft: (
                 </div>
                 {r.details && <p className="mt-1 text-ink-muted">{r.details}</p>}
                 {r.status === "OPEN" && <p className="mt-1">{t("privacy.request.waiting")}</p>}
+                {r.kind === "ACCESS" && r.export_path && r.status === "DONE" && <ExportLink compact />}
                 {r.status !== "OPEN" && r.response && r.kind !== "ACCESS" && (
                   <div className="mt-2 border-l-2 border-line bg-paper px-3 py-2">
                     <p className="text-sm font-medium">{t("privacy.request.reply", { date: formatDate(r.resolved_at) })}</p>
