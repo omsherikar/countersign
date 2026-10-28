@@ -1,29 +1,28 @@
 /**
- * Contract-exact fixtures for NEXT_PUBLIC_MOCK_API=1.
- * Shapes follow docs/API_CONTRACT.md section A and Addendum 1. Numbers are
- * small and deterministic; the ABC College CSE row carries the "132 against
- * 120" demo scenario with pools 114/6/6/12/18.
+ * Contract-exact fixtures for NEXT_PUBLIC_MOCK_API=1: regions, users and the
+ * institutions with their programmes. Shapes follow docs/API_CONTRACT.md
+ * sections A, Addendum 1 and Addendum 2. Numbers are deterministic; ABC
+ * College CSE carries the "132 admitted against 120 approved" scenario.
+ * The roll of students, the checks and the seat ledger are in roll.ts,
+ * flags in flags.ts and upload batches in uploads.ts.
  */
 import type {
   AdapterPing,
-  AdmissionRoute,
   AuditVerify,
-  Category,
   ChaosState,
-  ConsentStatus,
-  EnrolmentRow,
+  Discipline,
   Health,
   InstitutionDetail,
   InstitutionRow,
   InstitutionType,
+  Level,
   ProgrammeDetail,
+  ProgrammeMode,
   Region,
   RegionMeta,
   SeatPool,
-  SeatRow,
   SeatType,
   StateMeta,
-  StudentMe,
   User,
 } from "@/lib/types";
 
@@ -62,7 +61,7 @@ export function regionName(code: Region): string {
   return r ? `${r.name} (${r.hq_city})` : code;
 }
 
-const IDS = {
+export const IDS = {
   abc: "a0b1c2d3-1111-4222-8333-444455556666",
   xyz: "b1c2d3e4-2222-4333-8444-555566667777",
   mstu: "c3d4e5f6-2222-4333-8444-555566667777",
@@ -143,7 +142,7 @@ export const USERS: User[] = [
 
 /* ---- Seat pools from rules.yaml (APH 2024-27) ---------------------------- */
 
-const RULE = {
+export const RULE = {
   REGULAR: "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))",
   NRI: "APH 2024-27 cl. 2.8(b)",
   TFW: "APH 2024-27 cl. 6.42(d)(i), (d)(iii)",
@@ -151,63 +150,98 @@ const RULE = {
   INTERNATIONAL: "APH 2024-27 cl. 2.9; APH 2026-27 addendum keeps 15% for Engg Diploma/UG",
 } satisfies Record<SeatType, string>;
 
-function pools(intake: number): SeatPool[] {
+/** Pool sizes for one approval; `assigned` and `free` are filled from the roll by lib/mock/roll.ts. */
+export function poolCapacities(intake: number): Record<SeatType, number> {
   const nri = Math.round(intake * 0.05);
-  const make = (seat_type: SeatType, capacity: number, is_supernumerary: boolean, reserved_for: string | null): SeatPool => ({
+  return {
+    REGULAR: intake - nri,
+    NRI: nri,
+    TFW: Math.round(intake * 0.05),
+    LATERAL: Math.round(intake * 0.1),
+    INTERNATIONAL: Math.round(intake * 0.15),
+  };
+}
+
+function pools(intake: number): SeatPool[] {
+  const cap = poolCapacities(intake);
+  const make = (seat_type: SeatType, is_supernumerary: boolean, reserved_for: string | null): SeatPool => ({
     seat_type,
-    capacity,
+    capacity: cap[seat_type],
     is_supernumerary,
     assigned: 0,
-    free: capacity,
+    free: cap[seat_type],
     reserved_for,
     rule_source: RULE[seat_type],
   });
   return [
-    make("REGULAR", intake - nri, false, null),
-    make("NRI", nri, false, null),
-    make("TFW", Math.round(intake * 0.05), true, null),
-    make("LATERAL", Math.round(intake * 0.1), true, null),
-    make("INTERNATIONAL", Math.round(intake * 0.15), true, "FN_OCI_PIO_CIWG"),
+    make("REGULAR", false, null),
+    make("NRI", false, null),
+    make("TFW", true, null),
+    make("LATERAL", true, null),
+    make("INTERNATIONAL", true, "FN_OCI_PIO_CIWG"),
   ];
 }
 
-function programme(id: string, code: string, name: string, intake: number, enrolments: number, shift: "FIRST" | "SECOND" = "FIRST"): ProgrammeDetail {
+/** Years of study a programme runs for. */
+export function durationOf(level: Level): number {
+  return level === "PG" ? 2 : level === "DIPLOMA" ? 3 : 4;
+}
+
+/**
+ * Students on roll in the earlier years of study, per programme. Year 1 is
+ * the programme's intake enrolments; later years shrink a little and year 2
+ * also carries lateral entrants (counted in the 2025-26 cohort, A2.18).
+ */
+export function earlierYears(intake: number, duration: number): { year: number; count: number }[] {
+  const keep = [0, 0.93, 0.9, 0.86, 0.84];
+  const out: { year: number; count: number }[] = [];
+  for (let y = 2; y <= duration; y++) out.push({ year: y, count: Math.round(intake * keep[y]) });
+  return out;
+}
+export function lateralEntrants(intake: number, level: Level): number {
+  return level === "UG" ? Math.round(intake * 0.08) : 0;
+}
+export function onRollOf(p: ProgrammeDetail): number {
+  const intake = p.approval.approved_intake;
+  return p.enrolments + earlierYears(intake, durationOf(p.level)).reduce((a, y) => a + y.count, 0) + lateralEntrants(intake, p.level);
+}
+
+interface ProgrammeSpec {
+  code: string;
+  name: string;
+  intake: number;
+  /** First-year (2026-27 intake) enrolments: the programme's `enrolments` and its share of `admitted`. */
+  firstYear: number;
+  level?: Level;
+  discipline?: Discipline;
+  mode?: ProgrammeMode;
+  shift?: "FIRST" | "SECOND";
+}
+
+function programme(institutionId: string, i: number, spec: ProgrammeSpec): ProgrammeDetail {
   return {
-    id,
-    code,
-    name,
-    level: "UG",
-    discipline: "ENGINEERING",
-    shift,
-    mode: "PHYSICAL",
-    approval: { academic_year: ACADEMIC_YEAR, approved_intake: intake, cutoff_date: "2026-09-15" },
-    enrolments,
+    id: `${institutionId.slice(0, 8)}-${String(i + 1).padStart(4, "0")}-4444-8555-666677778888`,
+    code: spec.code,
+    name: spec.name,
+    level: spec.level ?? "UG",
+    discipline: spec.discipline ?? "ENGINEERING",
+    shift: spec.shift ?? "FIRST",
+    mode: spec.mode ?? "PHYSICAL",
+    approval: { academic_year: ACADEMIC_YEAR, approved_intake: spec.intake, cutoff_date: "2026-09-15" },
+    enrolments: spec.firstYear,
     seated: 0,
-    pools: pools(intake),
-    // Week 1: the seed leaves every enrolment unseated.
-    unseated: enrolments,
+    unseated: 0,
+    pools: pools(spec.intake),
   };
 }
 
-export const ABC_PROGRAMMES: ProgrammeDetail[] = [
-  programme("p0000001-0001-4444-8555-666677778888", "CIVIL", "B.Tech Civil Engineering", 60, 38),
-  programme("p0000001-0002-4444-8555-666677778888", "CSE", "B.Tech Computer Science and Engineering", 120, 132),
-  programme("p0000001-0003-4444-8555-666677778888", "ECE", "B.Tech Electronics and Communication Engineering", 120, 108),
-  programme("p0000001-0004-4444-8555-666677778888", "EEE", "B.Tech Electrical and Electronics Engineering", 60, 51),
-  programme("p0000001-0005-4444-8555-666677778888", "IT", "B.Tech Information Technology", 60, 64),
-  programme("p0000001-0006-4444-8555-666677778888", "MECH", "B.Tech Mechanical Engineering", 120, 92),
-];
-
-export const XYZ_PROGRAMMES: ProgrammeDetail[] = [
-  programme("p0000002-0001-4444-8555-666677778888", "CSE", "B.Tech Computer Science and Engineering", 180, 171),
-  programme("p0000002-0002-4444-8555-666677778888", "ECE", "B.Tech Electronics and Communication Engineering", 120, 97),
-  programme("p0000002-0003-4444-8555-666677778888", "MECH", "B.Tech Mechanical Engineering", 60, 41),
-  programme("p0000002-0004-4444-8555-666677778888", "AIDS", "B.Tech Artificial Intelligence and Data Science", 60, 60, "SECOND"),
-];
-
-function sum(list: ProgrammeDetail[], pick: (p: ProgrammeDetail) => number): number {
-  return list.reduce((acc, p) => acc + pick(p), 0);
-}
+const BTECH = (code: string, name: string, intake: number, firstYear: number, shift: "FIRST" | "SECOND" = "FIRST"): ProgrammeSpec => ({
+  code,
+  name: `B.Tech ${name}`,
+  intake,
+  firstYear,
+  shift,
+});
 
 interface InstitutionSeed {
   id: string;
@@ -219,10 +253,10 @@ interface InstitutionSeed {
   university_name: string | null;
   address_city: string;
   established_year: number;
-  programmes: ProgrammeDetail[] | { count: number; approved: number; enrolments: number };
+  programmes: ProgrammeSpec[];
 }
 
-const SEEDS: InstitutionSeed[] = [
+export const SEEDS: InstitutionSeed[] = [
   {
     id: IDS.abc,
     aicte_permanent_id: "1-ABC-0001",
@@ -233,7 +267,15 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Maharashtra State Technical University",
     address_city: "Pune",
     established_year: 2004,
-    programmes: ABC_PROGRAMMES,
+    // CSE first: the upload file lists it first, so Ravi Kumar Sharma is row 2 and R. K. Sharma row 133.
+    programmes: [
+      BTECH("CSE", "Computer Science and Engineering", 120, 132),
+      BTECH("CIVIL", "Civil Engineering", 60, 38),
+      BTECH("ECE", "Electronics and Communication Engineering", 120, 108),
+      BTECH("EEE", "Electrical and Electronics Engineering", 60, 51),
+      BTECH("IT", "Information Technology", 60, 58),
+      BTECH("MECH", "Mechanical Engineering", 120, 92),
+    ],
   },
   {
     id: IDS.xyz,
@@ -245,7 +287,12 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Tamil Nadu Technical University",
     address_city: "Coimbatore",
     established_year: 1998,
-    programmes: XYZ_PROGRAMMES,
+    programmes: [
+      BTECH("CSE", "Computer Science and Engineering", 180, 171),
+      BTECH("ECE", "Electronics and Communication Engineering", 120, 97),
+      BTECH("MECH", "Mechanical Engineering", 60, 41),
+      BTECH("AIDS", "Artificial Intelligence and Data Science", 60, 60, "SECOND"),
+    ],
   },
   {
     id: "10000000-0003-4000-8000-000000000003",
@@ -257,7 +304,14 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Andhra Technical University",
     address_city: "Vijayawada",
     established_year: 2001,
-    programmes: { count: 6, approved: 600, enrolments: 571 },
+    programmes: [
+      BTECH("CSE", "Computer Science and Engineering", 180, 176),
+      BTECH("ECE", "Electronics and Communication Engineering", 120, 112),
+      BTECH("EEE", "Electrical and Electronics Engineering", 60, 49),
+      BTECH("MECH", "Mechanical Engineering", 120, 97),
+      BTECH("CIVIL", "Civil Engineering", 60, 44),
+      BTECH("IT", "Information Technology", 60, 58),
+    ],
   },
   {
     id: "10000000-0004-4000-8000-000000000004",
@@ -269,7 +323,13 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Maharashtra State Technical University",
     address_city: "Karad",
     established_year: 1960,
-    programmes: { count: 5, approved: 420, enrolments: 402 },
+    programmes: [
+      BTECH("CIVIL", "Civil Engineering", 60, 60),
+      BTECH("CSE", "Computer Science and Engineering", 120, 120),
+      BTECH("ECE", "Electronics and Communication Engineering", 60, 58),
+      BTECH("EEE", "Electrical and Electronics Engineering", 60, 57),
+      BTECH("MECH", "Mechanical Engineering", 120, 114),
+    ],
   },
   {
     id: "10000000-0005-4000-8000-000000000005",
@@ -281,7 +341,11 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Gujarat Technological University",
     address_city: "Ahmedabad",
     established_year: 1986,
-    programmes: { count: 3, approved: 300, enrolments: 248 },
+    programmes: [
+      { code: "MBA", name: "Master of Business Administration", intake: 180, firstYear: 164, level: "PG", discipline: "MANAGEMENT" },
+      { code: "PGDM", name: "Post Graduate Diploma in Management", intake: 60, firstYear: 48, level: "PG", discipline: "MANAGEMENT" },
+      { code: "MBAX", name: "Master of Business Administration (Executive)", intake: 60, firstYear: 36, level: "PG", discipline: "MANAGEMENT", shift: "SECOND" },
+    ],
   },
   {
     id: "10000000-0006-4000-8000-000000000006",
@@ -293,7 +357,10 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Karnataka Health and Technical University",
     address_city: "Mysuru",
     established_year: 2009,
-    programmes: { count: 2, approved: 120, enrolments: 97 },
+    programmes: [
+      { code: "BPHARM", name: "Bachelor of Pharmacy", intake: 100, firstYear: 84, discipline: "PHARMACY" },
+      { code: "DPHARM", name: "Diploma in Pharmacy", intake: 60, firstYear: 51, level: "DIPLOMA", discipline: "PHARMACY" },
+    ],
   },
   {
     id: "10000000-0007-4000-8000-000000000007",
@@ -305,7 +372,10 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Awadh University",
     address_city: "Lucknow",
     established_year: 1992,
-    programmes: { count: 2, approved: 180, enrolments: 163 },
+    programmes: [
+      { code: "BCA", name: "Bachelor of Computer Applications (Online)", intake: 120, firstYear: 104, discipline: "COMPUTER_APPLICATIONS", mode: "ONLINE" },
+      { code: "MCA", name: "Master of Computer Applications", intake: 60, firstYear: 57, level: "PG", discipline: "COMPUTER_APPLICATIONS" },
+    ],
   },
   {
     id: "10000000-0008-4000-8000-000000000008",
@@ -317,7 +387,7 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Durgapur University of Technology",
     address_city: "Durgapur",
     established_year: 2007,
-    programmes: { count: 2, approved: 120, enrolments: 45 },
+    programmes: [BTECH("CSE", "Computer Science and Engineering", 60, 27), BTECH("ME", "Mechanical Engineering", 60, 18)],
   },
   {
     id: "10000000-0009-4000-8000-000000000009",
@@ -329,7 +399,11 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Deccan Deemed University",
     address_city: "Hyderabad",
     established_year: 1994,
-    programmes: { count: 3, approved: 240, enrolments: 236 },
+    programmes: [
+      { code: "BARCH", name: "Bachelor of Architecture", intake: 120, firstYear: 118, discipline: "ARCHITECTURE" },
+      { code: "BPLAN", name: "Bachelor of Planning", intake: 60, firstYear: 58, discipline: "PLANNING" },
+      { code: "MARCH", name: "Master of Architecture", intake: 60, firstYear: 60, level: "PG", discipline: "ARCHITECTURE" },
+    ],
   },
   {
     id: "10000000-0010-4000-8000-000000000010",
@@ -341,7 +415,12 @@ const SEEDS: InstitutionSeed[] = [
     university_name: "Maharashtra State Technical University",
     address_city: "Pune",
     established_year: 2011,
-    programmes: { count: 4, approved: 360, enrolments: 287 },
+    programmes: [
+      BTECH("CSE", "Computer Science and Engineering", 120, 118),
+      BTECH("IT", "Information Technology", 60, 52),
+      BTECH("MECH", "Mechanical Engineering", 120, 71),
+      BTECH("CIVIL", "Civil Engineering", 60, 33),
+    ],
   },
 ];
 
@@ -349,10 +428,19 @@ function stateOf(code: string): StateMeta {
   return STATES.find((s) => s.code === code) ?? { code, name: code, region: "WEST" };
 }
 
+/** Programmes per institution before the seat ledger runs (pools empty). */
+export const BASE_PROGRAMMES: Record<string, ProgrammeDetail[]> = Object.fromEntries(
+  SEEDS.map((s) => [s.id, s.programmes.map((spec, i) => programme(s.id, i, spec))]),
+);
+
+export function seedOf(id: string): InstitutionSeed | undefined {
+  return SEEDS.find((s) => s.id === id);
+}
+
+/** List rows. `flags_open` is filled by the handler from the open flags. */
 export const INSTITUTIONS: InstitutionRow[] = SEEDS.map((s) => {
   const st = stateOf(s.state_code);
-  const progs = s.programmes;
-  const detailed = Array.isArray(progs);
+  const progs = BASE_PROGRAMMES[s.id];
   return {
     id: s.id,
     aicte_permanent_id: s.aicte_permanent_id,
@@ -364,27 +452,20 @@ export const INSTITUTIONS: InstitutionRow[] = SEEDS.map((s) => {
     region_name: regionName(st.region),
     university_id: s.university_id,
     university_name: s.university_name,
-    programmes: detailed ? progs.length : progs.count,
-    approved_seats: detailed ? sum(progs, (p) => p.approval.approved_intake) : progs.approved,
-    admitted: detailed ? sum(progs, (p) => p.enrolments) : progs.enrolments,
-    enrolments: detailed ? sum(progs, (p) => p.enrolments) : progs.enrolments,
+    programmes: progs.length,
+    approved_seats: progs.reduce((a, p) => a + p.approval.approved_intake, 0),
+    admitted: progs.reduce((a, p) => a + p.enrolments, 0),
+    enrolments: progs.reduce((a, p) => a + onRollOf(p), 0),
     flags_open: 0,
     integrity_index: null,
   };
 });
 
-export function institutionDetail(id: string): InstitutionDetail | null {
-  const seed = SEEDS.find((s) => s.id === id);
+/** Detail without the ledger, flags or last upload; the handler completes it. */
+export function institutionBase(id: string): Omit<InstitutionDetail, "programmes"> | null {
+  const seed = seedOf(id);
   const row = INSTITUTIONS.find((r) => r.id === id);
   if (!seed || !row) return null;
-  const programmes = Array.isArray(seed.programmes)
-    ? seed.programmes
-    : Array.from({ length: seed.programmes.count }, (_, i) => {
-        const p = seed.programmes as { count: number; approved: number; enrolments: number };
-        const intake = Math.round(p.approved / p.count);
-        const codes = ["CSE", "ECE", "MECH", "CIVIL", "IT", "EEE"];
-        return programme(`${id.slice(0, 8)}-p00${i}-4444-8555-666677778888`, codes[i % codes.length], `B.Tech programme ${codes[i % codes.length]}`, intake, Math.round(p.enrolments / p.count));
-      });
   return {
     id: row.id,
     aicte_permanent_id: row.aicte_permanent_id,
@@ -405,143 +486,10 @@ export function institutionDetail(id: string): InstitutionDetail | null {
     integrity_components: null,
     flags_open: 0,
     last_upload: null,
-    programmes,
   };
 }
 
-/* ---- Enrolments (ABC College) ------------------------------------------- */
-
-const FIRST = ["Aarav", "Aisha", "Ananya", "Arjun", "Bhavna", "Deepak", "Divya", "Farhan", "Gauri", "Harsh", "Ishita", "Kabir", "Kavya", "Manish", "Meera", "Nikhil", "Pooja", "Pranav", "Riya", "Rohan", "Sana", "Sneha", "Tanvi", "Varun", "Yash"];
-const LAST = ["Agarwal", "Bhosale", "Chavan", "Deshmukh", "Gaikwad", "Iyer", "Joshi", "Kulkarni", "Mehta", "Nair", "Patil", "Pawar", "Rao", "Shaikh", "Shinde"];
-const ROUTES: AdmissionRoute[] = ["COUNSELLING", "COUNSELLING", "COUNSELLING", "COUNSELLING", "MANAGEMENT", "MANAGEMENT", "NRI", "TFW", "LATERAL", "SPOT"];
-const CATEGORIES: Category[] = ["GENERAL", "GENERAL", "OBC", "OBC", "EWS", "SC", "ST", "GENERAL"];
-
-function hex8(n: number): string {
-  return ((n * 2654435761) >>> 0).toString(16).toUpperCase().padStart(8, "0").slice(0, 8);
-}
-
-function makeEnrolments(): EnrolmentRow[] {
-  const rows: EnrolmentRow[] = [];
-  const cse = ABC_PROGRAMMES[1];
-  rows.push({
-    id: "e0000000-0000-4666-8777-888899990000",
-    student: { id: IDS.ravi, name: "Ravi Kumar Sharma", apaar_masked: "XXXX XXXX 4417", consent_status: "LINKED", provisional_id: null, nationality: "IN" },
-    programme_id: cse.id,
-    programme_code: cse.code,
-    academic_year: ACADEMIC_YEAR,
-    cohort_year: ACADEMIC_YEAR,
-    year_of_study: 1,
-    admission_route: "COUNSELLING",
-    counselling_ref: "MHCET-2026-R1-004512",
-    category: "GENERAL",
-    seat_code: null,
-    status: "ACTIVE",
-    admission_date: "2026-08-02",
-    status_date: "2026-08-02",
-    uploaded_at: "2026-07-14T09:30:00Z",
-    upload_batch_id: null,
-    source_row_no: 1,
-    countersign: { score: null, checks: [] },
-    flags: [],
-  });
-  for (let i = 1; i < 64; i++) {
-    const prog = ABC_PROGRAMMES[i % ABC_PROGRAMMES.length];
-    let consent: ConsentStatus = "LINKED";
-    if (i % 11 === 0) consent = "REFUSED";
-    else if (i % 13 === 0) consent = "PENDING";
-    else if (i % 17 === 0) consent = "INTERNATIONAL";
-    const route: AdmissionRoute = consent === "INTERNATIONAL" ? "INTERNATIONAL" : ROUTES[i % ROUTES.length];
-    const last4 = String((i * 7919) % 10000).padStart(4, "0");
-    const year = route === "LATERAL" ? 2 : (i % 4) + 1;
-    rows.push({
-      id: `e${String(i).padStart(7, "0")}-0000-4666-8777-888899990000`,
-      student: {
-        id: `s${String(i).padStart(7, "0")}-0000-4666-8777-888899990000`,
-        name: consent === "INTERNATIONAL" ? "Aisha Rahman" : `${FIRST[i % FIRST.length]} ${LAST[(i * 3) % LAST.length]}`,
-        apaar_masked: consent === "LINKED" ? `XXXX XXXX ${last4}` : null,
-        consent_status: consent,
-        provisional_id: consent === "LINKED" ? null : `PRV-${hex8(i)}`,
-        nationality: consent === "INTERNATIONAL" ? "BD" : "IN",
-      },
-      programme_id: prog.id,
-      programme_code: prog.code,
-      academic_year: ACADEMIC_YEAR,
-      cohort_year: `${2027 - year}-${String(28 - year).padStart(2, "0")}`,
-      year_of_study: year,
-      admission_route: route,
-      counselling_ref: route === "COUNSELLING" ? `MHCET-${2027 - year}-R1-${String(i * 37).padStart(6, "0")}` : null,
-      category: CATEGORIES[i % CATEGORIES.length],
-      seat_code: null,
-      status: "ACTIVE",
-      admission_date: "2026-08-02",
-      status_date: "2026-08-02",
-      uploaded_at: "2026-07-14T09:30:00Z",
-      upload_batch_id: null,
-      source_row_no: i + 1,
-      countersign: { score: null, checks: [] },
-      flags: [],
-    });
-  }
-  return rows.sort((a, b) => a.student.name.localeCompare(b.student.name));
-}
-
-export const ENROLMENTS: EnrolmentRow[] = makeEnrolments();
-
-/* ---- Seats: every seat free in Week 1 ------------------------------------ */
-
-const LETTER: Record<SeatType, string> = { REGULAR: "R", NRI: "N", TFW: "T", LATERAL: "L", INTERNATIONAL: "I" };
-
-export function seatsFor(detail: InstitutionDetail): SeatRow[] {
-  const rows: SeatRow[] = [];
-  for (const p of detail.programmes) {
-    for (const pool of p.pools) {
-      const ciwg = pool.seat_type === "INTERNATIONAL" ? Math.round(pool.capacity / 3) : 0;
-      for (let n = 1; n <= pool.capacity; n++) {
-        rows.push({
-          id: `${p.id.slice(0, 8)}-${LETTER[pool.seat_type]}${String(n).padStart(3, "0")}-4000-8000-000000000000`,
-          seat_code: `${p.code}-${LETTER[pool.seat_type]}-${String(n).padStart(3, "0")}`,
-          academic_year: p.approval.academic_year,
-          programme_code: p.code,
-          seat_type: pool.seat_type,
-          status: "FREE",
-          reserved_for: n <= ciwg ? "CIWG" : null,
-          enrolment_id: null,
-          student_name: null,
-          assigned_at: null,
-        });
-      }
-    }
-  }
-  return rows;
-}
-
-/* ---- Student, sources, audit, health ------------------------------------- */
-
-export const STUDENT_ME: StudentMe = {
-  id: IDS.ravi,
-  name: "Ravi Kumar Sharma",
-  apaar_masked: "XXXX XXXX 4417",
-  consent_status: "LINKED",
-  provisional_id: null,
-  dob: "2007-03-21",
-  email: "ravi.sharma@example.demo",
-  mobile_masked: "XXXXXX4521",
-  enrolments: [
-    {
-      id: "e0000000-0000-4666-8777-888899990000",
-      institution_id: IDS.abc,
-      institution_name: "ABC College of Engineering",
-      programme_code: "CSE",
-      programme_name: "B.Tech Computer Science and Engineering",
-      academic_year: ACADEMIC_YEAR,
-      year_of_study: 1,
-      status: "ACTIVE",
-      countersign: { score: null, checks: [] },
-    },
-  ],
-  notices: [],
-  credentials: [],
-};
+export const SEAT_LETTER: Record<SeatType, string> = { REGULAR: "R", NRI: "N", TFW: "T", LATERAL: "L", INTERNATIONAL: "I" };
 
 export function adapterPing(chaos: ChaosState): AdapterPing {
   const base = { apaar: 12, counselling: 9, abc: 14, digilocker: 8, sii: 11 };
