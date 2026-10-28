@@ -299,7 +299,16 @@ export function AuditPage() {
               const isBreak = broken === r.seq;
               return (
                 <tr key={r.seq} data-seq={r.seq} tabIndex={isBreak ? -1 : undefined} className={cn(isBreak && "bg-check-fail-soft outline-offset-[-2px]")}>
-                  <td className="num code">{r.seq}</td>
+                  <td className={cn("num code", isBreak && "!h-auto py-1.5")}>
+                    {r.seq}
+                    {isBreak && (
+                      // On phones the Hash column is off screen, so the marker sits under the entry number.
+                      <span className="mt-0.5 flex items-start justify-end gap-1 font-sans text-xs leading-snug font-medium text-check-fail-ink md:hidden">
+                        <X className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+                        {t("audit.break_marker")}
+                      </span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap text-ink-muted tabular-nums">{formatDateTime(r.at)}</td>
                   <td className={cn(!r.actor_email && "text-ink-muted")}>{actorWord(r)}</td>
                   <td>{tk(`audit_action.${r.action}`)}</td>
@@ -321,7 +330,7 @@ export function AuditPage() {
                   <td className={cn(isBreak && "!h-auto py-1.5")}>
                     <Short value={r.hash} tip={t("audit.hash_tip", { hash: r.hash })} />
                     {isBreak && (
-                      <span className="mt-0.5 flex items-start gap-1 text-xs leading-snug font-medium text-check-fail-ink xl:whitespace-nowrap">
+                      <span className="mt-0.5 hidden items-start gap-1 text-xs leading-snug font-medium text-check-fail-ink md:flex xl:whitespace-nowrap">
                         <X className="mt-px size-3.5 shrink-0" aria-hidden="true" />
                         {t("audit.break_marker")}
                       </span>
