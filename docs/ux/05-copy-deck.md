@@ -111,7 +111,7 @@ New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.cle
 | kpi.flags_open_tip | Flags that are open, waiting for documents or escalated, for {academic_year}. |
 | kpi.countersigned | Countersigned |
 | kpi.countersigned_value | {pct}% of enrolments fully countersigned |
-| kpi.countersigned_tip | Share of checked enrolments where every check that applies is countersigned. The last check is the student's own reply, which starts in Week 3, so this reads 0% until then. |
+| kpi.countersigned_tip | Share of checked enrolments where every check that applies is countersigned, the student's own reply included. Waiting for a reply keeps an enrolment out of this share; it never counts against the college. |
 | kpi.clear | No source disagrees |
 | kpi.clear_value | {pct}% of enrolments |
 | kpi.clear_tip | Share of checked enrolments where no source disagrees with the college's upload. A check that is still pending does not count against an enrolment. |
@@ -205,7 +205,9 @@ New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.cle
 | check.status.FAIL | Not countersigned |
 | check.status.PENDING | Pending |
 | check.status.NA | n/a |
-| check.pending.student | Notice not sent yet |
+| check.pending.student | No reply yet |
+| check.pending.student_not_sent | Notice not sent yet |
+| check.pending.student_expired | No reply (expired) |
 | check.pending.unavailable | Awaiting source |
 | check.pending.review | Needs review |
 | check.pending.results | Awaiting next results |
@@ -232,9 +234,9 @@ Seats against admissions (API_CONTRACT §A2.18). Approved seats are one year's i
 
 Percentages. `countersigned_pct` and `clear_pct` arrive rounded to one decimal; print them as sent, dropping a trailing ".0" (0.0 prints "0%", 91.4 prints "91.4%"). Null prints [kpi.not_computed]. The two tiles always appear together, Countersigned first.
 
-Pending words. A PENDING check shows the first word that applies: [check.pending.student] for the Student check, in every view; [check.pending.unavailable] when `detail.source_unavailable`; [check.pending.review] when `detail.needs_review`; [check.pending.results] when `detail.awaiting_semester`; otherwise [check.status.PENDING]. Enrolment lists and `/students/me` carry no `detail` (API_CONTRACT §A2.10), so there any pending check other than Student reads "Pending". PENDING is hollow and never red, whatever its word.
+Pending words. A PENDING check shows the first word that applies. Student check: on enrolment detail the word follows `detail.notice_state`: [check.pending.student_not_sent] for `NOT_SENT`, [check.pending.student] for `SENT`, [check.pending.student_expired] for `EXPIRED`; wherever there is no `detail`, [check.pending.student]. Other checks: [check.pending.unavailable] when `detail.source_unavailable`; [check.pending.review] when `detail.needs_review`; [check.pending.results] when `detail.awaiting_semester`; otherwise [check.status.PENDING]. Enrolment lists and `/students/me` carry no `detail` (API_CONTRACT §A2.10), so there a pending Student check reads "No reply yet" and any other pending check reads "Pending". PENDING is hollow and never red, whatever its word. The Student check is never n/a, and silence never fails it: with no reply it stays pending (D24).
 
-In `strip.score_pending`, `{pending}` counts pending checks other than Student; when that is 0 the strip shows `strip.score` alone. (Every active enrolment's Student check stays pending until student notices start in Week 3; counting it would print the same words on every row.) `strip.aria`, `strip.segment_tip` and `strip.segment_tip_full` use the same status words. `strip.segment_tip` is for lists (type and status only); `strip.segment_tip_full` is for enrolment detail. `check.na_reason.*` is the n/a tooltip in lists; on enrolment detail the check's `detail.summary` replaces it.
+In `strip.score_pending`, `{pending}` counts pending checks other than Student; when that is 0 the strip shows `strip.score` alone. (A pending Student check waits on the student, not on a source, and is neutral; counting it would print the same words on most rows.) `strip.aria`, `strip.segment_tip` and `strip.segment_tip_full` use the same status words. `strip.segment_tip` is for lists (type and status only); `strip.segment_tip_full` is for enrolment detail. `check.na_reason.*` is the n/a tooltip in lists; on enrolment detail the check's `detail.summary` replaces it.
 
 ## 4. Enum words
 
@@ -316,6 +318,11 @@ In `strip.score_pending`, `{pending}` counts pending checks other than Student; 
 | notice_reply.NO | Denied |
 | notice_reply.NONE | No reply yet |
 | notice_reply.EXPIRED | No reply (expired) |
+| notice_channel.EMAIL | Email |
+| notice_channel.DIGILOCKER | DigiLocker |
+| notice_delivery.QUEUED | Waiting to send |
+| notice_delivery.SENT | Sent |
+| notice_delivery.FAILED | Not delivered |
 | provisional.label | Provisional id |
 | gender.M | Male |
 | gender.F | Female |
@@ -362,7 +369,8 @@ Summaries (`evidence.summary`, one sentence, never a student name or a full id)
 | flag.DUPLICATE_WITHIN_UPLOAD.summary_two_files | Medium | the rows are in two files | Row {row_b} of {filename_b} describes the same student as row {row_a} of {filename_a}. |
 | flag.DUAL_ENROLMENT_ALLOWED.summary | Low | one physical programme plus one open and distance learning or online programme | The student holds two enrolments; one is distance or online, which is permitted. |
 | flag.NO_ACADEMIC_ACTIVITY.summary | Medium | two or more expected semesters have no credits | No credits recorded in ABC for {missing} semesters while enrolled in year {year_of_study}. |
-| flag.STUDENT_DENIED.summary | not raised before Week 3 | | Student replied "not me" to the notice sent on {sent_date}. |
+| flag.STUDENT_DENIED.summary | High | the student replies No on any channel; a No beats a Yes | Student replied "not me" to the notice sent on {sent_date}. |
+| flag.STUDENT_DENIED.summary_changed | High; the flag keeps its status | the student changed the reply from No to Yes within 7 days | Student replied "not me" to the notice sent on {sent_date}, then changed the reply to Yes on {changed_date}. |
 | flag.GHOST_RING.summary | not raised before Week 3 | | {students} students across {institutions} institutions share {contacts} contact details. |
 | flag.ANOMALY.summary | not raised before Week 4 | | {metric} for {programme_code} is {value}, outside the usual range ({low} to {high}) for similar programmes. |
 
@@ -410,9 +418,15 @@ Facts (`evidence.facts`, label: value, source, in this order)
 | NO_ACADEMIC_ACTIVITY | Semesters checked | {expected} ({first_academic_year} to {last_academic_year}) | ABC |
 | | Credits found | Sem 1: 0, Sem 2: 0 (one entry per semester) | ABC |
 | | Last ABC entry | {last_entry_date}, or None | ABC |
-| STUDENT_DENIED | Notice sent; Replied on; Student comment | | Student reply |
+| STUDENT_DENIED | Channel | {channel_name} | Student reply |
+| | Notice sent | {sent_date} | Student reply |
+| | Replied on | {reply_date} | Student reply |
+| | Reply changed (only after a change) | Yes on {changed_date} | Student reply |
+| | Comment from the student (officers only) | {comment}, or None | Student reply |
 | GHOST_RING | Shared mobiles; Shared emails; Shared addresses; Institutions | | Contact graph analysis |
 | ANOMALY | Metric; Value; Usual range; Compared with | | Anomaly model |
+
+STUDENT_DENIED: `{channel_name}` is the `notice_channel.*` word of the channel that carried the No. The comment fact carries `audience: "OFFICER"`, so a registrar never receives it (D24). When the student changes a No to a Yes, the flag keeps its status (only an officer resolves it), its evidence is refreshed with `summary_changed` and the Reply changed fact, and the case history gains a System row (§6).
 
 Words: `{match_words}` is "Same APAAR", "Same passport" or "Name ({name_score} of 100), date of birth and mobile", joined with "and" when more than one matched. `{mode_a_word}` and `{mode_b_word}` are "physical", "open and distance learning" or "online". `{route_words}` lists the routes that map to the pool (NRI; TFW; Lateral; International). Institution A is always the flag's own institution and B the other one. The registrar never sees B's name: the api drops the officer facts and keeps the registrar ones.
 
@@ -651,10 +665,30 @@ English
 | notice.no_done | Thank you. An AICTE officer will look into this. Nothing changes for you until they do. |
 | notice.answered | You replied "{reply}" on {responded_date}. |
 | notice.change | Change my answer |
-| notice.expired | This link has expired. Ask your college to resend the notice. |
-| notice.invalid | This link is not valid. Check the link in your message or ask your college to resend it. |
+| notice.expired | This link has expired. No reply was recorded, and that does not count against you. To reply now, ask your college or AICTE to send a new notice. |
+| notice.invalid | This link is not valid. Check that you opened the whole link from your message, or ask your college to send a new notice. |
+| notice.page_title | Notice from {institution_name} |
+| notice.lang_label | Language |
+| notice.sending | Sending |
+| notice.no_comment_hint | Only AICTE officers read this. Your college does not see it. |
+| notice.no_cancel | Go back |
+| notice.yes_next | If the other checks agree too, an enrolment proof you can share appears in My proofs. |
+| notice.see_proofs | See my proofs |
+| notice.reply.YES | Yes |
+| notice.reply.NO | No |
+| notice.change_window | You can change your answer once, until {change_until_date}. |
+| notice.change_heading | Change your answer |
+| notice.change_once | You can change your answer only once. After that it is final. |
+| notice.current_answer | Your answer now |
+| notice.change_submit | Save my new answer |
+| notice.changed_done | Your answer is now "{reply}". It cannot be changed again. |
+| notice.change_used | You changed your answer on {changed_date}. Your answer "{reply}" is final. |
+| notice.change_closed | The 7 days to change your answer are over. If it needs correcting, ask from your Privacy page. |
+| notice.rate_limited | Too many tries from this network. Try again in {seconds} s. |
 | notice.lang_hi | हिन्दी |
 | notice.lang_en | English |
+
+`{reply}` takes `notice.reply.*`. `{id_label}` is "APAAR" or [provisional.label]. `{change_until_date}` is 7 days after the first reply. Page states and the error codes behind them: 404 `NOTICE_NOT_FOUND` (same body for an invalid and an unknown token) shows `notice.invalid`; 410 `NOTICE_EXPIRED` shows `notice.expired`; 409 `NOTICE_ALREADY_CHANGED` shows `notice.change_used`; 429 shows `notice.rate_limited`.
 
 Hindi (for review by a native speaker before the panel)
 
@@ -670,7 +704,75 @@ Hindi (for review by a native speaker before the panel)
 | notice.next_step.hi | अगर आप "नहीं" चुनते हैं, तो AICTE का एक अधिकारी इसकी जाँच करेगा। तब तक आपके लिए कुछ नहीं बदलता। |
 | notice.yes_done.hi | धन्यवाद। {institution_name} में आपका नामांकन अब आपके द्वारा प्रमाणित है। |
 | notice.no_done.hi | धन्यवाद। AICTE का एक अधिकारी इसकी जाँच करेगा। तब तक आपके लिए कुछ नहीं बदलता। |
-| notice.expired.hi | यह लिंक समाप्त हो गया है। अपने कॉलेज से सूचना दोबारा भेजने को कहें। |
+| notice.expired.hi | यह लिंक समाप्त हो गया है। कोई उत्तर दर्ज नहीं हुआ, और इसे आपके विरुद्ध नहीं गिना जाता। अभी उत्तर देने के लिए अपने कॉलेज या AICTE से नई सूचना भेजने को कहें। |
+| notice.page_title.hi | {institution_name} की सूचना |
+| notice.lang_label.hi | भाषा |
+| notice.uploaded_line.hi | कॉलेज ने यह जानकारी {uploaded_date} को {id_label} {id_masked} के साथ अपलोड की। |
+| provisional.label.hi | अस्थायी आईडी |
+| notice.what_is_this_link.hi | यह क्या है? |
+| notice.what_is_this.hi | Countersign से AICTE यह जाँचता है कि कॉलेज केवल उन्हीं विद्यार्थियों की जानकारी भेजें जिन्होंने सच में प्रवेश लिया है। आपके कॉलेज ने आपका नामांकन अपलोड किया है, और हम आपसे इसकी पुष्टि करने को कह रहे हैं। आपका उत्तर तारीख के साथ दर्ज होता है। उसके साथ केवल वही छिपी हुई आईडी रखी जाती है जो आप यहाँ देख रहे हैं। |
+| notice.sending.hi | भेजा जा रहा है |
+| notice.no_confirm.hi | आप AICTE को बता रहे हैं कि आपने {institution_name} में प्रवेश नहीं लिया। एक अधिकारी इसकी जाँच करेगा। क्या आप कुछ और बताना चाहेंगे? (वैकल्पिक) |
+| notice.no_comment_label.hi | क्या आप कुछ और बताना चाहेंगे? |
+| notice.no_comment_hint.hi | इसे केवल AICTE के अधिकारी पढ़ते हैं। आपका कॉलेज इसे नहीं देखता। |
+| notice.no_submit.hi | भेजें |
+| notice.no_cancel.hi | वापस जाएँ |
+| notice.yes_next.hi | अगर बाकी जाँचें भी सहमत हैं, तो एक नामांकन प्रमाण, जिसे आप साझा कर सकते हैं, "मेरे प्रमाण" (My proofs) में दिखेगा। |
+| notice.see_proofs.hi | मेरे प्रमाण देखें |
+| notice.answered.hi | आपने {responded_date} को "{reply}" उत्तर दिया। |
+| notice.reply.YES.hi | हाँ |
+| notice.reply.NO.hi | नहीं |
+| notice.change.hi | मेरा उत्तर बदलें |
+| notice.change_window.hi | आप अपना उत्तर केवल एक बार, {change_until_date} तक, बदल सकते हैं। |
+| notice.change_heading.hi | अपना उत्तर बदलें |
+| notice.change_once.hi | आप अपना उत्तर केवल एक बार बदल सकते हैं। उसके बाद वह अंतिम होगा। |
+| notice.current_answer.hi | आपका अभी का उत्तर |
+| notice.change_submit.hi | नया उत्तर सहेजें |
+| notice.changed_done.hi | आपका उत्तर अब "{reply}" है। इसे फिर से नहीं बदला जा सकता। |
+| notice.change_used.hi | आपने {changed_date} को अपना उत्तर बदला था। आपका उत्तर "{reply}" अंतिम है। |
+| notice.change_closed.hi | उत्तर बदलने के 7 दिन पूरे हो चुके हैं। अगर इसमें सुधार चाहिए, तो अपने Privacy पेज से अनुरोध करें। |
+| notice.invalid.hi | यह लिंक मान्य नहीं है। जाँचें कि आपने संदेश का पूरा लिंक खोला है, या अपने कॉलेज से नई सूचना भेजने को कहें। |
+| notice.rate_limited.hi | इस नेटवर्क से बहुत अधिक प्रयास हुए हैं। {seconds} सेकंड बाद फिर कोशिश करें। |
+| consent.notice.hi | उत्तर देकर आप AICTE को इस नामांकन के साथ आज की तारीख में अपना उत्तर दर्ज करने की अनुमति देते हैं। आपका उत्तर AICTE के अधिकारियों और {institution_name} को केवल "पुष्टि की" या "अस्वीकार किया" के रूप में दिखता है, किसी और व्यक्तिगत जानकारी के बिना। अगर आप टिप्पणी लिखते हैं, तो उसे केवल AICTE के अधिकारी देखते हैं। |
+| err.NETWORK.hi | Countersign से संपर्क नहीं हो सका। अपना इंटरनेट कनेक्शन जाँचें और फिर कोशिश करें। |
+| err.INTERNAL.hi | हमारी ओर से कुछ गड़बड़ हुई। फिर कोशिश करें। |
+| err.retry.hi | फिर कोशिश करें |
+
+With Hindi on, every string on the notice page uses its `.hi` row, states and errors included; a string without one falls back to English. Institution and programme names print as sent. `{reply}` takes `notice.reply.*.hi`; `{id_label}` is "APAAR" or [provisional.label.hi]. Dates keep the `14 Jul 2026` form. "Privacy" and "My proofs" stay in English inside the Hindi strings because the student portal shows them in English.
+
+Notices list (`/student/notices`)
+
+| id | text |
+|---|---|
+| notices.heading | Notices |
+| notices.lead | Messages asking you to confirm what a college told AICTE about you. |
+| notices.col.sent | Sent |
+| notices.col.from | From |
+| notices.col.claim | What they said |
+| notices.col.reply | Your reply |
+| notices.claim | You joined {programme_short} ({academic_year}) |
+| notices.channels | By {channel_words} |
+| notices.reply.YES | Yes, on {responded_date} |
+| notices.reply.NO | No, on {responded_date} |
+| notices.reply.NONE | No reply yet |
+| notices.reply.EXPIRED | No reply (expired) |
+| notices.changed | Changed once, on {changed_date} |
+| notices.reply_hint | To reply, open the link we sent you by email or in DigiLocker. It works until {expires_date}. |
+| notices.denied_line | An AICTE officer is looking into this. Nothing changes for you until they decide. |
+| notices.consent_off | You turned off new notices on {withdrawn_date}. Notices already sent can still be answered. |
+
+`{channel_words}` is "email", "DigiLocker" or "email and DigiLocker". The list cannot open a notice: only a hash of each link is stored (D23), so an unanswered notice shows `notices.reply_hint` instead of a link. `notices.denied_line` sits under a No reply and is the only place a student learns that a case exists.
+
+Student home (`/student`)
+
+| id | text |
+|---|---|
+| student.check_student_sent | The last check is your own reply. We sent you a notice on {sent_date}. Open it from your email or DigiLocker to reply. |
+| student.check_student_expired | Your notice expired without a reply. That does not count against you. |
+| student.check_student_denied | You told us this is not you. An AICTE officer is looking into it. Nothing changes for you until they decide. |
+| student.consent_change | {tip}. To change it, go to your Privacy page. |
+
+Under the strip the home page shows one line by the enrolment's newest notice: none sent, [student.check_student_pending]; sent and unanswered, `student.check_student_sent`; expired, `student.check_student_expired`; answered No, `student.check_student_denied`; answered Yes, nothing. `student.consent_change` replaces the consent tooltip line the web kept outside the deck.
 
 Wallet
 
@@ -702,7 +804,7 @@ Wallet
 | student.heading | My enrolment |
 | student.card_lead | {institution_name} says you joined {programme_name} |
 | student.strip_caption | {passes} of {applicable} sources agree |
-| student.check_student_pending | The last check is your own reply. You will be asked to confirm this enrolment when student notices start in Week 3. |
+| student.check_student_pending | The last check is your own reply. AICTE sends you a notice by email or DigiLocker to confirm this enrolment. |
 | privacy.student_line | Only you can see your email and mobile here. Officers see masked ids only. |
 | privacy.how_link | How my data is used |
 
@@ -827,6 +929,9 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.UPLOAD_HEADER_DUPLICATE | The column {column} appears more than once. |
 | err.UPLOAD_EMPTY | The file has a header but no rows. |
 | err.UPLOAD_IN_PROGRESS | An upload for this college and year is still being processed. |
+| err.NOTICE_NOT_FOUND | This link is not valid. Check that you opened the whole link from your message, or ask your college to send a new notice. |
+| err.NOTICE_EXPIRED | This link has expired. No reply was recorded, and that does not count against you. To reply now, ask your college or AICTE to send a new notice. |
+| err.NOTICE_ALREADY_CHANGED | You have already changed your answer once, so it cannot be changed again. |
 | err.INTERNAL | Something went wrong on our side. Try again. |
 | err.NETWORK | Could not reach Countersign. Check your connection and try again. |
 | err.ref | Ref: {code} |
@@ -863,7 +968,7 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | empty.enrolments_filtered | No enrolments match these filters. |
 | empty.seats | No seats in this pool. |
 | empty.uploads | No uploads yet. |
-| empty.notices_student | You have no notices yet. |
+| empty.notices_student | You have no notices yet. When a college reports your enrolment, AICTE sends you a notice by email or DigiLocker. |
 | empty.credentials_student | Proofs you can share arrive in Week 3. |
 | empty.enrolments_student | No college has reported an enrolment for you. |
 | empty.affiliates | No institutions are affiliated to your university in this academic year. |
@@ -901,9 +1006,15 @@ Reference copy of API_CONTRACT §A2.14. The engines write one of these into each
 | check.detail.STUDYING.pass | Studying | Countersigned | credits in every expected semester | Credits recorded in ABC for all {expected} semesters since admission. |
 | check.detail.STUDYING.pending_one_missing | Studying | Awaiting next results | one semester missing | No credits recorded in ABC for semester {sem} ({academic_year}); waiting for the next upload. |
 | check.detail.STUDYING.fail | Studying | Not countersigned | two or more semesters missing | No credits recorded in ABC for {missing} of {expected} semesters since admission. |
-| check.detail.STUDENT.pending | Student | Notice not sent yet | until student notices start | Notice not sent yet. |
+| check.detail.STUDENT.pending | Student | Notice not sent yet | no notice for this enrolment yet | Notice not sent yet. |
+| check.detail.STUDENT.pending_sent | Student | No reply yet | a notice was sent and has no reply | Notice sent on {sent_date}; no reply yet. |
+| check.detail.STUDENT.pending_expired | Student | No reply (expired) | every notice expired without a reply | No reply (expired). |
+| check.detail.STUDENT.pass | Student | Countersigned | a Yes on any channel and no No | Confirmed by the student on {reply_date} ({channel_word}). |
+| check.detail.STUDENT.fail | Student | Not countersigned | a No on any channel; a No beats a Yes | Denied by the student on {reply_date} ({channel_word}). |
 
 `{problem}` is, for example, "has 11 digits, expected 12" or "contains characters other than digits". The result column gives the word the web shows beside the sentence (`check.status.*` or `check.pending.*`).
+
+Student check (D24): the source is `STUDENT_NOTICE` ([source.STUDENT_NOTICE]) and the result comes only from the enrolment's notices, never from an adapter. A No beats a Yes, because the college supplies the email address while DigiLocker reaches the APAAR holder. `{channel_word}` is "email" or "DigiLocker". After the one allowed change of answer, the sentence follows the new answer and its date. The FAIL sentence is the deck's wording; D24 names the result but not the sentence.
 
 ## 16. Enrolment detail
 
