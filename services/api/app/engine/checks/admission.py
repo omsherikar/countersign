@@ -8,7 +8,13 @@ from app.adapters.base import AdapterSet, CounsellingResult, SiiResult
 from app.core.cohort import start_year
 from app.core.rules import get_rules
 from app.engine import evidence as ev
-from app.engine.checks.base import CheckSubject, SourceDown, call_source, unavailable_outcome
+from app.engine.checks.base import (
+    CheckSubject,
+    SourceDown,
+    answered,
+    call_source,
+    unavailable_outcome,
+)
 from app.engine.contracts import CheckOutcome
 from app.models.enums import CheckStatus, CheckType
 
@@ -86,7 +92,7 @@ async def evaluate(
 ) -> CheckOutcome:
     kind = admission_check_for(subject)
     if kind == SEAT_TYPE_RULES:
-        return decide_seat_rules(subject)
+        return answered(decide_seat_rules(subject), "SEAT_LEDGER", cohort_year=subject.cohort_year)
     if kind == STUDY_IN_INDIA:
         if not subject.passport_no:
             return CheckOutcome(
@@ -103,7 +109,7 @@ async def evaluate(
         )
         if isinstance(sii, SourceDown):
             return unavailable_outcome(CHECK, sii)
-        return decide_sii(subject, sii)
+        return answered(decide_sii(subject, sii), "SII")
     # The upload's counselling_ref is the allotment reference, not the roll number the
     # list matches exactly, so it is compared after the match instead of sent as roll_no.
     found = await call_source(
@@ -120,4 +126,4 @@ async def evaluate(
     )
     if isinstance(found, SourceDown):
         return unavailable_outcome(CHECK, found)
-    return decide_counselling(subject, found)
+    return answered(decide_counselling(subject, found), "COUNSELLING")

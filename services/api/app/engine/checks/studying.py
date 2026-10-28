@@ -11,6 +11,7 @@ from app.engine import evidence as ev
 from app.engine.checks.base import (
     CheckSubject,
     SourceDown,
+    answered,
     call_source,
     flag_intent,
     unavailable_outcome,
@@ -129,4 +130,4 @@ async def evaluate(
         if isinstance(result, SourceDown):
             return unavailable_outcome(CHECK, result, calls=len(results) + 1)
         results.append(result)
-    return decide(subject, years, results)
+    return answered(decide(subject, years, results), SOURCE)

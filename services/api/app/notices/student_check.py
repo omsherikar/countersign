@@ -278,10 +278,22 @@ def _denied_notice(notices: Sequence[NoticeFact]) -> NoticeFact | None:
     return None
 
 
+def _deciding_notice(notices: Sequence[NoticeFact]) -> NoticeFact | None:
+    """The notice whose answer decides the check: the first No, else the first Yes."""
+    for response in (NoticeResponse.NO, NoticeResponse.YES):
+        answers = [n for n in notices if n.response is response]
+        if answers:
+            return min(answers, key=_answered_at)
+    return None
+
+
 def derive(subject: CheckSubject, *, now: datetime | None = None) -> CheckOutcome:
-    """The STUDENT outcome for one enrolment; the first matching row of §A3.8 wins."""
+    """The STUDENT outcome for one enrolment; the first matching row of §A3.8 wins. An
+    answer carries its provenance: the student, independent of the college, when they
+    answered (D34)."""
     now = now or datetime.now(UTC)
     status, detail = _status_and_detail(subject, now)
+    deciding = _deciding_notice(subject.notices)
     flags: tuple[FlagIntent, ...] = ()
     denied = _denied_notice(subject.notices)
     if denied is not None:
@@ -297,6 +309,17 @@ def derive(subject: CheckSubject, *, now: datetime | None = None) -> CheckOutcom
                 enrolment_id=subject.enrolment_id,
             ),
         )
+    if deciding is None:
+        return CheckOutcome(
+            type=CheckType.STUDENT, status=status, source=SOURCE, detail=detail, flags=flags
+        )
     return CheckOutcome(
-        type=CheckType.STUDENT, status=status, source=SOURCE, detail=detail, flags=flags
+        type=CheckType.STUDENT,
+        status=status,
+        source=SOURCE,
+        detail=detail,
+        flags=flags,
+        supplied_by=ev.SOURCE_NAMES[SOURCE],
+        observed_at=_answered_at(deciding),
+        independent=True,
     )

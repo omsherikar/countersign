@@ -147,6 +147,12 @@ def test_row_1_takes_the_earliest_no_and_a_missing_comment_reads_none():
     out = derive(subject(late, early), now=NOW)
     assert out.detail["summary"] == "Denied by the student on 29 Oct 2026 (DigiLocker)."
     assert out.flags[0].evidence["facts"][-1]["value"] == "None"
+    # the answer that decides is the student's own, independent of the college
+    assert (out.supplied_by, out.observed_at, out.independent) == (
+        "Student reply",
+        datetime(2026, 10, 29, 6, tzinfo=UTC),
+        True,
+    )
 
 
 def test_row_2_a_yes_passes_with_the_reply_date_in_india():
@@ -154,6 +160,8 @@ def test_row_2_a_yes_passes_with_the_reply_date_in_india():
     yes = notice(EMAIL, response=YES, responded_at=datetime(2026, 10, 29, 21, 0, tzinfo=UTC))
     out = derive(subject(yes, notice(DIGILOCKER)), now=NOW)
     assert out.status is CheckStatus.CONFIRMED and out.flags == ()
+    assert (out.supplied_by, out.independent) == ("Student reply", True)
+    assert out.observed_at == datetime(2026, 10, 29, 21, 0, tzinfo=UTC)
     assert out.detail == {
         "summary": "Confirmed by the student on 30 Oct 2026 (email).",
         "notice_state": "CONFIRMED",

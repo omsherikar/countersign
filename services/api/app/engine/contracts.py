@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,6 +127,11 @@ class CheckOutcome:
     flags: tuple[FlagIntent, ...] = ()
     calls: tuple[str, ...] = ()
     unavailable: tuple[str, ...] = ()
+    # provenance (D34): who supplied the fact, when it answered, and whether that source is
+    # independent of the college that made the claim; empty when no source answered
+    supplied_by: str = ""
+    observed_at: datetime | None = None
+    independent: bool = False
 
 
 @dataclass(slots=True)

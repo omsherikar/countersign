@@ -6,7 +6,7 @@ import asyncio
 
 from app.adapters.base import AdapterSet
 from app.engine import evidence as ev
-from app.engine.checks.base import CheckSubject
+from app.engine.checks.base import CheckSubject, answered
 from app.engine.contracts import CheckOutcome
 from app.engine.flags import seat_flag_key
 from app.models.enums import CheckStatus, CheckType, FlagType, SeatType
@@ -38,4 +38,4 @@ def decide(subject: CheckSubject) -> CheckOutcome:
 async def evaluate(
     subject: CheckSubject, adapters: AdapterSet, gate: asyncio.Semaphore
 ) -> CheckOutcome:
-    return decide(subject)
+    return answered(decide(subject), SOURCE, cohort_year=subject.cohort_year)

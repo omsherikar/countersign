@@ -10,6 +10,7 @@ from app.engine import evidence as ev
 from app.engine.checks.base import (
     CheckSubject,
     SourceDown,
+    answered,
     call_source,
     flag_intent,
     masked_problem_value,
@@ -121,4 +122,4 @@ async def evaluate(
     )
     if isinstance(result, SourceDown):
         return unavailable_outcome(CHECK, result)
-    return decide(subject, result)
+    return answered(decide(subject, result), SOURCE)

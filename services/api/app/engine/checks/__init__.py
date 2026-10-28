@@ -252,6 +252,9 @@ class _Writer:
                     detail=outcome.detail,
                     checked_at=self.now,
                     attempts=1 if met_outage else 0,
+                    supplied_by=outcome.supplied_by,
+                    observed_at=outcome.observed_at,
+                    independent=outcome.independent,
                 )
                 self.session.add(row)
                 self.existing[(subject.enrolment_id, outcome.type)] = row
@@ -274,6 +277,12 @@ class _Writer:
                     row.detail = outcome.detail
                     row.source = outcome.source
                     row.checked_at = self.now
+                if previous is not outcome.status:
+                    # an officer's decision was about the state that is now gone (R2)
+                    row.resolved = None
+                row.supplied_by = outcome.supplied_by
+                row.observed_at = outcome.observed_at
+                row.independent = outcome.independent
                 if met_outage:
                     row.attempts = (row.attempts or 0) + 1
             if outcome.flags:

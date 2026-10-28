@@ -159,6 +159,40 @@ async def test_second_year_with_zero_credits_fails_studying(world, session, gov)
     assert result.flags.created == 1
 
 
+async def test_each_row_says_who_supplied_it_when_and_whether_independent(
+    world, session, gov
+) -> None:
+    _, _, enrolment = await _ravi(world, gov)
+    await assign_seats(session, [enrolment.id], actor_id=None)
+    await run_checks(session, [enrolment.id], gov)
+    checks = await _checks(session, enrolment.id)
+    provenance = {
+        t: (c.supplied_by, c.independent, c.observed_at is not None) for t, c in checks.items()
+    }
+    assert provenance == {
+        CheckType.IDENTITY: ("APAAR registry", True, True),
+        CheckType.ADMISSION: ("Counselling list", True, True),
+        CheckType.SEAT: ("AICTE approval 2026-27 (Seat Ledger, derived)", False, True),
+        # first year: credits are not due, so no source answered
+        CheckType.STUDYING: ("", False, False),
+        # no reply yet
+        CheckType.STUDENT: ("", False, False),
+    }
+    assert all(c.resolved is None for c in checks.values())
+
+
+async def test_credits_name_abc_and_are_not_independent_yet(world, session, gov) -> None:
+    _, _, enrolment = await _ravi(world, gov, year_of_study=2)
+    gov.abc.credits_by_apaar[RAVI] = {
+        "2025-26": [{"sem": 1, "credits": 22}, {"sem": 2, "credits": 24}]
+    }
+    await run_checks(session, [enrolment.id], gov)
+    studying = (await _checks(session, enrolment.id))[CheckType.STUDYING]
+    assert studying.status is CheckStatus.CONFIRMED
+    assert (studying.supplied_by, studying.independent) == ("ABC credits", False)
+    assert studying.observed_at is not None
+
+
 async def test_apaar_down_leaves_identity_unavailable_and_recheck_confirms(
     world, session, gov
 ) -> None:
@@ -170,6 +204,8 @@ async def test_apaar_down_leaves_identity_unavailable_and_recheck_confirms(
     assert identity.status is CheckStatus.SOURCE_UNAVAILABLE
     assert identity.detail["source_unavailable"] is True
     assert identity.attempts == 1
+    # the registry was asked but observed nothing
+    assert (identity.supplied_by, identity.observed_at) == ("APAAR registry", None)
     assert await session.scalar(select(func.count()).select_from(Flag)) == 0
 
     still = await recheck_pending(session, [enrolment.id], gov)
@@ -183,6 +219,7 @@ async def test_apaar_down_leaves_identity_unavailable_and_recheck_confirms(
     assert checks[CheckType.IDENTITY].status is CheckStatus.CONFIRMED
     assert checks[CheckType.IDENTITY].detail["summary"].startswith("Name and date of birth match")
     assert checks[CheckType.IDENTITY].attempts == 2  # outages met, not evaluations
+    assert checks[CheckType.IDENTITY].observed_at is not None
     assert checks[CheckType.STUDENT].status is CheckStatus.PENDING  # never rechecked here
 
     nothing = await recheck_pending(session, [enrolment.id], gov)
