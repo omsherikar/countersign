@@ -1,0 +1,41 @@
+# Generation sizes and planted-anomaly counts. Every anomaly type has a toggle and a
+# count per size. Counts include the named scenarios when --scenarios is on (the named
+# scenario is planted first, then random instances fill the remainder).
+
+academic_year: "2026-27"
+upload_years: ["2026-27"]
+
+sizes:
+  small:
+    institutions: 50
+    target_students: 10000
+    programmes_per_institution: [2, 5]
+    year1_fill: [0.45, 0.95]
+    xlsx: true
+  full:
+    institutions: 500
+    target_students: 200000
+    programmes_per_institution: [3, 6]
+    year1_fill: [0.45, 0.95]
+    xlsx: true
+
+anomalies:
+  EXCESS_ADMISSION:            {enabled: true, small: 4,  full: 30}
+  QUOTA_BREACH_NRI:            {enabled: true, small: 3,  full: 20}
+  QUOTA_BREACH_INTERNATIONAL:  {enabled: true, small: 2,  full: 12}
+  DUPLICATE_WITHIN_UPLOAD:     {enabled: true, small: 12, full: 150}
+  DUPLICATE_CROSS_INSTITUTION: {enabled: true, small: 10, full: 120}
+  DUAL_ENROLMENT_ALLOWED:      {enabled: true, small: 3,  full: 20}
+  GHOST_RING:                  {enabled: true, small: 3,  full: 15}
+  INVALID_APAAR:               {enabled: true, small: 15, full: 200}
+  NO_ACADEMIC_ACTIVITY:        {enabled: true, small: 12, full: 150}
+  STUDENT_DENIED:              {enabled: true, small: 8,  full: 80}
+  NAME_MISMATCH:               {enabled: true, small: 12, full: 150}
+  # Legitimate rows that look unusual but must not be flagged. Listed in ground truth
+  # with expected_flag null so the evaluation can score false positives.
+  CONSENT_REFUSED_NO_APAAR:    {enabled: true, small: 20, full: 250}
+
+ghost_ring:
+  size: [6, 12]
+  colleges: [2, 3]
+  shared_mobiles: [2, 3]
