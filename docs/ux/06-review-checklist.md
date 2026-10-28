@@ -2,7 +2,7 @@
 
 One line per check, pass or fail. Run against the built pages with the seeded data (`make up && make datagen && make seed`), signed in as each demo user. Record the result per page in a table under each section when reviewing. Copy ids refer to `05-copy-deck.md`.
 
-Sections A to K are the Week 1 pages. Sections L to U are the Week 2 pages (`04-pages-later.md` W2-1 to W2-9, API_CONTRACT Addendum 2); from Week 2 the seed also loads the update files, and where a Week 1 line and a Week 2 line disagree (labels, the Countersigned tile, the default sort, nav items) the Week 2 line wins. Sections V to AH are the Week 3 pages (`04-pages-later.md` W3-1 to W3-10, DECISIONS D23 to D33); from Week 3 the seed also sends notices and applies the simulated replies, leaving Ravi Kumar Sharma's notice unanswered, and where a Week 3 line and an earlier one disagree (nav items, the Student check words, the Countersigned tile, read-only lines, the Assignee column, action buttons) the Week 3 line wins. In particular, the lines naming [university.degree_teaser] (H), [verify.coming] (I) and [flag.readonly_officer] (S) give way to sections AB, AA and AC.
+Sections A to K are the Week 1 pages. Sections L to U are the Week 2 pages (`04-pages-later.md` W2-1 to W2-9, API_CONTRACT Addendum 2); from Week 2 the seed also loads the update files, and where a Week 1 line and a Week 2 line disagree (labels, the Countersigned tile, the default sort, nav items) the Week 2 line wins. Sections V to AH are the Week 3 pages (`04-pages-later.md` W3-1 to W3-10, DECISIONS D23 to D33); from Week 3 the seed also sends notices and applies the simulated replies, leaving Ravi Kumar Sharma's notice unanswered, and where a Week 3 line and an earlier one disagree (nav items, the Student check words, the Countersigned tile, read-only lines, the Assignee column, action buttons) the Week 3 line wins. In particular, the lines naming [university.degree_teaser] (H), [verify.coming] (I) and [flag.readonly_officer] (S) give way to sections AB, AA and AC. Sections AI to AW are the Week 4 pages (`04-pages-later.md` W4-1 to W4-13, DECISIONS D34 to D49, the frozen SIH deck); from Week 4 the seed loads joining records, the Demo DigiLocker accounts, approval versions, colleges that left students out, and the planted rings and anomalies. Where a Week 4 line and an earlier one disagree, the Week 4 line wins: every line about the countersign strip, "n of m", "3 of 4", "sources agree", the Integrity Index, the flag status words Cleared and Confirmed, Clear flag and Confirm, "proof", Degree print and the student's password login (C, D, G, O, P, T, U, W, X, Y, AA, AB, AC, AG, AH) gives way to sections AI to AW.
 
 ## A. Global (check on every page)
 
@@ -449,3 +449,159 @@ Sections A to K are the Week 1 pages. Sections L to U are the Week 2 pages (`04-
 - [ ] The university issues a degree proof, prints the insert, and its QR verifies Valid.
 - [ ] The AICTE officer verifies the audit chain: intact.
 - [ ] The whole path runs without an error toast and with no full APAAR on any screen.
+
+## AI. Week 4 global (check on every page)
+
+- [ ] Status is never shown by colour alone: every record status (Awaiting evidence, Countersigned, Under review, Disputed), evidence state (Confirmed, Contradicted, Pending, Not yet due, Not applicable, Source unavailable), case status, deadline word, signal status and Met or Not met is a word with an icon, and the page reads correctly in greyscale.
+- [ ] One contradiction visibly outranks confirmations: on a record with four Confirmed rows and one Contradicted row, the status reads Under review (or Disputed for a student's No), and the status badge is the largest mark on the card, above the rows.
+- [ ] No score anywhere: no strip, no segments, no "n of 5", "n of m", "n pending" or "sources agree", no percentage for a single record, no Integrity Index, no "Why this score".
+- [ ] A row never says Countersigned and a record never says Confirmed.
+- [ ] Every visible "flag" reads case, every "proof" or "credential" reads attestation, and a student's No reads dispute (Student dispute); wire names appear only in URLs and code.
+- [ ] Masked APAAR everywhere: exactly `XXXX XXXX 4417` as sent, on the record card header, lists, the missing students list, signal members, decision sheets, reports (CSV, XLSX and PDF), the certificate block and the verifier; a provisional ID prints with its label. Search the downloaded report files for any 12-digit run: none.
+- [ ] Officer-only signals are never visible to colleges or students: as the registrar, the university and a student, no nav item, panel, count, link or API request names a signal; `/aicte/signals` and `/ro/signals` redirect them; the network tab shows no `/signals` request from their pages; a case opened from a signal shows the registrar only its own students and the rule line.
+- [ ] Decision sheets name every consequence: Uphold, Correct and Withdraw each list, before submit, the case outcome, the status consequence, the seat change (with seat codes or "No seat to release"), the attestation change (with ids or "No attestation to revoke") and who sees the decision; Withdraw also says nothing is deleted; the submit stays disabled while the list is loading or failed.
+- [ ] Rows appear in the deck's order Identity, Seat, Joining record, Credits, Student on every page; the labels are never Admission or Studying.
+- [ ] Statuses listed together (legend, filters, tiles, report columns) follow the deck's order: Awaiting evidence, Countersigned, Under review, Disputed.
+- [ ] Every new string matches its copy deck id; no em dashes, no exclamation marks, Indian-English spelling, in English and in Hindi; no "Week", "fraud", "fake", "illegal", "rejected" or "blocked" in any visible string.
+- [ ] The Demo DigiLocker and every report carry their labels ("Demo DigiLocker, synthetic data"; "Synthetic data").
+- [ ] Every new page works at 390 px: one column, no horizontal page scroll (tables scroll inside their container with the first column sticky), body text 16 px, targets 44 px, primary buttons full width and 48 px tall, nothing hover-only.
+- [ ] Every new dialog (decision sheets, open case, dismiss signal, issue attestation, clear mapping, revoke attestation) is a modal labelled by its heading, keeps focus inside, closes on Esc and returns focus to its opener.
+- [ ] Each new read the decisions name (record card, missing list, signal detail, report download, evaluation) appears on `/admin/audit` as a Viewed entry; each decision appears as Updated entries for the case, the record, the seat and the attestation together.
+
+## AJ. The record card (enrolment detail)
+
+- [ ] The deck's sample record reproduces: header "B.Tech CSE 2026, ABC College of Engineering · APAAR XXXX XXXX 4417"; Identity Confirmed, APAAR verification · date; Seat "Confirmed: fits approved intake", AICTE approval v2, 2026-27 (Seat Ledger, derived); Joining record "Contradicted: not found", State admission authority · date; Credits Not yet due, First semester not complete; Student "Contradicted: "I never joined"", Student sign-in via DigiLocker · date.
+- [ ] Footer reads "Status: Disputed (priority). Next step: College asked for admission documents by <date>." with the Why line under it for officers and the registrar, then the legend Awaiting evidence · Countersigned · Under review · Disputed with the current status marked by weight and icon.
+- [ ] The card is a real table: column headers Check, Evidence state, Source and date; each row label a `<th scope="row">` with its tooltip; each row announced as one sentence with its state, finding, source and independence.
+- [ ] Confirmed and Contradicted rows carry "Independent of the college" or "From the college itself" with an icon; a record with only self-issued credits shows "From the college itself" on Credits and reads Awaiting evidence.
+- [ ] A clean record with an independent joining record reads Countersigned with no student answer.
+- [ ] An upheld contradiction keeps its Contradicted state with "Claim upheld by an officer on <date>" under it and its tooltip; the record reads Awaiting evidence unless another independent row is Confirmed.
+- [ ] A Source unavailable row is never shown as Contradicted, never red; Recheck evidence shows only when a row other than Student is Pending or Source unavailable.
+- [ ] History lists versions newest first with sentences like "Programme changed from B.Tech ME to B.Tech CSE by upload on <date>."; officers see names and roles, the registrar and university roles only, the student neither.
+- [ ] Attestations (officers only) list each attestation with issued and revoked lines; a dispute-revoked one carries the held-by-dispute line.
+- [ ] A withdrawn record shows the withdrawn banner, keeps its last rows, and has no Recheck.
+- [ ] The student's `/student` card shows the rows, the status and the student line, and no case name, officer, note or signal.
+- [ ] At 390 px the card is five stacked blocks in the deck's order with the status badge above them; nothing scrolls sideways.
+
+## AK. Enrolment lists and the status filter
+
+- [ ] The Status column replaces the countersign strip on the Enrolments tab, `/college/enrolments` and related records; each cell is the icon and status word.
+- [ ] The Status filter lists the four statuses in legend order plus All statuses; Row and Evidence state filters list the five rows and six states; filters live in the URL with the `e_` prefix and survive reload.
+- [ ] The default sort is Needs attention first (Disputed, Under review, Awaiting evidence, Countersigned), explained on the Status header; `aria-sort` set.
+- [ ] The status count line above the table is four links in legend order that set the filter.
+- [ ] Empty with a status filter shows [empty.status_filtered] with Clear filters.
+
+## AL. Dashboards by status (`/aicte`, `/ro`, `/college`)
+
+- [ ] Four status tiles in legend order with count and share, linking to the filtered list; the evidence rule line under them; the four counts add up to the active records.
+- [ ] Every chart has its table beside it; charts are bars; there is no map and no fill percentage of seats.
+- [ ] The Completeness and deadlines panel lists colleges with "n% of joined students uploaded, m missing" and On time, Late, Overdue or Due by date, each with an icon; Overdue is not red text.
+- [ ] Open cases by type show counts and median age; institutions are ranked by open cases, with Countersigned, Under review, Disputed, Completeness and Deadline columns; no Integrity Index column.
+- [ ] The signals panel appears on `/aicte` and `/ro` only, with "Signals never change a record's status." under it.
+- [ ] `/ro` shows only the region's colleges, states and signals.
+- [ ] `/college` shows its own records by status, completeness, deadline and newest cases; no signals, no other college, no national figure.
+- [ ] Each panel fails on its own with retry; at 390 px tiles are a 2 by 2 grid.
+
+## AM. Completeness (`/aicte/institutions/[id]/completeness`, `/college/completeness`)
+
+- [ ] A college that left students out shows a percentage below 100, the missing count, its deadline word with the dates as visible text, and the Missing from upload case linked.
+- [ ] The missing list shows masked APAAR or "Roll XXXX" ids, programme, joined date and round; never a full id; CSV download holds the same masked values.
+- [ ] Uploading the missing rows raises the percentage and adds a System row to the case.
+- [ ] The Missing from upload case offers Uphold claim only (no Correct, no Withdraw).
+- [ ] Before the authority publishes, the page reads [completeness.line_none] with no table.
+
+## AN. Officer decision sheets (`/aicte/cases/[caseId]`, `/ro/cases/[caseId]`)
+
+- [ ] Clear flag and Confirm are gone; the decisions Uphold claim, Correct record and Withdraw claim sit together under Decide, of equal weight, none red.
+- [ ] Each sheet requires a reason and a note; an empty one shows its message under the field, moves focus there and sends nothing.
+- [ ] Withdraw lists: record withdrawn with "withdrawn by decision", the seat released with its code, the attestation revoked with its id (or the "no" lines), nothing deleted, the case closing as Claim withdrawn, and, on a Student dispute, that the student sees it; it needs "I have read what will change" ticked.
+- [ ] After Withdraw: the record reads the withdrawn banner, the Seat Ledger's seated count drops and unseated rises or a seat frees, the student's attestation reads Revoked in the wallet and at the verifier, and `/admin/audit` shows the entries in the same minute; all in one step, with no second action.
+- [ ] Correct lists each field "Field: before to after", the version number, the re-run, the seat change when programme, year, route or eligibility changes; afterwards History shows "... changed from ... to ... by an officer's decision on <date>" and the rows are re-run.
+- [ ] Uphold lists the case outcome, the resolved row line, the status rule ("Countersigned only if a source independent of the college confirms it"), that the decision is not evidence, and no seat change; on Excess admission it needs an approval version or shows [case.uphold_version_none] with the button disabled.
+- [ ] The programme-level Withdraw picker lists only the records the case names, with Select all, a live count, and a submit reading "Withdraw n records".
+- [ ] While the consequences load, the submit is disabled with "Working out what will change"; if they fail to load, the submit stays disabled.
+- [ ] A stale page shows [err.FLAG_TRANSITION_INVALID] and refetches; history rows show the reason and the correction or withdrawal lines.
+- [ ] The registrar's case page shows the decision with the officer's role, never the name; the student sees `student.decision.*` words only.
+- [ ] At 390 px each sheet is a full-height bottom sheet with the submit pinned at the foot.
+
+## AO. Signals (`/aicte/signals`, `/ro/signals`, detail)
+
+- [ ] The planted 40-student ring across 3 colleges and the planted anomalies are listed with their summaries; every detail page prints its rule or model line ("Isolation Forest, contamination 5%, trained on this year's 50 colleges").
+- [ ] "Signals never change a record's status." appears on the list and the detail; before any case is opened, every member's record keeps the status it had.
+- [ ] Open case lists the colleges, names the consequence that the named records read Under review until decided, needs a note, and opens one case per chosen college citing the signal.
+- [ ] Dismiss needs a note; the signal then reads Dismissed with the note line; no record or case changes.
+- [ ] The drawing has a text alternative and the facts table carries the evidence; below 768 px the drawing is hidden.
+- [ ] Members are masked; a regional officer sees members outside the region only as a count.
+- [ ] As the registrar, the university and a student, every signal route redirects and no signal data reaches the browser.
+
+## AP. Reports (`/aicte/reports`, `/ro/reports`)
+
+- [ ] Six reports with names and descriptions; CSV and XLSX for each, PDF for the summary; each link's accessible name names the report and format.
+- [ ] "Synthetic data" sits at the top of the page and as the first line or row of every file and the PDF header.
+- [ ] As `ro.west@aicte.demo` every file holds only Western region rows and the page says so.
+- [ ] No file holds a student name or an unmasked id.
+- [ ] Preview shows the first 25 rows with the same column words as the file; any chart sits beside its table.
+
+## AQ. DigiLocker sign-in and the notice page
+
+- [ ] `/login` has no student password; the Student card opens the Demo DigiLocker, which shows "Demo DigiLocker, synthetic data" and its banner on every step, lists Ravi first, accepts OTP 123456 and refuses any other with [dldemo.otp_wrong], and never uses DigiLocker's logo or colours.
+- [ ] The notice email has no buttons and only points to DigiLocker sign-in; it carries the OTP warning and the Hindi text.
+- [ ] The notice page signed out shows the claim and "Sign in with DigiLocker to answer", with no Yes or No in the page; a direct `POST /notices/{token}/respond` without a student session is refused with 401.
+- [ ] Signed in as the record's APAAR holder: "Signed in with DigiLocker as <name>", then "Yes, I joined" and "No, I never joined"; No opens the sheet saying it opens a priority dispute.
+- [ ] After No: the Student row reads "Contradicted: "I never joined"" with "Student sign-in via DigiLocker · <date>", the record reads Disputed (priority), a High Student dispute case opens, and any attestation reads Revoked.
+- [ ] Signed in as a different student: "This notice is for someone else", the three lines and Sign out; nothing is recorded (the record's Student row is unchanged) and the record's student name never appears.
+- [ ] A record without APAAR shows "Claim this record first" with the link to `/student/claim`.
+- [ ] Cancel at DigiLocker shows [err.DIGILOCKER_CANCELLED]; a stale sign-in [err.DIGILOCKER_STATE_INVALID]; neither records anything.
+- [ ] With Hindi on, every string on the notice, return and claim pages is its `.hi` row; the Demo DigiLocker stays English.
+- [ ] At 390 px the sign-in button is full width and 48 px tall; the someone-else text is plain, never in an alert colour.
+
+## AR. Claim by provisional ID (`/student/claim`)
+
+- [ ] The refused-consent demo student signs in with DigiLocker, enters the provisional ID (lower case and spaces accepted), and sees [claim.done]; the record's Identity row then reads Confirmed with "Student sign-in via DigiLocker · <date>", and the record becomes Countersigned when the other rows allow.
+- [ ] A malformed ID shows [claim.format] and sends nothing; an unknown ID and a name mismatch show the same [err.CLAIM_NO_MATCH]; a claimed record shows [err.CLAIM_ALREADY_CLAIMED].
+- [ ] Five failures pause claiming with [claim.locked].
+- [ ] Signed out, the page sends the student through DigiLocker sign-in and back.
+
+## AS. Column mapping (`/college/upload`, `/college/column-mapping`)
+
+- [ ] A file whose headers differ from the template opens Map your columns; a file with template headers skips it.
+- [ ] Each of the file's columns has a select with the Countersign columns and Not used; required ones are tagged; missing and duplicate mappings are announced live and block upload with focus moved to the first problem.
+- [ ] "Saved for next time" is ticked by default; the next file with the same headers maps itself and the batch page says "Columns read with your saved mapping".
+- [ ] No student value from the file appears on the step.
+- [ ] `/college/column-mapping` shows, changes and clears the mapping with a confirmation.
+
+## AT. Attestation words (wallet, share sheet, verifier, revocation)
+
+- [ ] The nav reads My attestations; cards read Enrolment attestation or Completion attestation; buttons read Share attestation; no "proof" remains on any student, verifier or university page.
+- [ ] A record that is not Countersigned has no enrolment attestation; the wallet line follows the status (Awaiting evidence, Under review, Disputed) and names no case or row.
+- [ ] The share sheet's Countersigned field shares "Countersigned, as of <date>", never rows or a count.
+- [ ] Revocation reasons read as deck §8: withdrawn by decision ([wallet.revoked_reason.CLAIM_WITHDRAWN]), a dispute ([wallet.revoked_reason.STUDENT_DISPUTE]), the college's report, or AICTE; the verifier says Revoked and never why.
+- [ ] `/verify` reads "Verify an attestation"; results read "Valid attestation", "This attestation has been revoked", and so on.
+
+## AU. Certificate integration (`/university/certificates`)
+
+- [ ] The page says "Countersign does not issue degrees." in its lead; Degree print is gone from the nav and `/university/degrees` redirects here.
+- [ ] Only a graduate whose record is Countersigned can be issued a completion attestation; others read "Record not Countersigned" with the tooltip and no action.
+- [ ] The issue sheet says it is not a degree; the print view shows the masked APAAR (or provisional ID), the QR with "Attestation id" and "Scan to verify" as text, and "This block is not a degree".
+- [ ] The QR verifies as "Valid completion attestation" with "This is not a degree; the degree is the certificate it is printed on."; after the record is withdrawn it reads Revoked.
+- [ ] Print preview has no nav or colour backgrounds and fits one A4 page.
+
+## AV. Evaluation report (`/admin/evaluation`, if built)
+
+- [ ] Only the AICTE officer can open it; "Synthetic data" sits beside the heading.
+- [ ] Each measure shows result, target and Met or Not met with an icon; Not met is as plain as Met.
+- [ ] The limit line is present; both files download.
+- [ ] Without a run, [eval.none].
+
+## AW. Demo rehearsal (Week 4)
+
+- [ ] The 60-second path (`02-flows.md` Flow 0) runs end to end without an error toast: status tiles, the sample record card exactly as the deck, the Student dispute case, Withdraw claim with its consequences, and the record, seat count, attestation and audit trail updated together.
+- [ ] `make demo-reset && make seed` from clean restores the sample record to Disputed (priority).
+- [ ] A clean record is Countersigned without a student answer; a self-issued-credits record stays Awaiting evidence.
+- [ ] The refused-consent student claims by provisional ID and becomes Countersigned when the other rows allow.
+- [ ] An email notice link cannot record an answer without DigiLocker sign-in; another signed-in student gets "This notice is for someone else".
+- [ ] Withdraw releases the seat, revokes the attestation and sets the status in one step; Correct stores a version and re-runs the rows; Uphold closes the case; each has a reason.
+- [ ] A college that left students out shows them missing, its completeness below 100% and the Missing from upload case; deadlines show Late and Overdue colleges.
+- [ ] The planted ring and anomalies appear as officer-only signals; no record's status changed until an officer opened a case.
+- [ ] Reports download as CSV, XLSX and PDF, scoped for the regional officer, each labelled synthetic.
+- [ ] No full APAAR on any screen, file or print along the whole path; no map; no score.
