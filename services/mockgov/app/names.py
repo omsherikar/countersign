@@ -34,9 +34,3 @@ def name_score(a: str, b: str) -> int:
     if not a or not b:
         return 0
     return round(fuzz.token_set_ratio(a, b))
-
-
-def mask_name(name: str) -> str:
-    """Each word as its first letter and one star per remaining character, so a list can be
-    shared without the names: "Ravi Kumar Sharma" -> "R*** K**** S*****"."""
-    return " ".join(word[0] + "*" * (len(word) - 1) for word in name.split())

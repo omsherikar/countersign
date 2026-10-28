@@ -2,8 +2,6 @@
 
 from httpx import AsyncClient
 
-from app.names import mask_name
-
 RAVI = {
     "state": "MH",
     "academic_year": "2026-27",
@@ -87,7 +85,7 @@ async def test_validation(client: AsyncClient) -> None:
     assert fields == {"academic_year", "state"}
 
 
-async def test_joinings_list_masks_names(client: AsyncClient, seeded: dict) -> None:
+async def test_joinings_list_names_every_joining(client: AsyncClient, seeded: dict) -> None:
     response = await client.get(
         "/admission-authority/joinings",
         params={"institution_code": "1-ABC-0001", "academic_year": "2026-27"},
@@ -97,21 +95,21 @@ async def test_joinings_list_masks_names(client: AsyncClient, seeded: dict) -> N
         "items": [
             {
                 "roll_no": "MHAA-2026-000001",
-                "name_masked": "M******* I**** K***",
+                "name": "Mohammed Irfan Khan",
                 "joined_on": "2026-08-03",
                 "programme": "CSE",
                 "route": "MANAGEMENT",
             },
             {
                 "roll_no": "MHCET-2026-004512",
-                "name_masked": "R*** K**** S*****",
+                "name": "Ravi Kumar Sharma",
                 "joined_on": "2026-07-24",
                 "programme": "CSE",
                 "route": "COUNSELLING",
             },
             {
                 "roll_no": "MHAA-2026-000002",
-                "name_masked": "S**** P****",
+                "name": "Sneha Patil",
                 "joined_on": "2026-10-04",
                 "programme": "IT",
                 "route": "NRI",
@@ -139,12 +137,6 @@ async def test_joinings_list_needs_both_parameters(client: AsyncClient) -> None:
     assert response.status_code == 422
     fields = {f["field"] for f in response.json()["error"]["details"]["fields"]}
     assert fields == {"institution_code", "academic_year"}
-
-
-def test_mask_name_keeps_first_letters_and_lengths() -> None:
-    assert mask_name("Ravi Kumar Sharma") == "R*** K**** S*****"
-    assert mask_name("R. K.  Sharma") == "R* K* S*****"
-    assert mask_name("") == ""
 
 
 async def test_openapi_says_it_is_simulated(client: AsyncClient) -> None:

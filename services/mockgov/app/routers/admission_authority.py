@@ -10,8 +10,9 @@ not (Study in India holds those).
 - `POST /admission-authority/joining` verifies one claimed joining, verify-only like every
   mockgov source: it never returns the stored name.
 - `GET /admission-authority/joinings` lists one college's joinings for one academic year with
-  masked names, for reconciliation against the college's upload; the real authority would
-  share this with AICTE under its mandate.
+  names and roll numbers (never an APAAR), for reconciliation against the college's upload:
+  the students a college left out have to be named for the college to find them. The real
+  authority would share this with AICTE under its mandate.
 
 Both sit behind the `admission_authority` chaos gate.
 """
@@ -24,7 +25,7 @@ from sqlalchemy import select
 from app.chaos import chaos_gate
 from app.db import SessionDep
 from app.models import AdmissionJoining
-from app.names import mask_name, name_score, normalize_name
+from app.names import name_score, normalize_name
 from app.schemas import (
     JoiningListItem,
     JoiningListResponse,
@@ -88,8 +89,8 @@ async def joinings(
     institution_code: Annotated[str, Query(min_length=1, max_length=64)],
     academic_year: Annotated[str, Query(pattern=r"^\d{4}-\d{2}$")],
 ) -> JoiningListResponse:
-    """Every joining the authority holds for one college and academic year, names masked
-    ("R*** K**** S*****"), ordered by programme and roll number."""
+    """Every joining the authority holds for one college and academic year, with the
+    student's name and roll number, ordered by programme and roll number."""
     rows = list(
         await session.scalars(
             select(AdmissionJoining)
@@ -104,7 +105,7 @@ async def joinings(
         items=[
             JoiningListItem(
                 roll_no=row.roll_no,
-                name_masked=mask_name(row.name),
+                name=row.name,
                 joined_on=row.joined_on,
                 programme=row.programme,
                 route=row.route,

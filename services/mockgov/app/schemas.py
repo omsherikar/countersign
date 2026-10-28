@@ -156,7 +156,7 @@ class JoiningVerifyResponse(BaseModel):
 
 class JoiningListItem(BaseModel):
     roll_no: str
-    name_masked: str
+    name: str
     joined_on: date
     programme: str
     route: str
