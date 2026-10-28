@@ -140,6 +140,7 @@ export function InstitutionDetail({
     return (
       <>
         <Crumbs items={[crumbRoot, { label: "Institution" }]} />
+        <h1 className="sr-only">{t("err.NOT_FOUND_generic")}</h1>
         <ErrorBlock error={detail.error} entity="institution" backHref={crumbRoot.href} onRetry={() => detail.refetch()} className="mt-4" />
       </>
     );
