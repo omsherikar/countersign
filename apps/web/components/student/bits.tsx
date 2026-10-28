@@ -162,7 +162,7 @@ export function retryDeadline(err: unknown, at: number): number | null {
 /** Full width and 48 px tall below 768 px (W3 phone rules); `quiet` is the outlined twin of equal weight. */
 export const bigButton = cn(
   "inline-flex h-12 w-full items-center justify-center gap-2 rounded-md px-4 text-md font-medium",
-  "disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-not-allowed",
+  "disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-not-allowed aria-disabled:opacity-60",
 );
 export const primaryButton = cn(bigButton, "bg-ink-blue text-on-ink-blue hover:bg-ink-blue-hover");
 export const outlineButton = cn(bigButton, "border-[1.5px] border-ink-blue bg-paper-raised text-ink-blue hover:bg-flag-open-soft");
