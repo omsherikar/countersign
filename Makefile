@@ -39,6 +39,9 @@ test: ## run every test suite inside compose
 	$(COMPOSE) run --rm mockgov pytest -q
 	$(COMPOSE) --profile tools run --rm datagen pytest -q
 
+e2e: ## run the Playwright demo-path tests from the host against the running, seeded stack
+	cd apps/web && pnpm exec playwright test
+
 eval: ## run the accuracy evaluation (Week 4)
 	@echo "eval arrives in Week 4"
 

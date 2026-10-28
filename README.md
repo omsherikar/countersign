@@ -97,6 +97,18 @@ Week 2 was verified on a native stack because Docker Desktop would not start on 
 - CI has never run on GitHub (Actions billing); the suites pass locally.
 - `POST /admin/demo/reset` still answers 501; `make demo-reset` is the working path.
 
+## End-to-end tests
+
+Playwright tests in `apps/web/e2e` walk the demo path, one file per flow: every role signs in; ABC College CSE shows 120 approved and 132 admitted with its Excess admission flag; the R. K. Sharma duplicate leads to Ravi Kumar Sharma; Ravi's notice from Mailpit is answered Yes, his Enrolment proof is shared with three fields and verifies, then shows Revoked once AICTE revokes it; a No from the DigiLocker inbox raises a High Student denied flag; an officer requests documents, the registrar answers with a PDF and the officer clears; a degree insert prints and its QR verifies; the audit chain verifies. They run from the host against the running stack, one at a time, with Playwright's bundled headless Chromium.
+
+```
+cd apps/web && pnpm install && pnpm exec playwright install --only-shell chromium   # once
+make demo-reset   # a clean run starts from a fresh seed
+make e2e          # about 2 minutes once the web has compiled its pages
+```
+
+A clean run starts from `make demo-reset`, because the tests answer the two notices the seed keeps for the live demo, clear one ABC College flag and issue one degree proof. A second run without a reset still passes: it answers other unanswered ABC College notices found through Mailpit, has an officer's recheck issue Ravi a new proof, and takes the next flag and graduate, printing a `note:` line for each of these. `E2E_BASE_URL`, `E2E_API_URL`, `E2E_MAILPIT_URL` and `E2E_MOCKGOV_URL` move the addresses; a failed test keeps its trace and screenshot under `apps/web/test-results`.
+
 ## Layout
 
 ```
