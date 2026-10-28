@@ -1,8 +1,10 @@
-"""The flag transition table (API_CONTRACT §A3.9, D25). Pure: no database, no I/O.
+"""The case transition table (API_CONTRACT §A4.8, D25, D43). Pure: no database, no I/O.
 
 Each cell maps (status, action) to the status after the action and the roles that may take
 it. A pair that is not in the table is not possible from that status for anyone (409); a
-pair in the table that the caller's role is not listed for is a 403.
+pair in the table that the caller's role is not listed for is a 403. On a multi-record case
+WITHDRAW and CORRECT keep the case's status while a named record is still outstanding; the
+case service applies that rule after the table (`app.cases.decisions`).
 """
 
 from __future__ import annotations
@@ -13,9 +15,10 @@ from app.core.errors import ApiError
 from app.models.enums import CaseActionKind, FlagStatus, UserRole
 
 UPHOLD = CaseActionKind.UPHOLD
+CORRECT = CaseActionKind.CORRECT
+WITHDRAW = CaseActionKind.WITHDRAW
 REQUEST_DOCS = CaseActionKind.REQUEST_DOCS
 ESCALATE = CaseActionKind.ESCALATE
-WITHDRAW = CaseActionKind.WITHDRAW
 NOTE = CaseActionKind.NOTE
 ASSIGN = CaseActionKind.ASSIGN
 REOPEN = CaseActionKind.REOPEN
@@ -25,16 +28,21 @@ SYSTEM_NOTE = CaseActionKind.SYSTEM_NOTE
 # the order of the action bar and of `allowed_actions`
 OFFICER_ACTIONS: tuple[CaseActionKind, ...] = (
     UPHOLD,
+    CORRECT,
+    WITHDRAW,
     REQUEST_DOCS,
     ESCALATE,
-    WITHDRAW,
     NOTE,
     ASSIGN,
     REOPEN,
 )
+# the three decisions (D43); each needs a reason code and a note
+DECISIONS: frozenset[CaseActionKind] = frozenset({UPHOLD, CORRECT, WITHDRAW})
+# the actions that carry a reason code (API_CONTRACT §A4.9)
+REASONED: frozenset[CaseActionKind] = frozenset({UPHOLD, CORRECT, WITHDRAW, ESCALATE})
 # notes the college reads; the rest stay with officers (ASSIGN has no note)
 NOTE_SHOWN_TO_COLLEGE: frozenset[CaseActionKind] = frozenset(
-    {UPHOLD, REQUEST_DOCS, WITHDRAW, COLLEGE_RESPONSE, SYSTEM_NOTE}
+    {UPHOLD, CORRECT, WITHDRAW, REQUEST_DOCS, COLLEGE_RESPONSE, SYSTEM_NOTE}
 )
 NOTE_INTERNAL: frozenset[CaseActionKind] = frozenset({ESCALATE, NOTE, REOPEN})
 
@@ -50,6 +58,7 @@ _OPEN, _DOCS, _ESC, _UPHELD, _WITHDRAWN, _CORRECTED = (
     FlagStatus.WITHDRAWN,
     FlagStatus.CORRECTED,
 )
+DECIDED: tuple[FlagStatus, ...] = (_UPHELD, _CORRECTED, _WITHDRAWN)
 
 
 Cell = tuple[FlagStatus, frozenset[UserRole]]
@@ -57,13 +66,19 @@ Cell = tuple[FlagStatus, frozenset[UserRole]]
 
 def _undecided(status: FlagStatus) -> dict[tuple[FlagStatus, CaseActionKind], Cell]:
     return {
+        (status, UPHOLD): (_UPHELD, _AR),
+        (status, CORRECT): (_CORRECTED, _AR),
+        (status, WITHDRAW): (_WITHDRAWN, _AR),
         (status, REQUEST_DOCS): (_DOCS, _AR),
         (status, ESCALATE): (_ESC, _AR),
-        (status, UPHOLD): (_UPHELD, _AR),
-        (status, WITHDRAW): (_WITHDRAWN, _AR),
         (status, NOTE): (status, _AR),
         (status, ASSIGN): (status, _AR),
     }
+
+
+def _decided(status: FlagStatus) -> dict[tuple[FlagStatus, CaseActionKind], Cell]:
+    # a decided case is final; only AICTE reopens it, and anyone may add a note
+    return {(status, NOTE): (status, _AR), (status, REOPEN): (_OPEN, _A)}
 
 
 TABLE: Mapping[tuple[FlagStatus, CaseActionKind], Cell] = {
@@ -71,25 +86,24 @@ TABLE: Mapping[tuple[FlagStatus, CaseActionKind], Cell] = {
     **_undecided(_DOCS),
     (_DOCS, COLLEGE_RESPONSE): (_DOCS, _I),
     # an escalation means AICTE takes over; the regional office can still add notes
-    (_ESC, REQUEST_DOCS): (_DOCS, _A),
     (_ESC, UPHOLD): (_UPHELD, _A),
+    (_ESC, CORRECT): (_CORRECTED, _A),
     (_ESC, WITHDRAW): (_WITHDRAWN, _A),
+    (_ESC, REQUEST_DOCS): (_DOCS, _A),
     (_ESC, NOTE): (_ESC, _AR),
     (_ESC, ASSIGN): (_ESC, _A),
-    # decided flags are final; only AICTE reopens them
-    (_UPHELD, NOTE): (_UPHELD, _AR),
-    (_UPHELD, REOPEN): (_OPEN, _A),
-    (_WITHDRAWN, NOTE): (_WITHDRAWN, _AR),
-    (_WITHDRAWN, REOPEN): (_OPEN, _A),
+    **_decided(_UPHELD),
+    **_decided(_CORRECTED),
+    **_decided(_WITHDRAWN),
 }
 
 STATUS_WORDS = {
     _OPEN: "open",
     _DOCS: "waiting for documents",
     _ESC: "escalated",
-    _UPHELD: "cleared",
-    _WITHDRAWN: "confirmed",
-    _CORRECTED: "corrected",
+    _UPHELD: "claim upheld",
+    _WITHDRAWN: "claim withdrawn",
+    _CORRECTED: "claim corrected",
 }
 
 
@@ -115,7 +129,7 @@ def check(role: UserRole, status: FlagStatus, action: CaseActionKind) -> FlagSta
         raise ApiError(
             409,
             "FLAG_TRANSITION_INVALID",
-            f"This action is not possible while the flag is {STATUS_WORDS[status]}.",
+            f"This action is not possible while the case is {STATUS_WORDS[status]}.",
             {
                 "status": status.value,
                 "action": action.value,

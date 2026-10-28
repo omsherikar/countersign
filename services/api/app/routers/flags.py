@@ -1,4 +1,4 @@
-"""GET /flags and GET /flags/{id} (API_CONTRACT A2.15, A2.16, A3.13).
+"""GET /flags and GET /flags/{id} (API_CONTRACT A2.15, A2.16, A3.13, A4.11).
 
 Scoping: AICTE_ADMIN all; RO_OFFICER flags against institutions of its region;
 INSTITUTION flags against itself, redacted (the other institution of a pair is never
@@ -16,19 +16,19 @@ from sqlalchemy import Select, case, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from app.cases import decisions
 from app.cases import service as cases
-from app.cases import transitions
 from app.cases.service import scope_flags
 from app.core import audit
 from app.core.deps import RequestId, SessionDep, require_roles
-from app.core.errors import ApiError, not_found
-from app.engine.contracts import UNRESOLVED_FLAG_STATUSES
-from app.models.enums import FlagStatus, FlagType, Severity, UserRole
+from app.core.errors import ApiError
+from app.engine.contracts import DECIDED_FLAG_STATUSES, UNRESOLVED_FLAG_STATUSES
+from app.models.enums import CaseActionKind, FlagStatus, FlagType, Severity, UserRole
 from app.models.geo import Region, State
 from app.models.institution import Institution, Programme
 from app.models.student import Enrolment
 from app.models.user import User
-from app.models.verification import Flag
+from app.models.verification import CaseAction, Flag
 from app.routers._enrolment_rows import (
     build_rows,
     is_officer,
@@ -39,7 +39,9 @@ from app.routers._enrolment_rows import (
 )
 from app.schemas.common import IdName, InstitutionRef, PageParams, ProgrammeRef, page_params
 from app.schemas.flags import (
+    CaseApproval,
     CaseHistoryItem,
+    DecisionRef,
     Evidence,
     EvidenceFact,
     FlagDetail,
@@ -56,17 +58,22 @@ FlagUser = Annotated[
 Paging = Annotated[PageParams, Depends(page_params)]
 FlagSort = Literal["severity_desc", "created_desc"]
 UNRESOLVED = "UNRESOLVED"
+DECIDED = "DECIDED"
+SIGNAL_TYPES = (FlagType.GHOST_RING, FlagType.ANOMALY)
 Assignee = aliased(User, name="assignee")
 
 
 def parse_statuses(raw: str | None) -> list[FlagStatus] | None:
-    """One status, a comma-separated list, or UNRESOLVED (OPEN, DOCS_REQUESTED, ESCALATED)."""
+    """One status, a comma-separated list, UNRESOLVED (OPEN, DOCS_REQUESTED, ESCALATED) or
+    DECIDED (UPHELD, CORRECTED, WITHDRAWN)."""
     if raw is None or not raw.strip():
         return None
     out: list[FlagStatus] = []
     for token in (t.strip().upper() for t in raw.split(",") if t.strip()):
         if token == UNRESOLVED:
             wanted = list(UNRESOLVED_FLAG_STATUSES)
+        elif token == DECIDED:
+            wanted = list(DECIDED_FLAG_STATUSES)
         else:
             try:
                 wanted = [FlagStatus(token)]
@@ -74,7 +81,7 @@ def parse_statuses(raw: str | None) -> list[FlagStatus] | None:
                 message = (
                     "Status must be one of "
                     + ", ".join(status.value for status in FlagStatus)
-                    + " or UNRESOLVED"
+                    + ", UNRESOLVED or DECIDED"
                 )
                 raise ApiError(
                     422,
@@ -128,6 +135,47 @@ def _summary_column(user: User) -> Any:
     return func.coalesce(Flag.evidence["summary_for_institution"].astext, summary)
 
 
+def signal_of(flag: Flag) -> str | None:
+    """The signal a GHOST_RING or ANOMALY case was opened from, read from its key
+    (`GHOST_RING:{signal_id}:{institution_id}`, `ANOMALY:{signal_id}`)."""
+    if flag.type not in SIGNAL_TYPES:
+        return None
+    parts = flag.dedupe_key.split(":")
+    return parts[1] if len(parts) > 1 and parts[1] else None
+
+
+def signal_filter(signal_id: uuid.UUID) -> Any:
+    return or_(
+        Flag.dedupe_key == f"{FlagType.ANOMALY.value}:{signal_id}",
+        Flag.dedupe_key.like(f"{FlagType.GHOST_RING.value}:{signal_id}:%"),
+    )
+
+
+async def latest_decisions(
+    session: AsyncSession, flags: list[Flag]
+) -> dict[uuid.UUID, DecisionRef]:
+    """The latest UPHOLD, CORRECT or WITHDRAW of each decided case."""
+    ids = [f.id for f in flags if f.status in DECIDED_FLAG_STATUSES]
+    if not ids:
+        return {}
+    rows = await session.execute(
+        select(CaseAction.flag_id, CaseAction.action, CaseAction.reason_code, CaseAction.at)
+        .where(
+            CaseAction.flag_id.in_(ids),
+            CaseAction.action.in_(
+                [CaseActionKind.UPHOLD, CaseActionKind.CORRECT, CaseActionKind.WITHDRAW]
+            ),
+        )
+        .order_by(CaseAction.flag_id, CaseAction.seq.desc())
+    )
+    out: dict[uuid.UUID, DecisionRef] = {}
+    for flag_id, action, reason_code, at in rows.all():
+        out.setdefault(
+            flag_id, DecisionRef(action=action.value, reason_code=reason_code, at=iso(at) or "")
+        )
+    return out
+
+
 def _row(
     user: User,
     flag: Flag,
@@ -137,10 +185,12 @@ def _row(
     programme: Programme | None,
     assignee_name: str | None,
     related_count: int,
+    decision: DecisionRef | None = None,
 ) -> dict[str, Any]:
     assignee = None
     if flag.assignee_id is not None and is_officer(user):
         assignee = IdName(id=str(flag.assignee_id), name=assignee_name or "")
+    rule = decisions.rule_of(flag)
     return dict(
         id=str(flag.id),
         type=flag.type.value,
@@ -165,6 +215,10 @@ def _row(
         response_received=flag.response_received,
         docs_due_on=iso(flag.docs_due_on),
         last_action_at=iso(flag.last_action_at),
+        covers=rule.covers.value if rule.covers else None,
+        scope=rule.scope,
+        decision=decision if flag.status in DECIDED_FLAG_STATUSES else None,
+        signal_id=signal_of(flag) if is_officer(user) else None,
         created_at=iso(flag.created_at) or "",
         updated_at=iso(flag.updated_at or flag.created_at) or "",
     )
@@ -201,6 +255,7 @@ async def list_flags(
     sort: FlagSort = "severity_desc",
     assignee: Annotated[str | None, Query(max_length=64)] = None,
     response_received: bool | None = None,
+    signal_id: uuid.UUID | None = None,
 ) -> FlagPage:
     statuses = parse_statuses(status)
     by_assignee = assignee_filter(assignee, user)
@@ -223,6 +278,8 @@ async def list_flags(
         stmt = stmt.where(State.code == state.upper())
     if academic_year:
         stmt = stmt.where(Flag.academic_year == academic_year)
+    if signal_id is not None and is_officer(user):
+        stmt = stmt.where(signal_filter(signal_id))
     if q:
         needle = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -252,8 +309,21 @@ async def list_flags(
         if is_officer(user)
         else await _owners(session, {i for f, *_ in rows for i in f.related_enrolment_ids})
     )
+    decided = await latest_decisions(session, [f for f, *_ in rows])
     items = [
-        FlagRow(**_row(user, f, inst, st, rg, prog, who, len(_visible_related(user, f, owners))))
+        FlagRow(
+            **_row(
+                user,
+                f,
+                inst,
+                st,
+                rg,
+                prog,
+                who,
+                len(_visible_related(user, f, owners)),
+                decided.get(f.id),
+            )
+        )
         for f, inst, st, rg, prog, who in rows
     ]
     return FlagPage(
@@ -277,9 +347,15 @@ async def build_detail(
 ) -> FlagDetail:
     """The flag as the caller may see it, with its history; the students shown are audited
     as READs. Also the response of every case action."""
-    row = (await session.execute(scope_flags(_base().where(Flag.id == flag_id), user))).first()
+    row = (
+        await session.execute(
+            scope_flags(_base().where(Flag.id == flag_id), user).execution_options(
+                populate_existing=True
+            )
+        )
+    ).first()
     if row is None:
-        raise not_found("Flag")
+        raise cases.case_not_found()
     flag, institution, state, region, programme, assignee_name = row
     wanted = list(dict.fromkeys([*flag.related_enrolment_ids, flag.enrolment_id]))
     wanted = [i for i in wanted if i is not None]
@@ -304,8 +380,20 @@ async def build_detail(
 
     evidence = flag.evidence
     college = user.role is UserRole.INSTITUTION
+    decision = (await latest_decisions(session, [flag])).get(flag.id)
+    approval = await decisions.approval_view(session, flag)
     return FlagDetail(
-        **_row(user, flag, institution, state, region, programme, assignee_name, len(related)),
+        **_row(
+            user,
+            flag,
+            institution,
+            state,
+            region,
+            programme,
+            assignee_name,
+            len(related),
+            decision,
+        ),
         evidence=Evidence(
             summary=visible_summary(user, evidence),
             facts=[EvidenceFact(**f) for f in visible_facts(user, evidence)],
@@ -315,9 +403,9 @@ async def build_detail(
         enrolment=own,
         related_enrolments=related_rows,
         related_hidden=len(flag.related_enrolment_ids) - len(related),
+        outstanding_enrolment_ids=[str(i) for i in await decisions.outstanding(session, flag)],
+        approval=CaseApproval(**approval) if approval else None,
         history=[CaseHistoryItem(**item) for item in await cases.history(session, flag, user)],
-        allowed_actions=[]
-        if college
-        else [a.value for a in transitions.allowed_actions(user.role, flag.status)],
+        allowed_actions=[] if college else cases.allowed_actions(user.role, flag),
         can_respond=college and flag.status is FlagStatus.DOCS_REQUESTED,
     )
