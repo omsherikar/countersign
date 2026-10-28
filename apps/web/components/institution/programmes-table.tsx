@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronRight } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { t, tk } from "@/lib/copy";
+import { seatedOf } from "@/lib/counts";
 import { formatCount, formatDate } from "@/lib/format";
 import type { ProgrammeDetail, SeatPool } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -108,7 +109,7 @@ export function ProgrammesTable({
             <th scope="col" className="num" title={t("col.approved_tip", { academic_year: academicYear })}>
               {t("col.approved")}
             </th>
-            <th scope="col" className="num" title={t("col.admitted_tip")}>
+            <th scope="col" className="num" title={t("col.admitted_tip", { academic_year: academicYear })}>
               {t("col.admitted")}
             </th>
             <th scope="col" className="num">
@@ -146,7 +147,7 @@ export function ProgrammesTable({
                   <td className={cn("num font-medium", p.enrolments > p.approval.approved_intake && "text-check-pending-ink")}>
                     {formatCount(p.enrolments)}
                   </td>
-                  <td className="num">{formatCount(p.enrolments - p.unseated)}</td>
+                  <td className="num">{formatCount(seatedOf(p))}</td>
                   <td className="num">
                     <UnseatedCount n={p.unseated} />
                   </td>

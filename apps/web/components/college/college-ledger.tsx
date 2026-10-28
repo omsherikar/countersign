@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Flag } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { t } from "@/lib/copy";
+import { fillPct, institutionAdmitted, seatedOf } from "@/lib/counts";
 import { useDashboardSummary, useInstitution } from "@/lib/queries";
 import { useMe } from "@/components/providers/root-provider";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,7 +41,12 @@ export function CollegeLedger() {
   const detail = useInstitution(institutionId);
   const d = detail.data;
   const unseated = d ? d.programmes.reduce((a, p) => a + p.unseated, 0) : undefined;
+  const seated = d ? d.programmes.reduce((a, p) => a + seatedOf(p), 0) : undefined;
   const academicYear = summary.data?.academic_year ?? d?.programmes[0]?.approval.academic_year ?? "2026-27";
+  // Admitted is this year's intake, the same population as the seats and the unseated count beside it.
+  const admitted = d ? institutionAdmitted(d) : undefined;
+  const approved = summary.data?.kpis.approved_seats;
+  const fill = fillPct(admitted ?? null, approved);
 
   return (
     <>
@@ -58,9 +64,11 @@ export function CollegeLedger() {
         }}
         tiles={[
           { label: "kpi.programmes", value: summary.data?.kpis.programmes },
-          { label: "kpi.approved_seats", value: summary.data?.kpis.approved_seats },
-          { label: "col.admitted", value: summary.data?.kpis.enrolments },
+          { label: "kpi.approved_seats", value: approved, hint: t("app.hint.intake", { academic_year: academicYear }) },
+          { label: "col.admitted", value: admitted, hint: fill !== null ? t("app.hint.fill", { pct: fill }) : undefined },
+          { label: "col.seated", value: seated },
           { label: "col.unseated", value: unseated, tone: "default" },
+          { label: "app.on_roll", value: summary.data?.kpis.enrolments, hint: t("app.hint.all_years") },
         ]}
       />
 
