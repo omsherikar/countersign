@@ -210,7 +210,10 @@ export function CaseSheet({
                   ref={noteRef}
                   id={`${ids}-note`}
                   value={note}
-                  onChange={(e) => setNote(e.target.value)}
+                  onChange={(e) => {
+                    setNote(e.target.value);
+                    if (errors.note && e.target.value.trim()) setErrors({ ...errors, note: undefined });
+                  }}
                   rows={4}
                   maxLength={2000}
                   aria-required="true"

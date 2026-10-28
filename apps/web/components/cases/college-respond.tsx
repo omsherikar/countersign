@@ -168,7 +168,10 @@ export function CollegeRespond({ flag }: { flag: FlagDetail }) {
               ref={noteRef}
               id={`${ids}-note`}
               value={note}
-              onChange={(e) => setNote(e.target.value)}
+              onChange={(e) => {
+                setNote(e.target.value);
+                if (noteError && e.target.value.trim()) setNoteError(null);
+              }}
               rows={4}
               maxLength={2000}
               aria-required="true"
@@ -242,7 +245,7 @@ export function CollegeRespond({ flag }: { flag: FlagDetail }) {
                 })}
               </ul>
             )}
-            <p id={countId} className="num text-xs text-ink-muted" aria-live="polite">
+            <p id={countId} className="text-xs text-ink-muted tabular-nums" aria-live="polite">
               {t("college.respond_file_count", { n: files.length })}
             </p>
             <div aria-live="polite">

@@ -10,6 +10,7 @@
  * Demo controls, from the browser console in mock mode only:
  *   countersignMock.tamperAudit(917)   the same as `make audit-tamper SEQ=917`
  *   countersignMock.restoreAudit()     the same as `make demo-reset` for the chain
+ *   countersignMock.decideFlag(id, "CLEARED")   another officer decides meanwhile (409 on a stale page)
  */
 import { ApiError, type Query } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -187,6 +188,10 @@ if (typeof window !== "undefined") {
   (window as unknown as { countersignMock?: unknown }).countersignMock = {
     tamperAudit: (seq: number) => window.localStorage.setItem(TAMPER_KEY, String(seq)),
     restoreAudit: () => window.localStorage.removeItem(TAMPER_KEY),
+    decideFlag: (id: string, status: FlagStatus) => {
+      const f = flagById(id);
+      if (f) f.status = status;
+    },
   };
 }
 

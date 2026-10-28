@@ -33,6 +33,8 @@ export const AssigneeCombobox = React.forwardRef<
   const { user } = useMe();
   const [q, setQ] = React.useState("");
   const [active, setActive] = React.useState(0);
+  // "Assign to me" and my own row name the same officer; only the one chosen is marked.
+  const [chosenKey, setChosenKey] = React.useState<string | null>(null);
   const id = React.useId();
   const listId = `${id}-list`;
   const errorId = `${id}-error`;
@@ -50,6 +52,7 @@ export const AssigneeCombobox = React.forwardRef<
   const optionId = (i: number) => `${id}-opt-${i}`;
 
   function choose(o: Option) {
+    setChosenKey(o.key);
     onChange({ id: o.id, name: o.name });
   }
 
@@ -69,7 +72,7 @@ export const AssigneeCombobox = React.forwardRef<
     } else if (e.key === "Enter") {
       const o = options[at];
       // Enter on a new choice picks it; Enter on the current choice submits the sheet.
-      if (o && !(value && value.id === o.id)) {
+      if (o && !(value && chosenKey === o.key)) {
         choose(o);
         e.preventDefault();
       }
@@ -119,7 +122,7 @@ export const AssigneeCombobox = React.forwardRef<
       ) : (
         <ul id={listId} role="listbox" aria-label={t("case.assign_label")} className="max-h-60 overflow-y-auto rounded-md border border-line bg-paper-raised py-1">
           {options.map((o, i) => {
-            const selected = value !== undefined && value.id === o.id;
+            const selected = value !== undefined && chosenKey === o.key;
             return (
               <li
                 key={o.key}

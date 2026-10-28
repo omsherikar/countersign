@@ -177,7 +177,10 @@ function ResolveSheet({ row, onClose, returnFocus }: { row: DataRequestAdminRow 
                 ref={replyRef}
                 id={`${ids}-reply`}
                 value={reply}
-                onChange={(e) => setReply(e.target.value)}
+                onChange={(e) => {
+                  setReply(e.target.value);
+                  if (error && e.target.value.trim().length >= 10) setError(null);
+                }}
                 rows={row.kind === "ERASURE" ? 7 : 5}
                 maxLength={2000}
                 aria-required="true"
