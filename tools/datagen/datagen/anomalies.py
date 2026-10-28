@@ -287,18 +287,22 @@ class Planter:
             f"{len(mobiles)} mobile numbers and {len(addresses)} addresses.",
         )  # fmt: skip
 
+    def target_with_room(self, src: dict, candidates: list[tuple[dict, dict]]):
+        """A random (institution, programme) whose cohort has a seat for a copy of `src`."""
+        self.rng.shuffle(candidates)
+        return next((c for c in candidates if self.has_room(src, *c)), None)
+
     def plant_dual(self, src: dict, scenario: str | None = None) -> bool:
         w = self.w
-        odl = [
+        picked = self.target_with_room(src, [
             (inst, prog)
             for inst in w.institutions
             for prog in inst["programmes"]
             if prog["mode"] != "PHYSICAL" and inst["aicte_permanent_id"] != src["_inst"]
-            and self.has_room(src, inst, prog)
-        ]  # fmt: skip
-        if not odl:
+        ])  # fmt: skip
+        if picked is None:
             return False
-        inst, prog = self.rng.choice(odl)
+        inst, prog = picked
         twin = self.copy_row(src, inst, prog)
         self.record(
             "DUAL_ENROLMENT_ALLOWED", [src, twin],
@@ -354,10 +358,13 @@ class Planter:
                 return False
             return seat_type == "NRI" or w.cohort_pools(prog, 1).international > 0
 
-        picked = self.pick_programme(fits)
-        if not picked:
-            return
-        inst, prog = picked
+        for _ in range(20):
+            picked = self.pick_programme(fits)
+            if not picked or self.plant_quota_in(seat_type, *picked):
+                return
+
+    def plant_quota_in(self, seat_type: str, inst: dict, prog: dict) -> bool:
+        w = self.w
         aid, code = inst["aicte_permanent_id"], prog["code"]
         pools = w.cohort_pools(prog, 1)
         capacity = pools.nri if seat_type == "NRI" else pools.international
@@ -374,7 +381,7 @@ class Planter:
         movable.sort(key=lambda r: (r["admission_route"] == "COUNSELLING", r["_seq"]))
         need = target - len(current)
         if len(movable) < need:
-            return
+            return False
         movable = movable[:need]
         movable.sort(key=lambda r: r["_seq"])
         overflow = movable[len(movable) - unseated :]
@@ -395,6 +402,7 @@ class Planter:
             note=f"{target} {words} admissions against {capacity} {words} seats in {code}; "
             f"{unseated} find no seat they may take.",
         )  # fmt: skip
+        return True
 
     def plant_duplicate_within(self, variant: str) -> None:
         w = self.w
@@ -459,17 +467,16 @@ class Planter:
         if src is None:
             return
         level = src["_prog"]["level"]
-        targets = [
+        picked = self.target_with_room(src, [
             (inst, prog)
             for inst in w.institutions
             if inst["aicte_permanent_id"] != src["_inst"]
             for prog in inst["programmes"]
             if prog["mode"] == "PHYSICAL" and prog["level"] == level
-            and self.has_room(src, inst, prog)
-        ]  # fmt: skip
-        if not targets:
+        ])  # fmt: skip
+        if picked is None:
             return
-        inst, prog = self.rng.choice(targets)
+        inst, prog = picked
         twin = self.copy_row(src, inst, prog)
         self.record(
             "DUPLICATE_CROSS_INSTITUTION", [src, twin],

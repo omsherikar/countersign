@@ -143,6 +143,7 @@ class World:
         self.refill_programmes: dict[str, str] = {}
         # aicte_id -> rows of its update file, in file order (see updates.py).
         self.update_files: dict[str, list[dict]] = {}
+        self._name_keys: dict[tuple[str, str], str] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]
         self.scale = 1.0
@@ -508,9 +509,13 @@ class World:
         """
         blocks: dict[tuple, dict[int, bool]] = {}
         allotments: dict[tuple, set[int]] = {}
+        keys = self._name_keys
         for row in self.all_rows + self.update_only_rows:
             unit = self.unit_of(row)
-            key = (row["_inst"], name_key(row["name"], row["dob"]))
+            pair = (row["name"], row["dob"])
+            if pair not in keys:
+                keys[pair] = name_key(*pair)
+            key = (row["_inst"], keys[pair])
             units = blocks.setdefault(key, {})
             units[unit] = units.get(unit, False) or not has_usable_apaar(row)
             if row["_roll_no"]:
