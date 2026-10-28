@@ -31,7 +31,7 @@ function TypeTick({ x, y, payload, rows, onOpen }: { x: number | string; y: numb
         e.preventDefault();
         onOpen(row.href);
       }}
-      className="cursor-pointer [&:focus-visible]:outline-2 [&:focus-visible]:outline-ink-blue [&:hover_text]:underline"
+      className="cursor-pointer no-underline [&:focus-visible]:outline-2 [&:focus-visible]:outline-ink-blue [&:hover_text]:underline"
     >
       <text x={Number(x) - 8} y={Number(y)} dy="0.32em" textAnchor="end" fill="var(--ink)" fontSize={13}>
         {row.name}
