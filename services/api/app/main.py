@@ -22,14 +22,18 @@ from app.db.session import dispose_engine, get_engine
 from app.routers import (
     admin,
     auth,
+    credentials,
     dashboard,
     enrolments,
     flags,
     healthz,
     institutions,
+    issuer,
     meta,
     students,
+    university,
     uploads,
+    verify,
 )
 
 log = logging.getLogger("countersign.api")
@@ -124,16 +128,24 @@ def create_app() -> FastAPI:
         )
         return response
 
-    app.include_router(healthz.router)
-    app.include_router(auth.router)
-    app.include_router(dashboard.router)
-    app.include_router(institutions.router)
-    app.include_router(enrolments.router)
-    app.include_router(flags.router)
-    app.include_router(uploads.router)
-    app.include_router(students.router)
-    app.include_router(meta.router)
-    app.include_router(admin.router)
+    # registration order of ENGINES §16.9
+    for router in (
+        healthz,
+        auth,
+        issuer,
+        verify,
+        dashboard,
+        institutions,
+        enrolments,
+        flags,
+        uploads,
+        students,
+        credentials,
+        university,
+        meta,
+        admin,
+    ):
+        app.include_router(router.router)
     return app
 
 
