@@ -9,6 +9,7 @@ from rapidfuzz import fuzz
 
 from app.adapters.base import (
     AbcResult,
+    AdapterRequestError,
     ApaarResult,
     CounsellingResult,
     DigiLockerResult,
@@ -124,7 +125,10 @@ class InMemoryAbc(_Downable):
 
 @dataclass
 class InMemoryDigiLocker(_Downable):
-    """linked: set of APAAR ids that can receive notices; inbox collects deliveries."""
+    """linked: set of APAAR ids that can receive notices; inbox collects deliveries.
+
+    An APAAR with no DigiLocker account is a 404, as mockgov answers (API_CONTRACT §A3.28).
+    """
 
     linked: set[str] = field(default_factory=set)
     inbox: list[dict] = field(default_factory=list)
@@ -134,7 +138,7 @@ class InMemoryDigiLocker(_Downable):
     async def notify(self, apaar_id: str, message: str, callback_url: str) -> DigiLockerResult:
         self._guard()
         if apaar_id not in self.linked:
-            return DigiLockerResult(delivered=False, reason="APAAR_NOT_LINKED")
+            raise AdapterRequestError(self.source, 404, '{"error": {"code": "APAAR_NOT_LINKED"}}')
         inbox_id = f"ib_mem_{len(self.inbox) + 1:06d}"
         self.inbox.append(
             {
