@@ -1,8 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { Flag } from "lucide-react";
-import { EmptyState } from "@/components/brand/EmptyState";
 import { t } from "@/lib/copy";
 import { institutionAdmitted } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
@@ -15,6 +13,7 @@ import { ErrorBlock, SlowHint } from "@/components/common/query-state";
 import { Crumbs, SectionHeader } from "@/components/common/page-header";
 import { TypeChip } from "@/components/common/ledger-bits";
 import { EnrolmentsTable } from "@/components/institution/enrolments-table";
+import { FlagsTable } from "@/components/flags/flags-table";
 import { ProgrammesTable } from "@/components/institution/programmes-table";
 import { SeatsTable } from "@/components/institution/seats-table";
 
@@ -160,12 +159,7 @@ export function InstitutionDetail({
             {enrolmentCount !== null && <span className="num ml-1.5 text-xs text-ink-muted">{formatCount(enrolmentCount)}</span>}
           </TabsTrigger>
           <TabsTrigger value="seats">{t("tab.seats")}</TabsTrigger>
-          {showFlags && (
-            <TabsTrigger value="flags">
-              {t("tab.flags")}
-              {d && <span className="num ml-1.5 text-xs text-ink-muted">{formatCount(d.flags_open)}</span>}
-            </TabsTrigger>
-          )}
+          {showFlags && <TabsTrigger value="flags">{d ? t("tab.flags_count", { n: formatCount(d.flags_open) }) : t("tab.flags")}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="programmes">
@@ -204,10 +198,7 @@ export function InstitutionDetail({
 
         {showFlags && (
           <TabsContent value="flags">
-            <SectionHeader title={`${t("section.flags")} (${d ? formatCount(d.flags_open) : 0})`} />
-            <div className="border-l-2 border-rule-margin bg-paper-raised">
-              <EmptyState icon={<Flag className="size-5" />} title={t("empty.flags_institution")} />
-            </div>
+            {d && <FlagsTable variant="tab" detailBase={`${crumbRoot.href}/cases`} institutionId={d.id} academicYear={academicYear} />}
           </TabsContent>
         )}
       </Tabs>
