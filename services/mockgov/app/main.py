@@ -1,8 +1,9 @@
 """mockgov: simulated government systems for the Countersign demo.
 
-APAAR registry, state counselling allotments, Academic Bank of Credits, DigiLocker inbox and
-Study in India, each verify-only, each behind a chaos gate (latency, failure rate, down).
-Separate process and database; the Countersign API only ever reaches this over HTTP.
+APAAR registry, state counselling allotments, the state admission authority's joining
+records, Academic Bank of Credits, DigiLocker inbox and Study in India, each verify-only, each
+behind a chaos gate (latency, failure rate, down). Separate process and database; the
+Countersign API only ever reaches this over HTTP. Every record is synthetic.
 """
 
 from collections.abc import AsyncIterator
@@ -14,7 +15,23 @@ from app.chaos import ChaosState
 from app.config import Settings, get_settings
 from app.db import Database
 from app.errors import install_error_handlers
-from app.routers import abc, admin, apaar, counselling, digilocker, digilocker_ui, healthz, sii
+from app.routers import (
+    abc,
+    admin,
+    admission_authority,
+    apaar,
+    counselling,
+    digilocker,
+    digilocker_ui,
+    healthz,
+    sii,
+)
+
+DESCRIPTION = (
+    "Simulated government systems for Countersign, with synthetic data only. Verify-only; "
+    "no auth. The state admission authority serves one state's joining-record format, "
+    "simulated, for every state."
+)
 
 
 async def startup(app: FastAPI) -> None:
@@ -39,7 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="mockgov",
         version="0.1.0",
-        description="Simulated government systems for Countersign. Verify-only; no auth.",
+        description=DESCRIPTION,
         lifespan=lifespan,
     )
     app.state.settings = settings
@@ -51,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         healthz.router,
         apaar.router,
         counselling.router,
+        admission_authority.router,
         abc.router,
         digilocker.router,
         digilocker_ui.router,

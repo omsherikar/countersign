@@ -18,6 +18,7 @@ EXPECTED = {
     "counselling_allotments": 3,
     "abc_credits": 3,
     "sii_admissions": 2,
+    "admission_joinings": 5,
 }
 
 

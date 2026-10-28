@@ -28,6 +28,10 @@ class Database:
     async def create_all(self) -> None:
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # A database created before the admission authority source existed keeps a
+            # 16-character chaos.source; widen it so "admission_authority" fits. A no-op
+            # once the column is 32 wide.
+            await conn.execute(text("ALTER TABLE chaos ALTER COLUMN source TYPE varchar(32)"))
 
     async def ping(self) -> bool:
         try:

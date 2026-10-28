@@ -105,7 +105,43 @@ class SiiVerifyResponse(BaseModel):
     academic_year: str | None
 
 
-ChaosSource = Literal["apaar", "counselling", "abc", "digilocker", "sii", "all"]
+class JoiningVerifyRequest(BaseModel):
+    state: str = Field(min_length=2, max_length=2)
+    academic_year: str = Field(pattern=r"^\d{4}-\d{2}$")
+    name: str = Field(min_length=1)
+    dob: date
+    roll_no: str | None = None
+    institution_code: str = Field(min_length=1)
+    programme: str = Field(min_length=1)
+
+
+class JoiningVerifyResponse(BaseModel):
+    found: bool
+    joined_on: date | None
+    round: int | None
+    route: str | None
+    category: str | None
+    # The authority's roll or approval number of the matched joining, so a caller can tell
+    # which entries of GET /admission-authority/joinings its own rows account for.
+    roll_no: str | None
+
+
+class JoiningListItem(BaseModel):
+    roll_no: str
+    name_masked: str
+    joined_on: date
+    programme: str
+    route: str
+
+
+class JoiningListResponse(BaseModel):
+    items: list[JoiningListItem]
+    total: int
+
+
+ChaosSource = Literal[
+    "apaar", "counselling", "abc", "digilocker", "sii", "admission_authority", "all"
+]
 
 
 class ChaosEntry(BaseModel):
