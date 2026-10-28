@@ -5,8 +5,10 @@ The target pool of an ACTIVE enrolment is the pool of seat type
 Releases run first; then every touched pool seats its queue, the unseated ACTIVE
 enrolments of that pool including earlier ones (the backlog), oldest admission first,
 taking FREE seats with `SELECT ... FOR UPDATE SKIP LOCKED`. Seat events are append-only
-and every assignment and release is audited. EXCESS_ADMISSION and QUOTA_BREACH are left
-to `flags.refresh_seat_flags`; the ledger only raises LATE_REFILL.
+and every assignment and release is audited. A seat released because the enrolment was
+withdrawn or transferred also revokes the enrolment's credentials (D26).
+EXCESS_ADMISSION and QUOTA_BREACH are left to `flags.refresh_seat_flags`; the ledger only
+raises LATE_REFILL.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import credentials
 from app.core import audit
 from app.core.audit import AuditEntry
 from app.core.rules import Rules, get_rules
@@ -45,6 +48,10 @@ RELEASE_REASONS = {
     EnrolmentStatus.WITHDRAWN: "withdrawal",
     EnrolmentStatus.TRANSFERRED: "transfer",
     EnrolmentStatus.GRADUATED: "graduation",
+}
+REVOKE_REASONS = {
+    EnrolmentStatus.WITHDRAWN: "Enrolment withdrawn",
+    EnrolmentStatus.TRANSFERRED: "Enrolment transferred",
 }
 ROUTE_OR_YEAR_CHANGED = "route or year changed"
 LATE_REFILL_REASON = "late refill"
@@ -203,6 +210,14 @@ async def assign_seats(
                 actor_id,
             )
         )
+        if enrolment.status in REVOKE_REASONS:
+            await credentials.revoke_for_enrolment(
+                session,
+                enrolment.id,
+                REVOKE_REASONS[enrolment.status],
+                actor_id,
+                audit_sink=entries,
+            )
         result.released.append(enrolment.id)
         result.touched_pools.add(PoolRef(approval_id=pool.approval_id, seat_type=pool.seat_type))
         touched.add(pool_by_id[pool.id])

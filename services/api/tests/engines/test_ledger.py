@@ -9,8 +9,11 @@ from sqlalchemy import func, select
 from app.engine.flags import refresh_seat_flags
 from app.engine.ledger import assign_seats
 from app.models.audit import AuditLog
+from app.models.credential import Credential
 from app.models.enums import (
     AdmissionRoute,
+    AuditAction,
+    CredentialKind,
     EnrolmentStatus,
     FlagType,
     SeatEventKind,
@@ -248,6 +251,73 @@ async def test_withdrawal_alone_seats_the_backlog(world, session) -> None:
     facts = {f["label"]: f["value"] for f in flag.evidence["facts"]}
     assert facts["Most unseated at once"] == "2"
     assert flag.related_enrolment_ids == [backlog[1].id]
+
+
+def _credential(enrolment, index: int, **extra) -> Credential:
+    return Credential(
+        student_id=enrolment.student_id,
+        enrolment_id=enrolment.id,
+        kind=CredentialKind.ENROLMENT,
+        sd_jwt="eyJ.eyJ.sig~",
+        status_list_index=index,
+        issuer_key_id="test-kid",
+        vct="countersign:enrolment:v1",
+        short_id=f"TEST{index}",
+        **extra,
+    )
+
+
+async def test_withdrawal_and_transfer_revoke_the_enrolment_credentials(world, session) -> None:
+    inst = await world.institution()
+    it = await world.programme(inst, "IT", intakes={"2026-27": 20})
+    withdrawn, transferred, staying = await world.cohort(it, 3)
+    await assign_seats(session, [withdrawn.id, transferred.id, staying.id], actor_id=None)
+    registrar = await world.user()
+    earlier = _credential(withdrawn, 7, revoked=True, revoked_reason="Revoked by AICTE")
+    live = [_credential(withdrawn, 10), _credential(transferred, 11), _credential(staying, 12)]
+    session.add_all([earlier, *live])
+    await session.flush()
+
+    withdrawn.status = EnrolmentStatus.WITHDRAWN
+    transferred.status = EnrolmentStatus.TRANSFERRED
+    await session.flush()
+    result = await assign_seats(
+        session, [withdrawn.id, transferred.id, staying.id], actor_id=registrar.id
+    )
+    assert result.released == [withdrawn.id, transferred.id]
+
+    credentials = {
+        c.status_list_index: c for c in (await session.execute(select(Credential))).scalars()
+    }
+    for index, reason in ((10, "Enrolment withdrawn"), (11, "Enrolment transferred")):
+        credential = credentials[index]
+        assert credential.revoked is True and credential.revoked_reason == reason
+        assert credential.revoked_at is not None and credential.revoked_by_id == registrar.id
+    assert credentials[7].revoked_reason == "Revoked by AICTE"  # already revoked: untouched
+    assert credentials[12].revoked is False
+
+    audit_rows = (await session.execute(select(AuditLog).order_by(AuditLog.seq))).scalars().all()
+    revocations = [r for r in audit_rows if r.entity_type == "credential"]
+    assert [(r.action, r.entity_id, r.after["revoked_reason"]) for r in revocations] == [
+        (AuditAction.UPDATE, credentials[10].id, "Enrolment withdrawn"),
+        (AuditAction.UPDATE, credentials[11].id, "Enrolment transferred"),
+    ]
+    # each revocation follows the release of that enrolment's seat in the chain
+    release_and_revoke = [
+        (r.entity_type, (r.after or {}).get("enrolment_id"))
+        for r in audit_rows
+        if r.entity_type == "credential" or (r.after or {}).get("event") == "RELEASE"
+    ]
+    assert release_and_revoke == [
+        ("seat", None),
+        ("credential", str(withdrawn.id)),
+        ("seat", None),
+        ("credential", str(transferred.id)),
+    ]
+
+    again = await assign_seats(session, [withdrawn.id, transferred.id], actor_id=registrar.id)
+    assert again.released == []
+    assert await _count(session, AuditLog, AuditLog.entity_type == "credential") == 2
 
 
 async def test_route_change_moves_the_seat(world, session) -> None:
