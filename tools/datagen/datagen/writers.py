@@ -14,6 +14,7 @@ from typing import Any
 from openpyxl import Workbook
 
 from . import geo
+from .digilocker import AccountBuilder
 from .graduates import records as graduate_records
 from .graduates import registry_records as graduate_registry_records
 from .institutions import ABC_ID, XYZ_ID, public_institution
@@ -268,11 +269,13 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     dump_jsonl(out / "mockgov" / "abc_credits.jsonl", abc)
     dump_jsonl(out / "mockgov" / "sii.jsonl", sii)
     dump_jsonl(out / "mockgov" / "joining_records.jsonl", world.joining_records)
+    accounts = AccountBuilder(world, registry)
+    dump_jsonl(out / "mockgov" / "digilocker_accounts.jsonl", accounts.build())
     world.timings["write_mockgov"] = time.perf_counter() - t
 
     t = time.perf_counter()
     dump_jsonl(out / "graduates.jsonl", graduate_records(world.graduates))
-    planner = ReplyPlanner(world, files, {r["apaar_id"] for r in registry})
+    planner = ReplyPlanner(world, files, {r["apaar_id"] for r in registry}, accounts)
     replies = planner.plan()
     dump_jsonl(out / "notice_replies.jsonl", replies)
     world.timings["write_graduates_replies"] = time.perf_counter() - t
@@ -306,11 +309,13 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
             for r in world.joining_records
         ),
         "missing_from_upload": len(world.omitted_rows),
+        "digilocker_accounts": len(accounts.accounts),
         "graduates": len(world.graduates),
         "notice_replies": len(replies),
         "notice_replies_yes": sum(r["reply"] == "YES" for r in replies),
         "notice_replies_no": sum(r["reply"] == "NO" for r in replies),
         "notice_replies_none": sum(r["reply"] == "NONE" for r in replies),
+        "notice_replies_claims": sum(r["claim_provisional_id"] for r in replies),
         "history_institutions": len(world.history.get("institutions", [])),
         "ground_truth": len(ground_truth),
         "ground_truth_by_type": dict(sorted(by_type.items())),

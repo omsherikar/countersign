@@ -4,9 +4,13 @@ import re
 from collections import Counter
 
 from datagen.cli import generate
+from datagen.config import load_datagen_config
 from datagen.notices import held_back
 
-FIELDS = ["file", "row_no", "reply", "channel", "comment", "reply_after_days"]
+FIELDS = [
+    "file", "row_no", "reply", "channel", "comment", "reply_after_days",
+    "claim_provisional_id", "digilocker_id",
+]  # fmt: skip
 ABC_FILE = "uploads/1-ABC-0001_2026-27.csv"
 DEMO_APAAR = "123456784417"
 APAAR = re.compile(r"[0-9]{12}")
@@ -49,7 +53,11 @@ def test_one_line_per_initial_upload_row_in_file_order(small):
     for r in lines:
         assert list(r) == FIELDS
         assert r["reply"] in {"YES", "NO", "NONE"}
-        assert r["channel"] in {"DIGILOCKER", "EMAIL"}
+        assert r["channel"] == "DIGILOCKER_SIGNIN"
+        assert isinstance(r["claim_provisional_id"], bool)
+        assert r["digilocker_id"] is None or re.fullmatch(
+            r"DL-[A-Z0-9]{4}-[A-Z0-9]{4}", r["digilocker_id"]
+        )
         assert r["comment"] is None or (isinstance(r["comment"], str) and r["comment"])
         assert isinstance(r["reply_after_days"], int) and 0 <= r["reply_after_days"] <= 29
         if r["reply"] == "NONE":
@@ -66,12 +74,13 @@ def test_every_will_deny_row_answers_no(small):
         assert rec["rows"] and all({"file", "row_no"} <= set(row) for row in rec["rows"])
         deny |= {(row["file"], row["row_no"]) for row in rec["rows"]}
     lines = by_row(small)
-    registry = {r["apaar_id"] for r in small.jsonl("apaar_registry.jsonl")}
+    accounts = {a["digilocker_id"]: a for a in small.jsonl("digilocker_accounts.jsonl")}
     for key in deny:
         reply, row = lines[key], small.row(*key)
         assert reply["reply"] == "NO", key
-        on_digilocker = usable_apaar(row) and row["apaar_id"] in registry
-        assert reply["channel"] == ("DIGILOCKER" if on_digilocker else "EMAIL")
+        # Signed in through DigiLocker as the APAAR holder the notice is about.
+        assert reply["channel"] == "DIGILOCKER_SIGNIN" and not reply["claim_provisional_id"]
+        assert accounts[reply["digilocker_id"]]["apaar_id"] == row["apaar_id"]
         assert 0 <= reply["reply_after_days"] <= 7
     assert {k for k, r in lines.items() if r["reply"] == "NO"} == deny
 
@@ -80,9 +89,7 @@ def test_every_will_deny_row_answers_no(small):
     for text in comments:
         assert len(text) <= 120 and "—" not in text and "–" not in text
     not_me = next(r for r in records if r.get("scenario") == "not_me")["rows"][0]
-    assert (
-        lines[(not_me["file"], not_me["row_no"])]["comment"] == "I never applied to this college."
-    )
+    assert lines[(not_me["file"], not_me["row_no"])]["comment"] == "I never joined this college."
 
 
 def test_live_demo_notices_stay_unanswered(small):
@@ -114,36 +121,63 @@ def test_live_demo_notices_stay_unanswered(small):
     assert small.summary["demo_unanswered_notices"] == unanswered
 
 
+def signs_in_with_apaar(row: dict, registry: dict[str, dict]) -> bool:
+    return usable_apaar(row) and registry.get(row["apaar_id"], {}).get("name") == row["name"]
+
+
 def test_about_seventy_percent_of_clean_rows_answer_yes(small):
     lines = replies(small)
     planted = referenced_rows(small, skip=LEGITIMATE)
     demo = {
         (u["file"], u["row_no"]) for u in small.json("manifest.json")["demo_unanswered_notices"]
     }
-    clean = [r for r in lines if (r["file"], r["row_no"]) not in planted | demo]
+    registry = {r["apaar_id"]: r for r in small.jsonl("apaar_registry.jsonl")}
+    clean = [
+        r for r in lines
+        if (r["file"], r["row_no"]) not in planted | demo and not r["claim_provisional_id"]
+        and signs_in_with_apaar(small.row(r["file"], r["row_no"]), registry)
+    ]  # fmt: skip
     share = sum(r["reply"] == "YES" for r in clean) / len(clean)
     assert 0.67 <= share <= 0.73, share
     for r in lines:
         if (r["file"], r["row_no"]) in planted and r["reply"] == "YES":
             raise AssertionError(f"a planted row answers YES: {r}")
-
-    registry = {r["apaar_id"] for r in small.jsonl("apaar_registry.jsonl")}
-    channels = Counter()
-    for r in lines:
-        row = small.row(r["file"], r["row_no"])
-        if r["channel"] == "DIGILOCKER":
-            assert usable_apaar(row) and row["apaar_id"] in registry, r
         if r["reply"] == "YES":
-            channels[r["channel"]] += 1
             assert r["comment"] is None
-    assert channels["DIGILOCKER"] and channels["EMAIL"]
 
     counts = small.json("manifest.json")["counts"]
     tally = Counter(r["reply"] for r in lines)
     assert counts["notice_replies"] == len(lines)
     assert (counts["notice_replies_yes"], counts["notice_replies_no"]) == (tally["YES"], 8)
     assert counts["notice_replies_none"] == tally["NONE"]
+    assert counts["notice_replies_claims"] == sum(r["claim_provisional_id"] for r in lines)
     assert small.summary["counts"]["notice_replies"] == len(lines)
+
+
+def test_students_without_an_apaar_answer_only_by_claiming_their_record(small):
+    lines = replies(small)
+    claims = [r for r in lines if r["claim_provisional_id"]]
+    assert len(claims) == load_datagen_config()["digilocker"]["provisional_claims"]["small"]
+    refused = {
+        (row["file"], row["row_no"]) for rec in small.json("ground_truth.json")
+        if rec["anomaly_type"] == "CONSENT_REFUSED_NO_APAAR" for row in rec["rows"]
+    }  # fmt: skip
+    accounts = {a["digilocker_id"]: a for a in small.jsonl("digilocker_accounts.jsonl")}
+    for r in claims:
+        row = small.row(r["file"], r["row_no"])
+        assert (r["file"], r["row_no"]) in refused
+        assert row["consent_status"] == "REFUSED" and row["apaar_id"] == ""
+        assert r["reply"] == "YES" and r["comment"] is None
+        account = accounts[r["digilocker_id"]]
+        # The DigiLocker identity matches the record by name and date of birth.
+        assert account["apaar_id"] is None
+        assert (account["name"], account["dob"]) == (row["name"], row["dob"])
+    for r in lines:
+        row = small.row(r["file"], r["row_no"])
+        if not usable_apaar(row) and not r["claim_provisional_id"]:
+            assert r["reply"] == "NONE", r
+        if row["admission_route"] == "INTERNATIONAL":
+            assert r["digilocker_id"] is None and r["reply"] == "NONE"
 
 
 def test_same_seed_same_replies_other_seed_different(small, tmp_path):

@@ -2,16 +2,21 @@
 
 Once a batch is processed the api sends every ACTIVE enrolment a notice ("ABC College says
 you joined B.Tech CSE. Is that right?") by email, and on DigiLocker when the student has an
-APAAR. The seed then applies these planned answers through the same service the notice page
-uses (DECISIONS D31):
+APAAR. A notice only points the student to the claim page: an answer counts only after the
+student signs in through DigiLocker (DECISIONS D37), so every planned answer is on the
+DIGILOCKER_SIGNIN channel and names the account that signs in. The seed applies them through
+the same service the claim page uses:
 
-- every planted STUDENT_DENIED row (`will_deny`) answers NO, on DigiLocker when the row has
-  an APAAR the registry holds, otherwise by email; three of them leave a short comment;
-- about 70% of the clean rows answer YES, on a channel the student has;
+- every planted STUDENT_DENIED row (`will_deny`) answers NO; three of them leave a short
+  comment, the deck sample ("I never joined this college.") always among them;
+- a few refused-consent students (no APAAR) answer YES after claiming their record with the
+  provisional id their college gave them (`claim_provisional_id: true`);
+- about 70% of the clean rows whose student signs in with the record's own APAAR answer YES;
 - every other row stays unanswered (NONE): rows of other planted cases, rows a later update
-  file withdraws or transfers, and the notices the live demo answers by hand (Ravi Kumar
-  Sharma, his duplicate row "R. K. Sharma", and one more ABC CSE first-year named in the
-  manifest).
+  file withdraws or transfers, international students (no DigiLocker account), students
+  without an APAAR who do not claim, and the notices the live demo answers by hand (Ravi
+  Kumar Sharma, his duplicate row "R. K. Sharma", and one more ABC CSE first-year named in
+  the manifest).
 
 One line per row of each initial upload file, in file and row order. Rows the api holds back
 as upload errors never become enrolments and have no line; update files have none either
@@ -25,18 +30,22 @@ from __future__ import annotations
 import random
 import re
 
+from .digilocker import AccountBuilder
 from .institutions import ABC_ID
 from .matching import normalise_name
 from .students import World, has_usable_apaar
 
-REPLY_FIELDS = ["file", "row_no", "reply", "channel", "comment", "reply_after_days"]
+REPLY_FIELDS = [
+    "file", "row_no", "reply", "channel", "comment", "reply_after_days",
+    "claim_provisional_id", "digilocker_id",
+]  # fmt: skip
+CHANNEL = "DIGILOCKER_SIGNIN"
 YES_SHARE = 0.70
-DIGILOCKER_SHARE = 0.55  # of YES answers from students who have both channels
 YES_DAYS = (0, 12)
 NO_DAYS = (0, 5)
 # Rows of these ground-truth records are legitimate students, so they answer like any other.
 LEGITIMATE = {"CONSENT_REFUSED_NO_APAAR"}
-NOT_ME_COMMENT = "I never applied to this college."
+NOT_ME_COMMENT = "I never joined this college."
 COMMENTS = (
     "This is not me. I study at another college.",
     "I did not take admission here and have never been to this college.",
@@ -77,25 +86,49 @@ def held_back(rows: list[dict]) -> set[int]:
 class ReplyPlanner:
     """Plans one answer per initial upload row. Run after the rows have their row numbers."""
 
-    def __init__(self, world: World, files: list[tuple[str, list[dict]]], registry: set[str]):
+    def __init__(
+        self,
+        world: World,
+        files: list[tuple[str, list[dict]]],
+        registry: set[str],
+        accounts: AccountBuilder,
+    ):
         self.w = world
         self.files = sorted(files, key=lambda f: f[0])
         self.registry = registry
+        self.accounts = accounts
         self.rng = random.Random(f"notice-replies:{world.seed}")
         self.unanswered: list[dict] = []
         # initial rows that an update file withdraws or transfers
         self.leaving: set[int] = set()
+        # refused-consent rows that answer after claiming by provisional id
+        self.claimers: set[int] = set()
 
-    # --------------------------------------------------------------- channels
+    # ---------------------------------------------------------------- sign-in
 
     def on_digilocker(self, row: dict) -> bool:
         """A DigiLocker notice reaches the student only for an APAAR the registry holds."""
         return has_usable_apaar(row) and row["apaar_id"] in self.registry
 
-    def channels(self, row: dict) -> list[str]:
-        """Where the student's notices arrive, DigiLocker first."""
-        out = ["DIGILOCKER"] if self.on_digilocker(row) else []
-        return out + (["EMAIL"] if row["email"] else [])
+    def claims(self, quiet: set[int]) -> set[int]:
+        """Refused-consent students who claim their record by provisional id: the planted
+        CONSENT_REFUSED_NO_APAAR rows first, then other clean refused rows."""
+        k = self.w.cfg.digilocker.get("provisional_claims", 0)
+        pool = []
+        for _name, rows in self.files:
+            rejected = held_back(rows)
+            for i, row in enumerate(rows):
+                if i in rejected or id(row) in quiet or id(row) in self.leaving:
+                    continue
+                tags = set(row["_tags"])
+                if row["consent_status"] == "REFUSED" and tags <= LEGITIMATE:
+                    pool.append((not tags, row["_file"], row["row_no"], row))
+        pool.sort(key=lambda p: p[:3])
+        planted = [p[3] for p in pool if not p[0]]
+        others = [p[3] for p in pool if p[0]]
+        picked = self.rng.sample(planted, min(k, len(planted)))
+        picked += self.rng.sample(others, min(k - len(picked), len(others)))
+        return {id(row) for row in picked}
 
     # ------------------------------------------------------------------ picks
 
@@ -140,6 +173,7 @@ class ReplyPlanner:
         }
         demo = self.demo_rows()
         quiet = {id(row) for _, row in demo}
+        self.claimers = self.claims(quiet)
         deniers = [
             row for _name, rows in self.files for row in rows if "STUDENT_DENIED" in row["_tags"]
         ]  # fmt: skip
@@ -165,20 +199,22 @@ class ReplyPlanner:
         return out
 
     def reply(self, row: dict, quiet: set[int], comments: dict[int, str]) -> dict:
-        """NONE carries the channel the student would answer on and 0 days."""
-        channels = self.channels(row)
-        reply, channel, comment, days = "NONE", (channels or ["EMAIL"])[0], None, 0
+        """NONE carries 0 days; `digilocker_id` is the account the student signs in with
+        (null for an international student, who has none)."""
+        account = self.accounts.account_of(row)
+        reply, comment, days, claim = "NONE", None, 0, False
         tags = set(row["_tags"])
-        if id(row) in quiet or not channels:
+        if id(row) in quiet or account is None:
             pass
         elif "STUDENT_DENIED" in tags:
             reply, comment = "NO", comments.get(id(row))
             days = self.rng.randint(*NO_DAYS)
-        elif tags <= LEGITIMATE and id(row) not in self.leaving:
+        elif id(row) in self.claimers:
+            reply, claim = "YES", True
+            days = self.rng.randint(*YES_DAYS)
+        elif tags <= LEGITIMATE and id(row) not in self.leaving and self.on_digilocker(row):
             if self.rng.random() < YES_SHARE:
                 reply = "YES"
-                if len(channels) == 2 and self.rng.random() >= DIGILOCKER_SHARE:
-                    channel = "EMAIL"
                 days = self.rng.randint(*YES_DAYS)
-        values = (row["_file"], row["row_no"], reply, channel, comment, days)
+        values = (row["_file"], row["row_no"], reply, CHANNEL, comment, days, claim, account)
         return dict(zip(REPLY_FIELDS, values, strict=True))
