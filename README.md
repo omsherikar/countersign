@@ -8,7 +8,7 @@ A college's student upload is a *claim*. Five independent sources then countersi
 
 ## Status
 
-Week 1 of 4, in progress (2026-10-28). The backend runs end to end: the API (schema, auth, RBAC, seat pools, adapters, seed importer), mockgov with chaos toggles, datagen with planted anomalies and ground truth, and the design system are on `main`, and the Week 1 acceptance checks pass against the API (api 64, mockgov 92, datagen 45 tests passing). The web app (`apps/web`) is still being built, so there is no browser UI yet. The task board, the end-of-week verification checklist and a dated changelog are in [docs/PROGRESS.md](docs/PROGRESS.md); the reasons behind each choice are in `docs/DECISIONS.md`.
+Week 1 of 4 is complete (2026-10-28) apart from CI, which GitHub has not started because of an account billing problem (not a code failure). The stack runs end to end in the browser: the Next.js web app (`apps/web`) with a shell per role, national and regional dashboards, institution detail, registrar, student, university and system pages, on top of the API (schema, auth, RBAC, seat pools, adapters, seed importer), mockgov with chaos toggles, datagen with planted anomalies and ground truth, and the design system. The test suites pass in compose (api 76, mockgov 92, datagen 45), the web app lints, typechecks and builds clean, and the Week 1 acceptance checks pass against both the API and the browser. Week 2 is next: the upload engine, validation, name matching, the Seat Ledger, the countersign engine and duplicate detection. The task board, the end-of-week verification checklist and a dated changelog are in [docs/PROGRESS.md](docs/PROGRESS.md); the reasons behind each choice are in `docs/DECISIONS.md`.
 
 ## Run it
 
