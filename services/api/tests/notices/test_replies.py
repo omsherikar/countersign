@@ -11,7 +11,7 @@ from app import credentials
 from app.db.session import session_factory
 from app.engine.checks import run_checks
 from app.models.audit import AuditLog
-from app.models.credential import Consent
+from app.models.credential import Consent, Credential
 from app.models.enums import (
     AuditAction,
     CaseActionKind,
@@ -19,6 +19,7 @@ from app.models.enums import (
     CheckType,
     ConsentPurpose,
     ConsentState,
+    CredentialKind,
     FlagStatus,
     FlagType,
     NoticeChannel,
@@ -86,7 +87,11 @@ async def test_a_yes_countersigns_records_consent_and_asks_for_the_proof(
     email, _ = await notices_of(enrolment.id)
     assert email.comment is None
     async with session_factory()() as s:
-        [consent] = (await s.execute(select(Consent))).scalars().all()
+        [consent] = (
+            (await s.execute(select(Consent).where(Consent.purpose == ConsentPurpose.NOTICE)))
+            .scalars()
+            .all()
+        )
         [audit] = (
             (
                 await s.execute(
@@ -136,7 +141,11 @@ async def test_a_no_fails_the_check_and_raises_the_flag_with_the_comment_for_off
     )
     assert flag.enrolment_id == enrolment.id and flag.related_enrolment_ids == [enrolment.id]
     async with session_factory()() as s:
-        consents = (await s.execute(select(Consent))).scalars().all()
+        consents = (
+            (await s.execute(select(Consent).where(Consent.purpose == ConsentPurpose.NOTICE)))
+            .scalars()
+            .all()
+        )
         logged = (
             await s.execute(select(AuditLog.after).where(AuditLog.entity_type == "notification"))
         ).scalars()
@@ -208,7 +217,11 @@ async def test_no_then_yes_passes_keeps_the_flag_and_notes_it_once(
             .scalars()
             .all()
         )
-        consents = (await s.execute(select(Consent))).scalars().all()
+        consents = (
+            (await s.execute(select(Consent).where(Consent.purpose == ConsentPurpose.NOTICE)))
+            .scalars()
+            .all()
+        )
     assert [(n.note, n.actor_id) for n in notes] == [
         (
             f"The student changed the reply from No to Yes on {fmt_day(changed_at)}. "
@@ -317,3 +330,25 @@ async def test_a_reupload_keeps_the_derived_status(world, mailer, public, issued
     assert (await check_of(denied.id)).status is CheckStatus.FAIL
     assert {e.id: (await check_of(e.id)).detail for e in (confirmed, denied)} == before
     assert (await denied_flag(denied.id)).status is FlagStatus.OPEN
+
+
+async def test_a_yes_issues_the_enrolment_proof_and_a_no_does_not(world, mailer, public, clients):
+    confirmed, yes_tokens = await delivered(world, mailer)
+    denied, no_tokens = await delivered(world, mailer)
+    await reply(public, yes_tokens[DIGILOCKER], "YES")
+    await reply(public, no_tokens[EMAIL], "NO")
+    async with session_factory()() as s:
+        proofs = (await s.execute(select(Credential))).scalars().all()
+    assert [(c.enrolment_id, c.kind, c.revoked) for c in proofs] == [
+        (confirmed.id, CredentialKind.ENROLMENT, False)
+    ]
+    # the proof shows on enrolment detail and in the student's overview
+    detail = (await clients["admin"].get(f"/enrolments/{confirmed.id}")).json()
+    assert [(c["kind"], c["status"]) for c in detail["credentials"]] == [("ENROLMENT", "ACTIVE")]
+    student = await world.student_login(confirmed)
+    me = (await student.get("/students/me")).json()
+    await student.aclose()
+    assert [(c["kind"], c["enrolment_id"]) for c in me["credentials"]] == [
+        ("ENROLMENT", str(confirmed.id))
+    ]
+    assert (await clients["admin"].get(f"/enrolments/{denied.id}")).json()["credentials"] == []

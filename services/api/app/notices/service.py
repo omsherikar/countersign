@@ -46,17 +46,11 @@ from app.models.user import User
 from app.models.verification import Flag, Notification
 from app.notices.dispatch import channels_for, create_notices
 from app.notices.student_check import REPLY_CHANGED_NOTE, fmt_day, wire_time
+from app.privacy.notice import NOTICE_VERSION, consent_text
 from app.privacy.service import notice_consent_withdrawn, record_consent
 
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
-NOTICE_VERSION = "v1"
 COMMENT_MAX = 500
-# copy deck §9 consent.notice: stored verbatim with a Yes (D30)
-CONSENT_TEXT = (
-    "By replying, you let AICTE record your answer with today's date against this enrolment. "
-    'Your answer is shown to AICTE officers and to {institution_name} as "Confirmed" or '
-    '"Denied", with no other personal detail. If you add a comment, only AICTE officers see it.'
-)
 CONSENT_CHANNELS = {
     NoticeChannel.EMAIL: "NOTICE_EMAIL",
     NoticeChannel.DIGILOCKER: "NOTICE_DIGILOCKER",
@@ -71,6 +65,11 @@ class ReplyOutcome:
     recorded: bool  # False when the same answer came again and nothing changed
     changed: bool  # the one allowed change of answer
     credential: Credential | None = None
+
+
+def notice_consent(institution_name: str) -> str:
+    """The NOTICE consent text (copy deck consent.notice) a Yes records, D30."""
+    return consent_text(ConsentPurpose.NOTICE, institution_name=institution_name)
 
 
 def _not_found() -> ApiError:
@@ -177,7 +176,7 @@ async def public_body(
         "previous_response": _value(notice.previous_response),
         "changed_at": wire_time(notice.changed_at),
         "can_change_until": wire_time(can_change_until(notice, now)),
-        "consent_text": CONSENT_TEXT.format(institution_name=institution.name),
+        "consent_text": notice_consent(institution.name),
         "notice_version": NOTICE_VERSION,
     }
 
@@ -330,7 +329,7 @@ async def apply_reply(
             purpose=ConsentPurpose.NOTICE,
             status=ConsentState.GIVEN,
             channel=CONSENT_CHANNELS[notice.channel],
-            notice_text=CONSENT_TEXT.format(institution_name=institution.name),
+            notice_text=notice_consent(institution.name),
             enrolment_id=enrolment.id,
         )
     await refresh_student(session, [enrolment.id])
