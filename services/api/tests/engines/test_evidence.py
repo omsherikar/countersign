@@ -173,7 +173,7 @@ def test_excess_admission_evidence() -> None:
         admitted=132,
         seated=120,
         peak_unseated=12,
-        rule_source="Approval record (approved_intake)",
+        rule_source="AICTE approved intake",
         related=[E1, E2],
     )
     assert evidence["summary"] == (

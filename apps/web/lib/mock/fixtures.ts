@@ -143,7 +143,7 @@ export const USERS: User[] = [
 /* ---- Seat pools from rules.yaml (APH 2024-27) ---------------------------- */
 
 export const RULE = {
-  REGULAR: "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))",
+  REGULAR: "AICTE approved intake; minus NRI carve-out (APH 2024-27 cl. 2.8(b))",
   NRI: "APH 2024-27 cl. 2.8(b)",
   TFW: "APH 2024-27 cl. 6.42(d)(i), (d)(iii)",
   LATERAL: "APH 2024-27 cl. 6.13(a), 6.13(f)",

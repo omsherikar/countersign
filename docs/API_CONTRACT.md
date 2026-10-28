@@ -955,7 +955,7 @@ Same roles and scoping; outside scope 404 "Flag not found.". Writes READ audit e
       { "label": "Unseated", "value": "12", "source": "Seat ledger" }
     ],
     "related_enrolment_ids": [ "e9...", "e10..." ],
-    "rule_source": "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))"
+    "rule_source": "AICTE approved intake; minus NRI carve-out (APH 2024-27 cl. 2.8(b))"
   },
   "enrolment": null,
   "related_enrolments": [ { ...EnrolmentRow (§A2.10)..., "institution": { "id": "a0b1...", "name": "ABC College of Engineering" } } ],
@@ -1065,7 +1065,7 @@ Week 1 pages set one year's approved seats against enrolments from every year of
   "approval": { "academic_year": "2026-27", "approved_intake": 120, "cutoff_date": "2026-09-15" },
   "enrolments": 132, "seated": 120, "unseated": 12,
   "pools": [
-    { "seat_type": "REGULAR", "capacity": 114, "is_supernumerary": false, "assigned": 114, "free": 0, "reserved_for": null, "rule_source": "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))" },
+    { "seat_type": "REGULAR", "capacity": 114, "is_supernumerary": false, "assigned": 114, "free": 0, "reserved_for": null, "rule_source": "AICTE approved intake; minus NRI carve-out (APH 2024-27 cl. 2.8(b))" },
     { "seat_type": "NRI", "capacity": 6, "is_supernumerary": false, "assigned": 6, "free": 0, "reserved_for": null, "rule_source": "APH 2024-27 cl. 2.8(b)" }
   ]
 }

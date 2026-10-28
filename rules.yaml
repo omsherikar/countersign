@@ -10,7 +10,7 @@ seat_pools:
   REGULAR:
     share: 1.00                 # of approved intake, minus the NRI carve-out
     supernumerary: false
-    source: "Approval record (approved_intake)"
+    source: "AICTE approved intake"
   NRI:
     share: 0.05
     carved_from: REGULAR        # NRI seats sit WITHIN approved intake

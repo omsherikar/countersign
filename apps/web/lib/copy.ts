@@ -289,7 +289,7 @@ export const copy = {
   "flag.STUDENT_DENIED.summary": "Student replied \"not me\" to the notice sent on {sent_date}.",
   "flag.GHOST_RING.summary": "{students} students across {institutions} institutions share {contacts} contact details.",
   "flag.ANOMALY.summary": "{metric} for {programme_code} is {value}, outside the usual range ({low} to {high}) for similar programmes.",
-  "flag.EXCESS_ADMISSION.rule": "{rule_source}, the Regular pool's, e.g. \"Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))\"",
+  "flag.EXCESS_ADMISSION.rule": "{rule_source}, the Regular pool's, e.g. \"AICTE approved intake; minus NRI carve-out (APH 2024-27 cl. 2.8(b))\"",
   "flag.QUOTA_BREACH.rule": "{rule_source}, the breached pool's, e.g. \"APH 2024-27 cl. 2.8(b)\" for NRI",
   "flag.LATE_REFILL.rule": "Last admission date for {cohort_year} (rules.yaml cutoff_dates)",
   "flag.INVALID_APAAR.rule": "APAAR verification",

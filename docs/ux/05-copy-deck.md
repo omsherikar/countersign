@@ -420,7 +420,7 @@ Rule sources (`evidence.rule_source`, shown after "Rule:")
 
 | id | text |
 |---|---|
-| flag.EXCESS_ADMISSION.rule | {rule_source}, the Regular pool's, e.g. "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))" |
+| flag.EXCESS_ADMISSION.rule | {rule_source}, the Regular pool's, e.g. "AICTE approved intake; minus NRI carve-out (APH 2024-27 cl. 2.8(b))" |
 | flag.QUOTA_BREACH.rule | {rule_source}, the breached pool's, e.g. "APH 2024-27 cl. 2.8(b)" for NRI |
 | flag.LATE_REFILL.rule | Last admission date for {cohort_year} (AICTE admission schedule) |
 | flag.INVALID_APAAR.rule | APAAR verification |

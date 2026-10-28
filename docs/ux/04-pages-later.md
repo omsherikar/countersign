@@ -231,7 +231,7 @@ Approved intake    120    AICTE approval 2026-27
 Admitted (active)  132    College uploads, Regular and NRI routes
 Seated             120    Seat ledger
 Unseated           12     Seat ledger
-Rule: Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))
+Rule: AICTE approved intake; minus NRI carve-out (APH 2024-27 cl. 2.8(b))
 
 Related enrolments (12)
 Student  APAAR / Provisional  Institution  Programme  Year  Route  Seat  Countersign  Flags

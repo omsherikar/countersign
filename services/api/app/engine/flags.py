@@ -305,7 +305,7 @@ async def refresh_seat_flags(
                 peak_unseated=await _peak(session, key, admitted - seated),
                 rule_source=pool_by_type[SeatType.REGULAR].rule_source
                 if SeatType.REGULAR in pool_by_type
-                else "Approval record (approved_intake)",
+                else "AICTE approved intake",
                 related=related,
             )
             tally.count(
