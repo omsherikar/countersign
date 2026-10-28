@@ -359,7 +359,12 @@ function applyScenarios(aicte: string, entries: RollEntry[]) {
       nameScore: 100,
       special: { joining: "NOT_FOUND", sample: true },
     });
-    Object.assign(sample.row, { admission_route: "COUNSELLING", counselling_ref: "MHCET-2026-R2-018833", admission_date: "2026-08-06" });
+    Object.assign(sample.row, { admission_route: "COUNSELLING", counselling_ref: "MHCET-2026-R2-018833", admission_date: "2026-08-06", category: "GENERAL" });
+    laterVersion(sample, "2026-10-28T08:15:46Z", 9, [
+      { field: "admission_date", before: "2026-08-04", after: "2026-08-06" },
+      { field: "category", before: "OBC", after: "GENERAL" },
+    ]);
+    laterVersion(ravi, "2026-10-28T08:15:44Z", 3, [{ field: "counselling_ref", before: "MHCET-2026-R1-004521", after: "MHCET-2026-R1-004512" }]);
 
     const tejas = find(entries, "MECH", 1, 21);
     patchStudent(tejas, { name: "Tejas More", apaar_masked: "XXXX XXXX 3348", consent_status: "LINKED", provisional_id: null }, {
@@ -433,6 +438,11 @@ function applyScenarios(aicte: string, entries: RollEntry[]) {
         source_row_no: 4,
       });
       if (refill.seat) refill.seat.assigned_at = "2026-10-28T08:15:52Z";
+      laterVersion(refill, "2026-10-28T08:15:52Z", 4, [
+        { field: "admission_route", before: "SPOT", after: "MANAGEMENT" },
+        { field: "counselling_ref", before: "MHCET-2026-SPOT-000311", after: null },
+        { field: "admission_date", before: "2026-09-12", after: "2026-10-05" },
+      ]);
     }
   }
 }
@@ -887,6 +897,10 @@ export function versionsOf(e: RollEntry): EnrolmentVersion[] {
   const batch = { id: initialBatchId(e.institutionId), filename: initialFilename(SEEDS.find((s) => s.id === e.institutionId)!.aicte_permanent_id), row_no: e.upload?.row_no ?? r.source_row_no };
   const fromFile = e.institutionId === IDS.abc;
   const registrar = { id: "6f1c0a8e-0004-4c9a-9e51-1c2f1a0b7d33", name: "Registrar, ABC College of Engineering", role: "INSTITUTION" as const };
+  const later = LATER_VERSIONS.get(r.id) ?? [];
+  // Version 1 holds the values as first uploaded: later changes are rolled back from today's values.
+  const first = new Map<string, unknown>(VERSIONED.map((field) => [field, value(field)]));
+  for (const v of [...later].reverse()) for (const c of v.changes) first.set(c.field, c.before);
   const created: EnrolmentVersion = {
     version: 1,
     at: INITIAL_UPLOADED_AT,
@@ -894,14 +908,29 @@ export function versionsOf(e: RollEntry): EnrolmentVersion[] {
     actor: fromFile ? registrar : null,
     batch,
     case: null,
-    changes: VERSIONED.map((field) => ({ field, before: null, after: value(field) })),
+    changes: VERSIONED.map((field) => ({ field, before: null, after: first.get(field) })),
   };
-  const later = LATER_VERSIONS.get(r.id) ?? [];
   return [...later].reverse().concat(created);
 }
 
 /** Changes after the first upload, oldest first; decisions add theirs here too. */
 export const LATER_VERSIONS = new Map<string, EnrolmentVersion[]>();
+
+/** A change the college's update file made to a record (A4.7 UPLOAD version). */
+function laterVersion(e: RollEntry, at: string, rowNo: number, changes: EnrolmentVersion["changes"]) {
+  const seed = SEEDS.find((s) => s.id === e.institutionId)!;
+  const list = LATER_VERSIONS.get(e.row.id) ?? [];
+  list.push({
+    version: list.length + 2,
+    at,
+    source: "UPLOAD",
+    actor: { id: e.institutionId === IDS.abc ? "6f1c0a8e-0004-4c9a-9e51-1c2f1a0b7d33" : `6f1c0a8e-${e.institutionId.slice(-4)}-4c9a-9e51-1c2f1a0b7d33`, name: `Registrar, ${seed.name}`, role: "INSTITUTION" },
+    batch: { id: updateBatchId(e.institutionId), filename: updateFilename(seed.aicte_permanent_id), row_no: rowNo },
+    case: null,
+    changes,
+  });
+  LATER_VERSIONS.set(e.row.id, list);
+}
 
 const RECHECKED: EvidenceRow["state"][] = ["PENDING", "NOT_YET_DUE", "SOURCE_UNAVAILABLE"];
 

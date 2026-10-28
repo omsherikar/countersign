@@ -7,11 +7,13 @@
  */
 import { ApiError } from "@/lib/api";
 import { ACADEMIC_YEAR, IDS, SEEDS, USERS } from "@/lib/mock/fixtures";
+import { normaliseHeader, resolveHeaders } from "@/lib/mock/records";
 import { INITIAL_UPLOADED_AT, UPDATE_UPLOADED_AT, initialBatchId, initialFilename, rollFor, updateBatchId, updateFilename, type RollEntry } from "@/lib/mock/roll";
 import {
   UPLOAD_COLUMNS,
   type RowErrorLevel,
   type UploadBatch,
+  type UploadColumn,
   type UploadCounts,
   type UploadRowError,
   type UploadStage,
@@ -90,6 +92,7 @@ interface SessionUpload {
   sameAs: { batch_id: string; uploaded_at: string } | null;
   uploadedBy: { id: string; name: string };
   kind: "INITIAL" | "UPDATE";
+  columnMapping?: { header: string; column: UploadColumn }[];
 }
 
 const STORE = "cs-mock-uploads";
@@ -309,7 +312,7 @@ function sessionBatch(u: SessionUpload, now = Date.now()): UploadBatch {
     timings_ms: {},
     error: null,
     ignored_columns: [],
-    column_mapping: [],
+    column_mapping: u.columnMapping ?? [],
     same_file_as: u.sameAs,
     uploaded_by: u.uploadedBy,
     uploaded_at: iso(u.createdMs),
@@ -419,10 +422,6 @@ export function templateCsv(): { blob: Blob; filename: string } {
 const REQUIRED = ["name", "dob", "programme_code", "year_of_study", "admission_route", "category"];
 const MAX_BYTES = 20 * 1024 * 1024;
 
-function normaliseHeader(h: string): string {
-  return h.trim().replace(/^﻿/, "").toLowerCase().replace(/[\s-]+/g, "_");
-}
-
 function validation(field: string, message: string): ApiError {
   return new ApiError(422, "VALIDATION_ERROR", message, { fields: [{ field, message }] });
 }
@@ -454,11 +453,23 @@ export async function createUpload(user: User, form: FormData): Promise<{ batch:
   if (running) throw new ApiError(409, "UPLOAD_IN_PROGRESS", "An upload for this college and year is still being processed.", { batch_id: running.id });
 
   let rows = 605;
+  let mapped: { header: string; column: UploadColumn }[] = [];
   const unreadable = /unreadable|corrupt/i.test(file.name);
   if (ext === "csv" && !unreadable) {
     const text = await file.text();
     const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
-    const header = (lines[0] ?? "").split(",").map(normaliseHeader);
+    const raw = (lines[0] ?? "").split(",").map((h) => h.trim().replace(/^\uFEFF/, ""));
+    // A4.16: a saved mapping reads the college's own headers; unknown headers with a required column missing ask for one.
+    const read = resolveHeaders(institutionId, raw);
+    if (read.missing.length && read.unknown.length) {
+      throw new ApiError(422, "UPLOAD_HEADER_UNMAPPED", "The file has columns Countersign does not recognise. Map them to the template once, then upload again.", {
+        unknown_headers: read.unknown,
+        missing_columns: read.missing,
+        suggestions: read.suggestions,
+      });
+    }
+    mapped = read.mapped;
+    const header = raw.map((h) => read.mapped.find((x) => x.header === h)?.column ?? normaliseHeader(h));
     const missing = REQUIRED.filter((c) => !header.includes(c));
     const duplicate = header.filter((h, i) => h && header.indexOf(h) !== i);
     if (missing.length || duplicate.length) {
@@ -483,6 +494,7 @@ export async function createUpload(user: User, form: FormData): Promise<{ batch:
     sameAs: same ? { batch_id: same.id, uploaded_at: same.uploaded_at } : null,
     uploadedBy: { id: user.id, name: user.name },
     kind: earlier.length ? "UPDATE" : "INITIAL",
+    columnMapping: mapped,
   };
   writeSession([record, ...session]);
   return { batch: sessionBatch(record) };
