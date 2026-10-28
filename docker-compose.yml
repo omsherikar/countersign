@@ -65,7 +65,7 @@ services:
     build: ./services/api
     <<: *api-env
     # one upload at a time, so cross-institution duplicate detection never races
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1
+    command: celery -A app.worker.celery_app worker --loglevel=info --pool=solo --concurrency=1
     volumes:
       - ./services/api:/app
       - ./rules.yaml:/app/rules.yaml:ro
