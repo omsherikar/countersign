@@ -7,10 +7,13 @@ institutions.json -> regions, states, universities, institutions, programmes (wi
 graduates.jsonl   -> when present: students who finished in an earlier year, each with a
                      GRADUATED enrolment and no seat, batch, checks or flags (graduates.py)
 users.json        -> staff users first, student users after the uploads
+column_mappings.json -> each college's own headers mapped to the template (D42), saved in
+                     its registrar's name before its first upload
 uploads/*.csv     -> every file through run_batch in-process, the same engine a college
                      upload uses (D22): initial files first, sorted by name, then the update
-                     files sorted by college and number. A file already seeded unchanged is
-                     skipped.
+                     files sorted by college and number, each batch dated with the
+                     manifest's `submitted_at` (its versions too). A file already seeded
+                     unchanged is skipped.
 Every step writes one SEED entry to the audit chain with counts only, never PII.
 Other files in the directory are not read here: notice_replies.jsonl belongs to
 `python -m app.seed.replies`, which runs after the notices are sent.
@@ -36,6 +39,7 @@ from app.adapters.base import AdapterSet
 from app.adapters.factory import build_adapters
 from app.core import audit
 from app.core.crypto import hmac_bytes, normalise
+from app.core.errors import ApiError
 from app.core.rules import Rules, get_rules
 from app.core.security import hash_password, verify_password
 from app.db.base import Base
@@ -174,15 +178,29 @@ async def import_directory(
             await import_users(session, users_path, summary, roles=STAFF_ROLES)
             await session.commit()
 
+    mappings_path = source / "column_mappings.json"
+    if mappings_path.is_file():
+        async with factory() as session:
+            await import_column_mappings(session, mappings_path, summary)
+            await session.commit()
+
     uploads = upload_files(source / "uploads")
     if uploads:
+        submitted = submitted_times(source / "manifest.json")
         own_adapters = adapters is None
         adapters = adapters if adapters is not None else build_adapters()
         if own_adapters:
             load_inmemory_registries(adapters, source / "mockgov")
         try:
             for path in uploads:
-                await import_upload(factory, path, summary, engines=engines, adapters=adapters)
+                await import_upload(
+                    factory,
+                    path,
+                    summary,
+                    engines=engines,
+                    adapters=adapters,
+                    submitted_at=submitted.get(path.name),
+                )
         finally:
             if own_adapters:
                 await adapters.aclose()
@@ -523,6 +541,53 @@ async def _owner(session: AsyncSession, institution: Institution, filename: str)
     )
 
 
+def submitted_times(manifest: Path) -> dict[str, datetime]:
+    """The manifest's `uploads[].submitted_at` by file name (API_CONTRACT §A4.25)."""
+    if not manifest.is_file():
+        return {}
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    out: dict[str, datetime] = {}
+    for item in data.get("uploads") or []:
+        name, raw = item.get("file"), item.get("submitted_at")
+        if not name or not raw:
+            continue
+        moment = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        out[Path(str(name)).name] = moment
+    return out
+
+
+async def import_column_mappings(session: AsyncSession, path: Path, summary: Summary) -> None:
+    """`{"<aicte_id>": {"<their header>": "<template column>"}}`: each college's mapping,
+    saved as its registrar (the AICTE admin when it has none) before its uploads. A mapping
+    already saved unchanged is left alone."""
+    from app.engine.upload import mapping as column_mapping
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise SeedError(f"{path.name}: expected an object keyed by AICTE id")
+    for aicte_id, wanted in sorted(data.items()):
+        institution = (
+            await session.execute(
+                select(Institution).where(Institution.aicte_permanent_id == aicte_id)
+            )
+        ).scalar_one_or_none()
+        if institution is None:
+            raise SeedError(f"{path.name}: institution {aicte_id} is not in institutions.json")
+        try:
+            column_mapping.validate(wanted)
+        except ApiError as exc:
+            raise SeedError(f"{path.name}: {aicte_id}: {exc.message}") from None
+        if await column_mapping.load(session, institution.id) == wanted:
+            summary.bump("column_mappings", False)
+            continue
+        owner = await session.get(User, await _owner(session, institution, path.name))
+        assert owner is not None
+        await column_mapping.save(session, institution.id, wanted, owner, seed=True)
+        summary.bump("column_mappings", True)
+
+
 async def import_upload(
     factory: async_sessionmaker[AsyncSession],
     path: Path,
@@ -530,8 +595,10 @@ async def import_upload(
     *,
     engines: EngineSuite | None = None,
     adapters: AdapterSet | None = None,
+    submitted_at: datetime | None = None,
 ) -> FileResult:
-    """One datagen file through run_batch, as a SEED batch with no actor."""
+    """One datagen file through run_batch, as a SEED batch with no actor, dated with the
+    time the college submitted it when the manifest gives one."""
     from app.engine.pipeline import run_batch
 
     match = UPLOAD_NAME.match(path.name)
@@ -574,6 +641,9 @@ async def import_upload(
             file_sha256=digest,
             actor_id=None,
         )
+        if submitted_at is not None:
+            # the only business time a SEED batch carries (the wire's uploaded_at)
+            batch.created_at = submitted_at
         await session.commit()
     summary.bump("upload_batches", True)
 
