@@ -932,6 +932,8 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.NOTICE_NOT_FOUND | This link is not valid. Check that you opened the whole link from your message, or ask your college to send a new notice. |
 | err.NOTICE_EXPIRED | This link has expired. No reply was recorded, and that does not count against you. To reply now, ask your college or AICTE to send a new notice. |
 | err.NOTICE_ALREADY_CHANGED | You have already changed your answer once, so it cannot be changed again. |
+| err.RESEND_LIMIT | This enrolment has already had 3 notices resent in this academic year, which is the limit. |
+| err.NOTICE_LIVE | The student still has a notice they can answer. You can resend once it expires or is not delivered. |
 | err.INTERNAL | Something went wrong on our side. Try again. |
 | err.NETWORK | Could not reach Countersign. Check your connection and try again. |
 | err.ref | Ref: {code} |
@@ -1058,6 +1060,32 @@ Routes `/aicte/enrolments/[id]`, `/ro/enrolments/[id]`, `/college/enrolments/[id
 | col.source | Source |
 | col.checked_at | Checked |
 | col.detail | Detail |
+
+Student notice block and Resend notice (`POST /enrolments/{id}/notices/resend`, D23)
+
+| id | text |
+|---|---|
+| enrolment.section.notice | Student notice |
+| enrolment.notice.none | No notice sent yet. |
+| enrolment.notice.channel_line | {channel_name}: {delivery_word}, {sent_date} |
+| enrolment.notice.failed_reason | ({last_error}) |
+| enrolment.notice.expires | The link works until {expires_date}. |
+| enrolment.notice.expired | Expired on {expires_date} without a reply. |
+| enrolment.notice.reply | Reply: {reply_word}, {responded_date} ({channel_word}) |
+| enrolment.notice.changed | Reply changed once, on {changed_date}. |
+| enrolment.notice.comment | Comment from the student |
+| enrolment.notice.consent_off | The student turned off new notices on {withdrawn_date}, so no new notice can be sent. |
+| resend.button | Resend notice |
+| resend.tip | Sends a new notice when the last one expired or was not delivered. Up to 3 times for this enrolment in an academic year. |
+| resend.live_tip | The student can still answer the notice sent on {sent_date}, until {expires_date}. |
+| resend.confirm_heading | Send a new notice? |
+| resend.confirm | {student_name} gets a new link by email, and in DigiLocker when they have an APAAR. Notices can be resent up to 3 times for this enrolment in {academic_year}. |
+| resend.send | Send notice |
+| resend.cancel | Cancel |
+| resend.sending | Sending |
+| resend.sent | Notice sent. The new link works until {expires_date}. |
+
+One `enrolment.notice.channel_line` per notification, newest notice first, with `{channel_name}` from `notice_channel.*` and `{delivery_word}` from `notice_delivery.*`; a FAILED line adds `enrolment.notice.failed_reason` with the api's `last_error` verbatim (for a missing DigiLocker account the api writes "no DigiLocker account"). `{reply_word}` is `notice_reply.*` (Confirmed, Denied). `enrolment.notice.comment` and the comment under it appear for officers only; the api never sends the comment to a registrar or a university (D24). Resend notice shows for an AICTE officer, a regional officer and the registrar of the student's own college, never for the university: enabled when every notice is expired or not delivered; disabled with `resend.live_tip` while a notice is live; replaced by `enrolment.notice.consent_off` when the student withdrew notice consent. A 429 `RESEND_LIMIT` shows [err.RESEND_LIMIT] and disables the button; a 409 `NOTICE_LIVE` shows [err.NOTICE_LIVE] and refetches.
 
 The Result cell uses `check.status.*`, or for PENDING the pending word from §3. The Detail cell prints `detail.summary` verbatim; when `attempts` is above 0, [check.attempts] follows in small text. A null `checked_at` prints [check.never]. Mobile prints `mobile_masked` exactly as sent; a null value leaves the line out. `enrolment.unseated_flag` takes the SEAT check's `detail.flag_type` and links to that flag in `flags` when it is there. The footer carries [privacy.read_logged].
 
