@@ -6,6 +6,7 @@
 export const casesCopy = {
   /* ---- Case actions, sheets, status lines and history (deck section 6) ---- */
   "case.reopen": "Reopen",
+  "case.correct": "Correct record",
   "case.assign": "Assign",
   "case.cancel": "Cancel",
   "case.request_docs_email": "Every registrar account of {institution_name} gets an email with your request.",

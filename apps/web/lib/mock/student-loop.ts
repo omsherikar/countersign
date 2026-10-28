@@ -24,7 +24,9 @@ import { ApiError, type Query } from "@/lib/api";
 import { t } from "@/lib/copy";
 import { formatDate } from "@/lib/format";
 import { ACADEMIC_YEAR, IDS, INSTITUTIONS } from "@/lib/mock/fixtures";
-import { studentMe } from "@/lib/mock/roll";
+import { makeRow, sentenceDate } from "@/lib/mock/evidence";
+import { recordFor } from "@/lib/mock/records";
+import { entryById, studentMe, versionsOf } from "@/lib/mock/roll";
 import { readBrowserToken, userFromToken } from "@/lib/mock/session";
 import type {
   AccessLogRow,
@@ -38,8 +40,8 @@ import type {
   CredentialClaim,
   CredentialStatus,
   DataRequestCreate,
+  CertificatePrint,
   DataRequestRow,
-  DegreePrint,
   DisclosableField,
   DisclosedField,
   GraduateRow,
@@ -113,7 +115,7 @@ interface StoredPresentation {
 }
 
 interface StoredGraduate {
-  row: Omit<GraduateRow, "degree">;
+  row: Omit<GraduateRow, "attestation">;
   universityId: string;
   credentialId: string | null;
 }
@@ -468,6 +470,20 @@ function noticePublic(n: StoredNotice): NoticePublic {
     can_change_until: until && until > now() ? iso(until) : null,
     consent_text: NOTICE_TEXT(n.institution_name),
     notice_version: "v1",
+    ...noticeViewer(n),
+  };
+}
+
+/** Who is looking at a notice (A4.13): only a signed-in student whose identity matches can answer. */
+function noticeViewer(n: StoredNotice): Pick<NoticePublic, "viewer" | "can_answer" | "sign_in_url" | "claim_url"> {
+  const user = userFromToken(readBrowserToken());
+  const student = user?.role === "STUDENT" ? user : null;
+  const match = !student ? null : n.ravi ? "MATCH" : n.id_kind === "PROVISIONAL" ? "CLAIM_NEEDED" : "SOMEONE_ELSE";
+  return {
+    viewer: { signed_in: Boolean(student), name: student?.name ?? null, match },
+    can_answer: match === "MATCH",
+    sign_in_url: `/api/auth/digilocker/start?next=${encodeURIComponent(`/student/notices/${n.token}`)}`,
+    claim_url: match === "CLAIM_NEEDED" ? `/student/claim?next=${encodeURIComponent(`/student/notices/${n.token}`)}` : null,
   };
 }
 
@@ -594,16 +610,49 @@ function studentNotices(): StudentNotice[] {
     .sort((a, b) => (b.sent_at ?? "").localeCompare(a.sent_at ?? ""));
 }
 
-/** GET /students/me with the Week 3 lists filled and the Student check following Ravi's reply. */
+/** Ravi's rows with the Student row following his answer here, after DigiLocker sign-in. */
+function raviRows() {
+  const entry = entryById(RAVI_ENROLMENT)!;
+  const reply = raviReply();
+  if (!reply) return { entry, rows: entry.checks };
+  const answered = load().notices.filter((n) => n.ravi && n.response === reply).sort((a, b) => (a.responded_at ?? "").localeCompare(b.responded_at ?? ""))[0];
+  const at = answered?.responded_at ?? iso(now());
+  const yes = reply === "YES";
+  const student = makeRow(
+    "STUDENT",
+    {
+      state: yes ? "CONFIRMED" : "CONTRADICTED",
+      basis: yes ? "CONFIRMED" : "DENIED",
+      finding: yes ? "\"I joined\"" : "\"I never joined\"",
+      source: "STUDENT_NOTICE",
+      source_line: `Student sign-in via DigiLocker · ${sentenceDate(at)}`,
+      summary: `The student signed in with DigiLocker on ${sentenceDate(at)} and said they ${yes ? "joined" : "never joined"}.`,
+      supplied_by: "Student via DigiLocker sign-in",
+      observed_at: at,
+      independent: true,
+      detail: { notice_state: yes ? "CONFIRMED" : "DENIED", responded_at: at },
+    },
+    at,
+  );
+  return { entry, rows: entry.checks.map((c) => (c.type === "STUDENT" ? student : c)) };
+}
+
+/** GET /students/me with the Week 3 lists filled and the record following Ravi's answer. */
 function studentMeLive(): StudentMe {
   const me = studentMe();
   const reply = raviReply();
+  const { entry, rows } = raviRows();
+  const record = recordFor(entry, rows);
   const enrolments = me.enrolments.map((e) => {
-    if (e.id !== RAVI_ENROLMENT || !reply) return e;
-    const checks = e.countersign.checks.map((c) => (c.type === "STUDENT" ? { ...c, status: reply === "YES" ? ("CONFIRMED" as const) : ("CONTRADICTED" as const) } : c));
-    const applicable = checks.filter((c) => c.status !== "NOT_APPLICABLE" && c.status !== "NOT_YET_DUE").length;
-    const passes = checks.filter((c) => c.status === "CONFIRMED").length;
-    return { ...e, countersign: { score: { passes, applicable }, checks } };
+    if (e.id !== RAVI_ENROLMENT) return e;
+    return {
+      ...e,
+      record_status: record.record_status,
+      status_reason: record.status_reason,
+      next_step: record.next_step,
+      checks: rows.map((r) => ({ type: r.type, state: r.state, finding: r.finding, independent: r.independent, resolved: r.resolved !== null })),
+      response: reply,
+    };
   });
   const credentials = load()
     .credentials.filter((c) => c.student === "ravi")
@@ -864,7 +913,7 @@ function graduateScope(user: User): StoredGraduate[] {
 
 function graduateRow(g: StoredGraduate): GraduateRow {
   const c = g.credentialId ? load().credentials.find((x) => x.id === g.credentialId) : undefined;
-  return { ...g.row, degree: c ? { credential_id: c.id, short_id: c.short_id, status: credentialStatus(c), issued_at: c.issued_at } : null };
+  return { ...g.row, attestation: c ? { credential_id: c.id, short_id: c.short_id, status: credentialStatus(c), issued_at: c.issued_at } : null };
 }
 
 function degreeJws(g: StoredGraduate, c: StoredCredential): string {
@@ -885,7 +934,7 @@ function degreeJws(g: StoredGraduate, c: StoredCredential): string {
   return `${header}.${payload}.mock${crockford(40).toLowerCase()}`;
 }
 
-function degreePrint(g: StoredGraduate): DegreePrint {
+function degreePrint(g: StoredGraduate): CertificatePrint {
   const r = g.row;
   const c = g.credentialId ? load().credentials.find((x) => x.id === g.credentialId) : undefined;
   const jws = c ? degreeJws(g, c) : null;
@@ -900,7 +949,7 @@ function degreePrint(g: StoredGraduate): DegreePrint {
     university: { code: "MSTU", name: "Maharashtra State Technical University" },
     academic_year: r.academic_year,
     year_of_award: r.year_of_award,
-    degree:
+    attestation:
       c && jws
         ? {
             credential_id: c.id,
@@ -1114,8 +1163,20 @@ function exportData(): MyDataExport {
       status_date: "2026-10-28",
       admission_date: "2026-08-02",
       seat_code: "CSE-R-001",
-      checks: e.countersign.checks.map((c) => ({ type: c.type, status: c.status, summary: "", checked_at: null })),
+      record_status: e.record_status,
+      status_reason: e.status_reason,
+      checks: raviRows().rows.map((c) => ({
+        type: c.type,
+        state: c.state,
+        finding: c.finding,
+        source_line: c.source_line,
+        summary: c.summary,
+        supplied_by: c.supplied_by,
+        observed_at: c.observed_at,
+        checked_at: c.checked_at,
+      })),
       flags: [],
+      history: versionsOf(entryById(e.id)!).map(({ actor: _actor, ...v }) => (void _actor, v)),
     })),
     notices: state.notices
       .filter((n) => n.ravi)
@@ -1156,7 +1217,7 @@ function exportData(): MyDataExport {
 
 /* ---- A small PDF for the insert ------------------------------------------ */
 
-function insertPdf(print: DegreePrint): Blob {
+function insertPdf(print: CertificatePrint): Blob {
   const id = print.student.id_kind === "APAAR" ? `APAAR ${print.student.id_masked}` : `Provisional id ${print.student.id_masked}`;
   const lines: [number, number, number, string][] = [
     [18, 72, 760, print.university.name],
@@ -1166,7 +1227,7 @@ function insertPdf(print: DegreePrint): Blob {
     [11, 72, 664, `Institution     ${print.institution.name}`],
     [11, 72, 646, `Year of award   ${print.year_of_award}`],
     [11, 72, 628, id],
-    [11, 72, 590, `Proof id ${print.degree?.short_id ?? ""}`],
+    [11, 72, 590, `Attestation ID ${print.attestation?.short_id ?? ""}`],
     [11, 72, 572, `Scan to verify at ${origin().replace(/^https?:\/\//, "")}/verify`],
     [9, 72, 80, "Sample degree insert generated from synthetic demo data. Not a degree certificate."],
   ];
@@ -1280,8 +1341,9 @@ export async function studentLoopRequest(method: string, pathname: string, query
             (g.row.student.provisional_id ?? "").toLowerCase().includes(q),
         );
       }
-      if (query?.degree === "issued") rows = rows.filter((g) => g.credentialId);
-      if (query?.degree === "not_issued") rows = rows.filter((g) => !g.credentialId);
+      const issued = query?.attestation ?? query?.degree;
+      if (issued === "issued") rows = rows.filter((g) => g.credentialId);
+      if (issued === "not_issued") rows = rows.filter((g) => !g.credentialId);
       return paginate(rows.map(graduateRow), query);
     }
     if (parts[1] === "degrees" && parts[2]) {
@@ -1315,9 +1377,9 @@ export async function studentLoopDownload(path: string): Promise<{ blob: Blob; f
     const g = graduateScope(currentUser()).find((x) => x.row.enrolment_id === m[1]);
     if (!g) throw new ApiError(404, "NOT_FOUND", "Enrolment not found.");
     const print = degreePrint(g);
-    if (!print.degree) throw new ApiError(409, "CREDENTIAL_NOT_ELIGIBLE", "Issue the degree proof first.", { reason: "NOT_ISSUED" });
-    if (print.degree.status === "REVOKED") throw new ApiError(409, "CREDENTIAL_REVOKED", "This proof is already revoked.", { revoked_at: print.degree.revoked_at });
-    return { blob: insertPdf(print), filename: `degree-insert-${print.degree.short_id}.pdf` };
+    if (!print.attestation) throw new ApiError(409, "CREDENTIAL_NOT_ELIGIBLE", "Issue the completion attestation first.", { reason: "NOT_ISSUED" });
+    if (print.attestation.status === "REVOKED") throw new ApiError(409, "CREDENTIAL_REVOKED", "This attestation is already revoked.", { revoked_at: print.attestation.revoked_at });
+    return { blob: insertPdf(print), filename: `certificate-block-${print.attestation.short_id}.pdf` };
   }
   return null;
 }

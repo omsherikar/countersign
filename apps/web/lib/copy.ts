@@ -4,10 +4,12 @@
  * edit the deck first, then regenerate. The block after the deck ids holds
  * web-only strings the deck does not list yet; they are reported to UX.
  * Placeholders are {snake_case}; fill them with t(id, vars).
- * Strings for the student and verifier pages and for case work live in
- * copy-student.ts and copy-cases.ts and are merged in here.
+ * Strings for the student and verifier pages, for case work and for the
+ * record pages live in copy-student.ts, copy-cases.ts and copy-records.ts
+ * and are merged in here.
  */
 import { casesCopy } from "@/lib/copy-cases";
+import { recordsCopy } from "@/lib/copy-records";
 import { studentCopy } from "@/lib/copy-student";
 
 export const copy = {
@@ -719,7 +721,7 @@ export const copy = {
   "recheck.still_pending": "{check}: still pending",
   "recheck.none": "Nothing to recheck. No check other than the student's reply is pending.",
   "recheck.flags_raised": "{n} new flags raised.",
-  "recheck.institution_result": "{rechecked} pending checks asked again in {seconds} s: {now_pass} now countersigned, {now_fail} not countersigned, {now_na} n/a, {still_pending} still pending.",
+  "recheck.institution_result": "{rechecked} rows asked again in {seconds} s: {now_confirmed} confirmed, {now_contradicted} contradicted, {now_other} not yet due or not applicable, {still_waiting} still waiting.",
   "flags.heading_college": "Flags against your college",
   "flags.see_all": "See all flags",
   "flags.filter.status": "Status",
@@ -827,6 +829,7 @@ export const copy = {
   "app.admin.chaos_reset_done": "Chaos reset. Every source answers normally.",
   ...studentCopy,
   ...casesCopy,
+  ...recordsCopy,
 } as const;
 
 export type CopyId = keyof typeof copy;

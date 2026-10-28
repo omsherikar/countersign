@@ -192,7 +192,7 @@ function ProofCard({ card, now }: { card: CredentialCard; now: number }) {
 
 /** No proof yet for an active enrolment: one line by the Student check, never naming a flag or a failed check. */
 function NotIssued({ e }: { e: StudentEnrolment }) {
-  const student = e.countersign.checks.find((c) => c.type === "STUDENT")?.status ?? "PENDING";
+  const student = e.checks.find((c) => c.type === "STUDENT")?.state ?? "PENDING";
   const line =
     student === "CONFIRMED"
       ? t("wallet.not_issued.checks")

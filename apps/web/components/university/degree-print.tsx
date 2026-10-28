@@ -7,7 +7,7 @@ import { ApiError } from "@/lib/api";
 import { t } from "@/lib/copy";
 import { formatDate } from "@/lib/format";
 import { useDegreePrint } from "@/lib/queries-student";
-import type { DegreePrint, GraduateRow } from "@/lib/types";
+import type { CertificatePrint, GraduateRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Crumbs } from "@/components/common/page-header";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
@@ -36,8 +36,8 @@ const PRINT_CSS = `
   .degree-insert img { width: 35mm !important; height: 35mm !important; }
 }`;
 
-function Insert({ print }: { print: DegreePrint }) {
-  const degree = print.degree!;
+function Insert({ print }: { print: CertificatePrint }) {
+  const degree = print.attestation!;
   const apaar = print.student.id_kind === "APAAR";
   const rows: [string, React.ReactNode][] = [
     [t("degree.print.name"), print.student.name],
@@ -92,7 +92,7 @@ function InsertSkeleton() {
 }
 
 /** The issue dialog reads a graduates row; the print data carries the same facts. */
-function asGraduate(print: DegreePrint): GraduateRow {
+function asGraduate(print: CertificatePrint): GraduateRow {
   return {
     enrolment_id: print.enrolment_id,
     student: {
@@ -105,7 +105,7 @@ function asGraduate(print: DegreePrint): GraduateRow {
     programme: { id: "", code: print.programme.code, name: print.programme.name, level: "UG" },
     academic_year: print.academic_year,
     year_of_award: print.year_of_award,
-    degree: null,
+    attestation: null,
   };
 }
 
@@ -123,9 +123,9 @@ export function DegreePrintPage({ enrolmentId }: { enrolmentId: string }) {
     if (name) document.title = `${t("degree.print_title", { student_name: name })} | ${t("brand.name")}`;
   }, [name]);
 
-  const revoked = data?.degree?.status === "REVOKED";
+  const revoked = data?.attestation?.status === "REVOKED";
   const credentialError = print.error instanceof ApiError && print.error.code.startsWith("CREDENTIAL_");
-  const ready = data?.degree && data.degree.status === "ACTIVE";
+  const ready = data?.attestation && data.attestation.status === "ACTIVE";
   const back = (
     <Link href="/university/degrees" className="inline-flex min-h-11 items-center gap-1.5">
       <ArrowLeft className="size-4" aria-hidden="true" />
@@ -183,7 +183,7 @@ export function DegreePrintPage({ enrolmentId }: { enrolmentId: string }) {
           <p>{t("err.CREDENTIAL_REVOKED")}</p>
         </div>
       )}
-      {data && !data.degree && (
+      {data && !data.attestation && (
         <div className="max-w-[68ch] border-l-2 border-rule-margin bg-paper-raised px-4 py-4">
           <p className="font-medium">{t("degree.issue_heading", { student_name: data.student.name })}</p>
           <p className="mt-1 text-ink-muted">{t("degree.issue_body", { programme_name: data.programme.name, year_of_award: data.year_of_award })}</p>

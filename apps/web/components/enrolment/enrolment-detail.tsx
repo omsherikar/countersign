@@ -11,18 +11,18 @@ import { FlagStatusBadge } from "@/components/brand/FlagStatusBadge";
 import { MaskedApaar } from "@/components/brand/MaskedApaar";
 import { SeverityBadge } from "@/components/brand/SeverityBadge";
 import { ApiError } from "@/lib/api";
-import { awaitsSource, ordered, statusWord } from "@/lib/checks";
+import { awaitsSource, ordered, stateWithFinding, stateWord, statusWord } from "@/lib/checks";
 import { t, tk } from "@/lib/copy";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { useEnrolment, useRecheckEnrolment } from "@/lib/queries";
-import type { Check, EnrolmentDetail as Detail, EnrolmentRecheck, FlagType } from "@/lib/types";
+import type { EnrolmentDetail as Detail, EnrolmentRecheck, EvidenceRow, FlagType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBlock, SlowHint, errorMessage } from "@/components/common/query-state";
 import { Crumbs, SectionHeader, type Crumb } from "@/components/common/page-header";
 import { ReadLoggedNote } from "@/components/common/ledger-bits";
-import { CountersignStrip } from "@/components/countersign/countersign-strip";
+import { RecordStatusBadge } from "@/components/records/record-status-badge";
 import { useMe } from "@/components/providers/root-provider";
 import { NoticeBlock } from "@/components/enrolment/notice-block";
 import { ProofsBlock } from "@/components/enrolment/proofs-block";
@@ -74,12 +74,13 @@ function Recheck({ id, show }: { id: string; show: boolean }) {
     ? result.rechecked === 0
       ? [t("recheck.none")]
       : result.results.map((r) =>
-          awaitsSource({ status: r.after })
-            ? t("recheck.still_pending", { check: tk(`check.${r.type}`) })
-            : t("recheck.result_line", { check: tk(`check.${r.type}`), before_word: tk(`check.status.${r.before}`), after_word: tk(`check.status.${r.after}`) }),
+          r.before === r.after
+            ? t("recheck.no_change", { check: tk(`check.${r.type}`), state_word: stateWord(r.after) })
+            : t("recheck.result_line", { check: tk(`check.${r.type}`), before_word: stateWord(r.before), after_word: stateWord(r.after) }),
         )
     : [];
   if (result && result.flags_raised > 0) lines.push(t("recheck.flags_raised", { n: result.flags_raised }));
+  if (result?.record_status) lines.push(t("recheck.status_line", { status_word: statusWord(result.record_status) }));
   return (
     <div className="flex flex-col items-start gap-2">
       {(show || result) && (
@@ -133,7 +134,7 @@ function CheckedAt({ value }: { value: string }) {
  * the table fits its column on desktop and the detail sentence is never cut.
  * On phones it scrolls inside its own box.
  */
-function ChecksTable({ checks }: { checks: Check[] }) {
+function ChecksTable({ checks }: { checks: EvidenceRow[] }) {
   if (checks.length === 0) return <EmptyState title={t("empty.checks")} />;
   return (
     <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
@@ -153,9 +154,9 @@ function ChecksTable({ checks }: { checks: Check[] }) {
             <tr key={c.type}>
               <td className="font-medium">{tk(`check.${c.type}`)}</td>
               <td>
-                <CheckBadge status={c.status} word={statusWord(c)} />
+                <CheckBadge status={c.state} word={stateWithFinding(c)} />
               </td>
-              <td className="wrap leading-snug text-ink-muted">{tk(`source.${c.source}`)}</td>
+              <td className="wrap leading-snug text-ink-muted">{c.source_line}</td>
               <td className="wrap py-1.5 text-xs leading-snug text-ink-muted">{c.checked_at ? <CheckedAt value={c.checked_at} /> : t("check.never")}</td>
               <td className="wrap !h-auto min-w-[12rem] py-2 leading-snug [overflow-wrap:anywhere]">
                 {c.detail.summary}
@@ -232,8 +233,8 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
               </p>
             </div>
             <div className="flex flex-col gap-3 border-l-2 border-rule-margin pl-4">
-              <span className="text-xs font-medium text-ink-muted">{t("enrolment.score_label")}</span>
-              <CountersignStrip countersign={d.countersign} checks={d.checks} size="lg" />
+              <RecordStatusBadge status={d.record_status} size="lg" priority />
+              {d.next_step && <p className="max-w-xs text-sm text-ink-muted">{t("record.footer_next", { next_step: d.next_step })}</p>}
               {canRecheck && <Recheck id={d.id} show={pendingOther} />}
             </div>
           </header>

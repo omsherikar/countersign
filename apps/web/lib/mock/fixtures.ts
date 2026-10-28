@@ -216,18 +216,48 @@ interface ProgrammeSpec {
   discipline?: Discipline;
   mode?: ProgrammeMode;
   shift?: "FIRST" | "SECOND";
+  /** Earlier approval versions for 2026-27, oldest first; the current one is `intake` (D41). */
+  earlier?: { approved_intake: number; effective_from: string; source: string }[];
 }
 
+/** One version of a programme's 2026-27 approval (API_CONTRACT A4.17). */
+export interface MockApprovalVersion {
+  version: number;
+  approved_intake: number;
+  effective_from: string;
+  source: string;
+  created_at: string;
+}
+
+/** Approval versions per programme id, newest first (GET /approvals/{id}/versions). */
+export const APPROVAL_VERSIONS = new Map<string, MockApprovalVersion[]>();
+const SEEDED_AT = "2026-10-27T09:00:00Z";
+
 function programme(institutionId: string, i: number, spec: ProgrammeSpec): ProgrammeDetail {
+  const id = `${institutionId.slice(0, 8)}-${String(i + 1).padStart(4, "0")}-4444-8555-666677778888`;
+  const earlier = spec.earlier ?? [];
+  const current = earlier.length
+    ? { approved_intake: spec.intake, effective_from: "2026-05-20", source: "AICTE EoA 2026-27, revised" }
+    : { approved_intake: spec.intake, effective_from: "2026-03-15", source: "AICTE EoA 2026-27" };
+  const versions = [...earlier, current].map((v, n) => ({ version: n + 1, ...v, created_at: SEEDED_AT })).reverse();
+  APPROVAL_VERSIONS.set(id, versions);
   return {
-    id: `${institutionId.slice(0, 8)}-${String(i + 1).padStart(4, "0")}-4444-8555-666677778888`,
+    id,
     code: spec.code,
     name: spec.name,
     level: spec.level ?? "UG",
     discipline: spec.discipline ?? "ENGINEERING",
     shift: spec.shift ?? "FIRST",
     mode: spec.mode ?? "PHYSICAL",
-    approval: { academic_year: ACADEMIC_YEAR, approved_intake: spec.intake, cutoff_date: "2026-09-15" },
+    approval: {
+      id: `a${id.slice(1, 8)}-${String(i + 1).padStart(4, "0")}-4aaa-8bbb-cccc0000dddd`,
+      academic_year: ACADEMIC_YEAR,
+      approved_intake: spec.intake,
+      cutoff_date: "2026-09-15",
+      version: versions[0].version,
+      effective_from: versions[0].effective_from,
+      source: versions[0].source,
+    },
     enrolments: spec.firstYear,
     seated: 0,
     unseated: 0,
@@ -269,7 +299,7 @@ export const SEEDS: InstitutionSeed[] = [
     established_year: 2004,
     // CSE first: the upload file lists it first, so Ravi Kumar Sharma is row 2 and R. K. Sharma row 133.
     programmes: [
-      BTECH("CSE", "Computer Science and Engineering", 120, 132),
+      { ...BTECH("CSE", "Computer Science and Engineering", 120, 132), earlier: [{ approved_intake: 90, effective_from: "2026-03-15", source: "AICTE EoA 2026-27" }] },
       BTECH("CIVIL", "Civil Engineering", 60, 38),
       BTECH("ECE", "Electronics and Communication Engineering", 120, 108),
       BTECH("EEE", "Electrical and Electronics Engineering", 60, 51),
@@ -291,7 +321,7 @@ export const SEEDS: InstitutionSeed[] = [
       BTECH("CSE", "Computer Science and Engineering", 180, 171),
       BTECH("ECE", "Electronics and Communication Engineering", 120, 97),
       BTECH("MECH", "Mechanical Engineering", 60, 41),
-      BTECH("AIDS", "Artificial Intelligence and Data Science", 60, 60, "SECOND"),
+      { ...BTECH("AIDS", "Artificial Intelligence and Data Science", 60, 60, "SECOND"), earlier: [{ approved_intake: 30, effective_from: "2026-03-15", source: "AICTE EoA 2026-27" }] },
     ],
   },
   {
@@ -305,7 +335,7 @@ export const SEEDS: InstitutionSeed[] = [
     address_city: "Vijayawada",
     established_year: 2001,
     programmes: [
-      BTECH("CSE", "Computer Science and Engineering", 180, 176),
+      { ...BTECH("CSE", "Computer Science and Engineering", 180, 176), earlier: [{ approved_intake: 150, effective_from: "2026-03-15", source: "AICTE EoA 2026-27" }] },
       BTECH("ECE", "Electronics and Communication Engineering", 120, 112),
       BTECH("EEE", "Electrical and Electronics Engineering", 60, 49),
       BTECH("MECH", "Mechanical Engineering", 120, 97),
@@ -457,12 +487,16 @@ export const INSTITUTIONS: InstitutionRow[] = SEEDS.map((s) => {
     admitted: progs.reduce((a, p) => a + p.enrolments, 0),
     enrolments: progs.reduce((a, p) => a + onRollOf(p), 0),
     flags_open: 0,
-    integrity_index: null,
+    records: { AWAITING_EVIDENCE: 0, COUNTERSIGNED: 0, UNDER_REVIEW: 0, DISPUTED: 0 },
+    countersigned_pct: null,
+    completeness_pct: null,
+    missing_from_upload: 0,
+    deadline_state: "ON_TIME",
   };
 });
 
-/** Detail without the ledger, flags or last upload; the handler completes it. */
-export function institutionBase(id: string): Omit<InstitutionDetail, "programmes"> | null {
+/** Detail without the ledger, flags, record counts, completeness or last upload; the handler completes it. */
+export function institutionBase(id: string): Omit<InstitutionDetail, "programmes" | "completeness"> | null {
   const seed = seedOf(id);
   const row = INSTITUTIONS.find((r) => r.id === id);
   if (!seed || !row) return null;
@@ -482,9 +516,12 @@ export function institutionBase(id: string): Omit<InstitutionDetail, "programmes
     enrolments: row.enrolments,
     address_city: seed.address_city,
     established_year: seed.established_year,
-    integrity_index: null,
-    integrity_components: null,
     flags_open: 0,
+    records: row.records,
+    countersigned_pct: null,
+    completeness_pct: null,
+    missing_from_upload: 0,
+    deadline_state: row.deadline_state,
     last_upload: null,
   };
 }
@@ -492,7 +529,7 @@ export function institutionBase(id: string): Omit<InstitutionDetail, "programmes
 export const SEAT_LETTER: Record<SeatType, string> = { REGULAR: "R", NRI: "N", TFW: "T", LATERAL: "L", INTERNATIONAL: "I" };
 
 export function adapterPing(chaos: ChaosState): AdapterPing {
-  const base = { apaar: 12, counselling: 9, abc: 14, digilocker: 8, sii: 11 };
+  const base = { apaar: 12, counselling: 9, admission_authority: 16, abc: 14, digilocker: 8, sii: 11 };
   const sources = Object.fromEntries(
     (Object.keys(base) as (keyof typeof base)[]).map((k) => {
       const c = chaos[k];
@@ -511,5 +548,5 @@ export const HEALTH: Health = { status: "ok", db: "ok", redis: "ok", version: "0
 
 export function zeroChaos(): ChaosState {
   const zero = { latency_ms: 0, fail_rate: 0, down: false };
-  return { apaar: { ...zero }, counselling: { ...zero }, abc: { ...zero }, digilocker: { ...zero }, sii: { ...zero } };
+  return { apaar: { ...zero }, counselling: { ...zero }, admission_authority: { ...zero }, abc: { ...zero }, digilocker: { ...zero }, sii: { ...zero } };
 }
