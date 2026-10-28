@@ -34,9 +34,9 @@ summary.json             manifest plus columns, notes and timings
 ```
 
 The file contract for everything above `graduates.jsonl` is docs/API_CONTRACT.md section E
-and Addendum 2 (A2.24). The files and fields described below are new since then. Every step
-added after the Week 3 generation draws from a random stream of its own, so the rows it does
-not touch keep every value; small mode still runs in under 10 seconds.
+and Addendum 2 (A2.24). The files and fields described below are new since then. The steps that
+build them draw from random streams of their own, so the rows a step does not touch keep
+every value; small mode still runs in under 10 seconds.
 
 ## notice_replies.jsonl
 
