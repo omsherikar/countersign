@@ -130,7 +130,7 @@ function ResolveSheet({ row, onClose, returnFocus }: { row: DataRequestAdminRow 
                       date: formatDate(row.created_at),
                     })}
                   </p>
-                  {row.details && <p className="max-w-[68ch] text-base [overflow-wrap:anywhere] md:text-md">&ldquo;{row.details}&rdquo;</p>}
+                  {row.details && <p className="max-w-[68ch] text-md [overflow-wrap:anywhere]">&ldquo;{row.details}&rdquo;</p>}
                   {row.enrolment && (
                     <p className="text-xs text-ink-muted">
                       {row.enrolment.institution_name}, {row.enrolment.programme_name}, {row.enrolment.academic_year}
@@ -187,7 +187,7 @@ function ResolveSheet({ row, onClose, returnFocus }: { row: DataRequestAdminRow 
                 aria-invalid={error ? true : undefined}
                 aria-describedby={[hintId, error ? errId : null].filter(Boolean).join(" ")}
                 disabled={resolve.isPending}
-                className="min-h-28 w-full rounded-md border border-line bg-paper px-2.5 py-2 text-base leading-snug aria-invalid:border-check-fail md:text-sm"
+                className="min-h-28 w-full rounded-md border border-line bg-paper px-2.5 py-2 text-md leading-snug aria-invalid:border-check-fail md:text-sm"
               />
               {error && (
                 <p id={errId} className="text-sm text-check-fail-ink">

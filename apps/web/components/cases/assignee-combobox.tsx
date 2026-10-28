@@ -109,7 +109,7 @@ export const AssigneeCombobox = React.forwardRef<
           setActive(0);
         }}
         onKeyDown={onKeyDown}
-        className="h-10 w-full rounded-md border border-line bg-paper-raised px-2.5 text-sm placeholder:text-ink-faint"
+        className="h-10 w-full rounded-md border border-line bg-paper-raised px-2.5 text-md placeholder:text-ink-faint md:text-sm"
       />
       {officers.isLoading ? (
         <div className="flex flex-col gap-2 py-2" aria-hidden="true">

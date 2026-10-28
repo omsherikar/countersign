@@ -139,7 +139,7 @@ export function CollegeRespond({ flag }: { flag: FlagDetail }) {
               requested_date: formatDate(request.at),
             })}
           </p>
-          {request.note && <p className="mt-1 max-w-[68ch] text-base [overflow-wrap:anywhere] md:text-md">&ldquo;{request.note}&rdquo;</p>}
+          {request.note && <p className="mt-1 max-w-[68ch] text-md [overflow-wrap:anywhere]">&ldquo;{request.note}&rdquo;</p>}
         </div>
       )}
 
@@ -178,7 +178,7 @@ export function CollegeRespond({ flag }: { flag: FlagDetail }) {
               aria-invalid={noteError ? true : undefined}
               aria-describedby={[noteHint, noteError ? noteErr : null].filter(Boolean).join(" ")}
               disabled={busy}
-              className="min-h-28 w-full rounded-md border border-line bg-paper px-2.5 py-2 text-base leading-snug aria-invalid:border-check-fail md:text-sm"
+              className="min-h-28 w-full rounded-md border border-line bg-paper px-2.5 py-2 text-md leading-snug aria-invalid:border-check-fail md:text-sm"
             />
             <p id={noteHint} className="text-sm text-ink-muted">
               {t("college.respond_note_hint")}

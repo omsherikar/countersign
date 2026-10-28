@@ -220,7 +220,7 @@ export function CaseSheet({
                   aria-invalid={errors.note ? true : undefined}
                   aria-describedby={[prompt ? noteHint : null, errors.note ? noteError : null].filter(Boolean).join(" ") || undefined}
                   disabled={mutation.isPending}
-                  className="min-h-24 w-full rounded-md border border-line bg-paper px-2.5 py-2 text-base leading-snug aria-invalid:border-check-fail md:text-sm"
+                  className="min-h-24 w-full rounded-md border border-line bg-paper px-2.5 py-2 text-md leading-snug aria-invalid:border-check-fail md:text-sm"
                 />
                 {errors.note && (
                   <p id={noteError} className="text-sm text-check-fail-ink">
@@ -249,7 +249,7 @@ export function CaseSheet({
                   aria-invalid={errors.due_date ? true : undefined}
                   aria-describedby={[dueHint, errors.due_date ? dueError : null].filter(Boolean).join(" ")}
                   disabled={mutation.isPending}
-                  className="h-10 w-full max-w-56 rounded-md border border-line bg-paper px-2.5 text-sm aria-invalid:border-check-fail"
+                  className="h-10 w-full max-w-56 rounded-md border border-line bg-paper px-2.5 text-md aria-invalid:border-check-fail md:text-sm"
                 />
                 {errors.due_date && (
                   <p id={dueError} className="text-sm text-check-fail-ink">
