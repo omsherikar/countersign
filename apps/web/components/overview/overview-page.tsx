@@ -10,8 +10,9 @@ import { useMe } from "@/components/providers/root-provider";
 import { ErrorBlock } from "@/components/common/query-state";
 import { FilterSelect } from "@/components/common/filter-select";
 import { PageHeader, SectionHeader } from "@/components/common/page-header";
+import { FlagsByType } from "@/components/overview/flags-by-type";
 import { InstitutionsTable } from "@/components/overview/institutions-table";
-import { KpiStrip } from "@/components/overview/kpi-strip";
+import { KpiStrip, formatPct } from "@/components/overview/kpi-strip";
 import { SourcesPanel } from "@/components/overview/sources-panel";
 import { RegionTable, StateGrid } from "@/components/overview/state-grid";
 
@@ -63,12 +64,26 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
             { label: "kpi.approved_seats", value: data?.kpis.approved_seats, hint: intake },
             ...(data && admitted === null ? [] : [{ label: "kpi.admitted" as const, value: admitted ?? undefined, hint: intake }]),
             { label: "kpi.enrolments", value: data?.kpis.enrolments, hint: t("app.hint.all_years") },
-            { label: "kpi.flags_open", value: data?.kpis.flags_open, tone: data && data.kpis.flags_open > 0 ? "default" : "muted" },
+            {
+              label: "kpi.flags_open",
+              value: data?.kpis.flags_open,
+              tone: data && data.kpis.flags_open > 0 ? "default" : "muted",
+              tip: data ? t("kpi.flags_open_tip", { academic_year: data.academic_year }) : undefined,
+              href: `${basePath}/cases`,
+            },
             {
               label: "kpi.countersigned",
               value: data ? data.kpis.countersigned_pct : undefined,
-              format: (n) => `${n}%`,
-              hint: data?.kpis.countersigned_pct !== null && data ? t("kpi.countersigned_value", { pct: data.kpis.countersigned_pct ?? 0 }) : undefined,
+              format: formatPct,
+              hint: data && data.kpis.countersigned_pct !== null ? t("kpi.countersigned_value", { pct: formatPct(data.kpis.countersigned_pct).replace("%", "") }) : undefined,
+              tip: t("kpi.countersigned_tip"),
+            },
+            {
+              label: "kpi.clear",
+              value: data ? (data.kpis.clear_pct ?? null) : undefined,
+              format: formatPct,
+              hint: data && typeof data.kpis.clear_pct === "number" ? t("kpi.clear_value", { pct: formatPct(data.kpis.clear_pct).replace("%", "") }) : undefined,
+              tip: t("kpi.clear_tip"),
             },
           ]}
         />
@@ -87,6 +102,15 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
           </div>
         )}
       </div>
+
+      <section aria-labelledby="flags-by-type-heading" className="mb-12">
+        <SectionHeader id="flags-by-type-heading" title={t("section.flags_by_type")} />
+        {summary.isError && !data ? (
+          <ErrorBlock error={summary.error} onRetry={() => summary.refetch()} />
+        ) : (
+          <FlagsByType summary={data} loading={summary.isLoading} casesHref={`${basePath}/cases`} />
+        )}
+      </section>
 
       <section aria-labelledby="ranked-heading" className="mb-12">
         <SectionHeader id="ranked-heading" title={t("section.institutions_ranked")} />
