@@ -285,8 +285,10 @@ function enrolmentInScope(user: User, id: string, roles: Role[]): RollEntry {
   return entry;
 }
 
+/** Errata 5: every role except the two officer roles gets the wording that names no other institution. */
+const isOfficer = (user: User) => OFFICERS.includes(user.role);
 function redactedSummary(user: User, f: StoredFlag): string {
-  return user.role === "INSTITUTION" && f.summaryForInstitution ? f.summaryForInstitution : f.summary;
+  return !isOfficer(user) && f.summaryForInstitution ? f.summaryForInstitution : f.summary;
 }
 
 function getEnrolment(user: User, id: string): EnrolmentDetail {
@@ -374,7 +376,11 @@ function listFlags(user: User, q?: Query): FlagPage {
   let flags = flagScope(user);
   if (q?.type) flags = flags.filter((f) => f.type === q.type);
   if (q?.severity) flags = flags.filter((f) => f.severity === q.severity);
-  if (q?.status) flags = flags.filter((f) => f.status === q.status);
+  if (q?.status) {
+    // Errata 2: one status, a comma-separated list, or UNRESOLVED (OPEN, DOCS_REQUESTED, ESCALATED).
+    const wanted = String(q.status) === "UNRESOLVED" ? UNRESOLVED : String(q.status).split(",");
+    flags = flags.filter((f) => wanted.includes(f.status));
+  }
   if (q?.institution_id) flags = flags.filter((f) => f.institutionId === q.institution_id);
   if (q?.programme_id) flags = flags.filter((f) => f.programmeId === q.programme_id);
   if (q?.state) flags = flags.filter((f) => institutionRef(f.institutionId).state_code === q.state);
@@ -395,7 +401,7 @@ function getFlag(user: User, id: string): FlagDetail {
   const f = flagScope(user).find((x) => x.id === id) ?? null;
   if (!f) throw notFound("Flag");
   const related = visibleRelated(user, f);
-  const audience = user.role === "INSTITUTION" ? "INSTITUTION" : "OFFICER";
+  const audience = isOfficer(user) ? "OFFICER" : "INSTITUTION";
   return {
     ...flagRow(user, f),
     evidence: {

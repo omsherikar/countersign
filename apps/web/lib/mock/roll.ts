@@ -399,7 +399,7 @@ export function evaluate(e: RollEntry) {
   if (international) checks.push(check("IDENTITY", "NA", "APAAR", "International student; identity is checked through the passport, not APAAR."));
   else if (!linked) checks.push(check("IDENTITY", "NA", "APAAR", "APAAR not linked; admission is not blocked."));
   else if (sp.identity === "UNAVAILABLE")
-    checks.push(check("IDENTITY", "PENDING", "APAAR", "APAAR registry did not respond. This check will retry on its own.", { source_unavailable: true, source_error: "HTTP 503" }, sp.attempts ?? 1, "2026-10-28T09:12:44Z"));
+    checks.push(check("IDENTITY", "PENDING", "APAAR", "APAAR registry did not respond. This check stays pending until a recheck or the next upload.", { source_unavailable: true, source_error: "HTTP 503" }, sp.attempts ?? 1, "2026-10-28T09:12:44Z"));
   else if (sp.identity === "REVIEW")
     checks.push(
       check("IDENTITY", "PENDING", "APAAR", `Name on upload is close to the APAAR registry but not a clear match (similarity ${e.nameScore} of 100); an officer should review.`, {
