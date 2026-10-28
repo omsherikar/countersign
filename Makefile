@@ -19,13 +19,13 @@ logs: ## follow logs
 datagen: ## generate synthetic data (small by default; SIZE=full for 500 colleges)
 	$(COMPOSE) --profile tools run --rm datagen generate --size $${SIZE:-small} --seed $${SEED:-42} --out /data/generated
 
-seed: ## load generated data into api and mockgov
-	$(COMPOSE) run --rm api python -m app.seed.cli --from /data/generated
+seed: ## load generated data: mockgov registries first, then every upload through the api engine
 	$(COMPOSE) run --rm mockgov python -m app.seed --from /data/generated/mockgov
+	$(COMPOSE) run --rm api python -m app.seed.cli --from /data/generated
 
-demo-reset: ## wipe both databases and reseed
-	$(COMPOSE) run --rm api python -m app.seed.cli --reset --from /data/generated
+demo-reset: ## wipe both databases and reseed, mockgov first
 	$(COMPOSE) run --rm mockgov python -m app.seed --reset --from /data/generated/mockgov
+	$(COMPOSE) run --rm api python -m app.seed.cli --reset --from /data/generated
 
 test: ## run every test suite inside compose
 	$(COMPOSE) run --rm api pytest -q
