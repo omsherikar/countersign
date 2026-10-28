@@ -70,7 +70,8 @@ class Settings(BaseSettings):
         """RULES_PATH, falling back to the repo root copy for local runs."""
         candidates = [Path(self.rules_path), _HERE.parent.parent / "rules.yaml"]
         for candidate in candidates:
-            if candidate.is_file():
+            # skip empty placeholders left by the compose bind mount of rules.yaml
+            if candidate.is_file() and candidate.stat().st_size > 0:
                 return candidate
         raise FileNotFoundError(f"rules.yaml not found; tried {[str(c) for c in candidates]}")
 

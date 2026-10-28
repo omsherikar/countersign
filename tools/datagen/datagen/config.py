@@ -30,7 +30,8 @@ def rules_path() -> Path:
     if env:
         return Path(env)
     for candidate in RULES_CANDIDATES:
-        if candidate.is_file():
+        # skip empty placeholders left by the compose bind mount of rules.yaml
+        if candidate.is_file() and candidate.stat().st_size > 0:
             return candidate
     raise FileNotFoundError("rules.yaml not found; set RULES_PATH")
 
