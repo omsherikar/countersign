@@ -72,6 +72,7 @@ New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.cle
 | nav.privacy | Privacy |
 | nav.affiliated | Affiliated institutions |
 | nav.degree_print | Degree print |
+| nav.data_requests | Data requests |
 
 ## 2. Login
 
@@ -323,6 +324,18 @@ In `strip.score_pending`, `{pending}` counts pending checks other than Student; 
 | notice_delivery.QUEUED | Waiting to send |
 | notice_delivery.SENT | Sent |
 | notice_delivery.FAILED | Not delivered |
+| consent_purpose.APAAR_LINK | Using your APAAR to check your enrolment |
+| consent_purpose.NOTICE | Notices asking you to confirm an enrolment |
+| consent_purpose.CREDENTIAL_SHARE | Sharing your proofs with verifiers |
+| consent_state.GIVEN | Given |
+| consent_state.WITHDRAWN | Withdrawn |
+| consent_state.REFUSED | Refused |
+| data_request_kind.ACCESS | Copy of my data |
+| data_request_kind.CORRECTION | Correction |
+| data_request_kind.ERASURE | Erasure |
+| data_request_status.OPEN | Open |
+| data_request_status.DONE | Done |
+| data_request_status.REJECTED | Declined |
 | provisional.label | Provisional id |
 | gender.M | Male |
 | gender.F | Female |
@@ -965,11 +978,15 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 
 | id | purpose | text |
 |---|---|---|
-| consent.apaar_link | APAAR_LINK | I allow AICTE to use my APAAR id to check that my enrolment at {institution_name} is genuine. AICTE will look up my id with the APAAR registry, the counselling allotment list and the Academic Bank of Credits. Only the last four digits of my id are shown to officers. I can withdraw this consent from my Privacy page; checks already made stay on record. |
-| consent.notice | NOTICE | By replying, you let AICTE record your answer with today's date against this enrolment. Your answer is shown to AICTE officers and to {institution_name} as "Confirmed" or "Denied", with no other personal detail. |
+| consent.apaar_link | APAAR_LINK | I allow AICTE to use my APAAR id to check that my enrolment at {institution_name} is genuine. AICTE will look up my id with the APAAR registry, the counselling allotment list and the Academic Bank of Credits. Only the last four digits of my id are shown to officers. To unlink my APAAR later, I can ask from my Privacy page; my college then uploads my enrolment again without it. Checks already made stay on record, and my admission is not affected. |
+| consent.notice | NOTICE | By replying, you let AICTE record your answer with today's date against this enrolment. Your answer is shown to AICTE officers and to {institution_name} as "Confirmed" or "Denied", with no other personal detail. If you add a comment, only AICTE officers see it. |
 | consent.credential_share | CREDENTIAL_SHARE | I am creating a proof that shows only the fields I ticked. Whoever scans it sees those fields, who issued the proof and when, and nothing else. The proof works for 10 minutes. AICTE records when it is created and when it is checked, but not who checks it. |
-| consent.withdraw | any | Withdraw this consent? Checks already made stay on record. New checks will use your provisional id instead of your APAAR. |
+| consent.withdraw.NOTICE | NOTICE | Stop new notices? You will get no new notices about your enrolments. Notices already sent can still be answered, and replies you gave stay on record. |
+| consent.withdraw.CREDENTIAL_SHARE | CREDENTIAL_SHARE | Stop sharing? Every QR or link you created that still works stops working now. Your proofs stay in your wallet, and sharing again asks for your consent again. |
+| consent.unlink_apaar | APAAR_LINK | Unlinking your APAAR is a correction request, because your college must upload your enrolment again without it. Your admission is not affected, and checks already made stay on record. |
 | consent.upload_declaration | APAAR_LINK via college | (identical to upload.declaration) |
+
+`consent.withdraw.*` and `consent.unlink_apaar` are confirmations on the Privacy page, not stored texts. Only NOTICE and CREDENTIAL_SHARE can be withdrawn there (`POST /students/me/consents/{purpose}/withdraw`, D30). APAAR_LINK has no Withdraw button: `consent.unlink_apaar` explains why and offers [privacy.unlink_apaar], which opens a Correction request with [privacy.request.unlink_prefill]. Each stored text is kept with its `notice_version`; the Privacy page shows the exact text the student agreed to, not today's version.
 
 ## 10. Verifier
 
@@ -1157,6 +1174,42 @@ Print view text under the QR: `degree.print.proof_id` and `degree.scan_line`, wi
 | psi.compute | Compute overlap |
 | psi.result | Overlap: {n} records. Neither side learned the other's members. |
 | psi.explain | Both sides encrypt their lists, swap the encrypted versions and count the matches. The lists themselves never leave their owner. |
+
+Data requests queue (`/admin/data-requests`, `GET /data-requests` and `POST /data-requests/{id}/resolve {status, response}`, AICTE officer only, D30)
+
+| id | text |
+|---|---|
+| admin.requests.heading | Data requests |
+| admin.requests.lead | Students' requests to correct or erase their data. Each one gets a written reply the student reads on their Privacy page. |
+| admin.requests.count | {total} open requests |
+| admin.requests.filter.status | Status |
+| admin.requests.filter.kind | Request |
+| admin.requests.col.received | Received |
+| admin.requests.col.kind | Request |
+| admin.requests.col.student | Student |
+| admin.requests.col.details | Details |
+| admin.requests.col.status | Status |
+| admin.requests.col.resolved | Resolved |
+| admin.requests.resolve | Resolve |
+| admin.requests.resolve_heading | Resolve this request |
+| admin.requests.request_line | {student_name} asked for {kind_word} on {date}: |
+| admin.requests.outcome | Outcome |
+| admin.requests.outcome.DONE | Done |
+| admin.requests.outcome.REJECTED | Decline |
+| admin.requests.response_label | Reply to the student |
+| admin.requests.response_hint | The student reads this on their Privacy page. Say what was done, or why not. |
+| admin.requests.response_required | Write a reply before you resolve the request. |
+| admin.requests.correction_hint | A correction usually needs the college to upload the student's row again. Tell the student what will change and who does it. |
+| admin.requests.unlink_hint | To unlink an APAAR, the college uploads the row again with consent Refused. Admission is not affected. |
+| admin.requests.erasure_retention | Enrolment records, their checks, flags and the audit log are kept for the period the law requires, so they cannot be erased on request. Contact details and anything not needed for that record can be removed. |
+| admin.requests.erasure_reply | We cannot erase your enrolment record, its checks or its history, because AICTE must keep them for the period the law requires. Everything shown to officers stays masked, and you can see who views your record on your Privacy page. We have removed: |
+| admin.requests.submit | Send reply |
+| admin.requests.sending | Sending |
+| admin.requests.resolved_toast | Request resolved. The student can see your reply. |
+| admin.requests.empty | No open data requests. |
+| admin.requests.empty_filtered | No requests match these filters. |
+
+The queue lists Correction and Erasure requests (an Access request is fulfilled at once and never waits here), Open first, oldest first. The Student cell is the name with the masked APAAR or provisional id under it; Details prints the student's text verbatim, wrapped. `{kind_word}` is `data_request_kind.*` in lower case. The resolve sheet shows `admin.requests.correction_hint` for a correction (plus `admin.requests.unlink_hint` when the text asks to unlink an APAAR), and for an erasure shows `admin.requests.erasure_retention` and prefills the reply with `admin.requests.erasure_reply`, which the officer completes. Outcome words map to `status`: Done is `DONE`, Decline is `REJECTED`; the student then sees `data_request_status.*`.
 
 ## 13. Errors (by API error code)
 
@@ -1438,3 +1491,77 @@ Count line: with the status filter on Open use [table.count.flags]; with any oth
 | flags_by_type.total | {total} open flags |
 
 `flags_by_type` rows with `open: 0` are hidden; when every row is 0 the panel shows [empty.flags_by_type]. Each row names the type with `flag.<TYPE>.name` and links to the case queue filtered by that type with status Open. Counts are ink with weight; severity colour appears only on severity chips, never on a count.
+
+## 20. Student privacy page
+
+`/student/privacy`, from `GET /privacy/notice`, `GET /students/me/consents`, `POST /students/me/consents/{purpose}/withdraw`, `GET /students/me/access-log`, `POST /students/me/data-requests {kind, details}` and `GET /students/me/export.json` (D30).
+
+| id | text |
+|---|---|
+| privacy.heading | Privacy |
+| privacy.lead | What you agreed to, who has viewed your record, and requests about your data. |
+| privacy.notice_link | Read the privacy notice |
+| privacy.notice_heading | Privacy notice |
+| privacy.notice_version | Version {version}, {date} |
+| privacy.consents_heading | What you agreed to |
+| privacy.consent_status | {state_word} on {date} |
+| privacy.consent_last | Last given on {date} |
+| privacy.consent_via.APAAR_LINK | Recorded by your college when it uploaded your enrolment |
+| privacy.consent_via.NOTICE | Given when you replied Yes to a notice |
+| privacy.consent_via.CREDENTIAL_SHARE | Given each time you share a proof |
+| privacy.consent_text_show | Show the exact text |
+| privacy.consent_text_hide | Hide the text |
+| privacy.consent_version | Text version {version} |
+| privacy.withdraw | Withdraw |
+| privacy.withdraw_confirm | Yes, withdraw |
+| privacy.withdraw_cancel | Keep it |
+| privacy.withdrawn_on | Withdrawn on {date} |
+| privacy.withdraw_done.NOTICE | New notices are off. You can still answer notices already sent. |
+| privacy.withdraw_done.CREDENTIAL_SHARE | Sharing stopped. QR codes and links you created no longer work. |
+| privacy.unlink_apaar | Ask to unlink my APAAR |
+| privacy.consent_none | No consents recorded yet. |
+| privacy.access_heading | Who viewed your record |
+| privacy.access_lead | Every time someone opens your record it is logged. You see their role and the date, never their name. |
+| privacy.access.col.date | Date |
+| privacy.access.col.who | Who |
+| privacy.access.AICTE_ADMIN | An AICTE officer |
+| privacy.access.RO_OFFICER | A regional officer |
+| privacy.access.INSTITUTION | Your college |
+| privacy.access.UNIVERSITY | Your university |
+| privacy.access.STUDENT | You |
+| privacy.access.notice_link | Someone who opened your notice link |
+| privacy.access.verifier | A verifier you shared a proof with |
+| privacy.access.more | Show older |
+| privacy.access_empty | Nobody has viewed your record yet. When someone does, the role and the date appear here. |
+| privacy.requests_heading | Requests about your data |
+| privacy.requests_lead | Ask for a copy of what Countersign holds about you, a correction, or an erasure. |
+| privacy.request.new | Make a request |
+| privacy.request.kind_label | What do you want? |
+| privacy.request.kind.ACCESS | A copy of my data |
+| privacy.request.kind_hint.ACCESS | A file with everything Countersign holds about you, ready at once. Your APAAR stays masked in it. |
+| privacy.request.kind.CORRECTION | Correct something |
+| privacy.request.kind_hint.CORRECTION | Tell us what is wrong. An AICTE officer replies here; your college may need to upload your record again. |
+| privacy.request.kind.ERASURE | Erase my data |
+| privacy.request.kind_hint.ERASURE | Tell us what to erase. Some records must be kept by law; the reply says what can be removed. |
+| privacy.request.details.ACCESS | Anything to add? (optional) |
+| privacy.request.details.CORRECTION | What is wrong, and what should it say? |
+| privacy.request.details.ERASURE | What should be erased, and why? |
+| privacy.request.details_required | Write a few words so an officer knows what to do. |
+| privacy.request.unlink_prefill | Please unlink my APAAR from my enrolment at {institution_name}. |
+| privacy.request.submit | Send request |
+| privacy.request.sending | Sending |
+| privacy.request.sent | Request sent. An AICTE officer replies here. |
+| privacy.request.row | {kind_word}, sent {date} |
+| privacy.request.waiting | Waiting for a reply from AICTE |
+| privacy.request.reply | Reply from AICTE, {date} |
+| privacy.request.none | You have not made any requests. |
+| privacy.export_ready | Your copy is ready. |
+| privacy.export_download | Download my data (JSON file) |
+| privacy.export_note | The file lists everything Countersign holds about you. Your APAAR is masked in it too. Keep the file somewhere safe. |
+| privacy.export_preparing | Preparing your file |
+
+Consents: one row per purpose in the order APAAR_LINK, NOTICE, CREDENTIAL_SHARE, each with the `consent_purpose.*` words, the `consent_state.*` word in `privacy.consent_status`, the `privacy.consent_via.*` line and the exact stored text behind `privacy.consent_text_show`. CREDENTIAL_SHARE is recorded once per share; its row shows the newest with `privacy.consent_last`. Withdraw shows on NOTICE and CREDENTIAL_SHARE while they are Given and opens `consent.withdraw.<PURPOSE>` with `privacy.withdraw_confirm` and `privacy.withdraw_cancel`; the APAAR_LINK row shows `consent.unlink_apaar` and `privacy.unlink_apaar` instead.
+
+Access log (D30): READ entries about the student and their enrolments, newest first, Date and Who only. Who is `privacy.access.<ROLE>` by the reader's role; an entry with no actor reads `privacy.access.notice_link` when it came from a notice link and `privacy.access.verifier` when it came from a verifier check. Never a name, an email, a college other than the student's own, or an IP.
+
+Requests: Access is fulfilled at once: after sending, the form is replaced by `privacy.export_ready` and `privacy.export_download` (a link to `/api/students/me/export.json`) with `privacy.export_note`. Correction and Erasure need details (`privacy.request.details_required` under an empty field) and appear in the list with `privacy.request.row`, the `data_request_status.*` word with an icon, `privacy.request.waiting` while Open, and the officer's reply under `privacy.request.reply` once resolved.
