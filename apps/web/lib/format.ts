@@ -86,3 +86,14 @@ export function joinWords(words: string[]): string {
   if (words.length <= 1) return words.join("");
   return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
 }
+
+/** "1 rows" to "1 row": the copy deck asks for the singular noun when a count is exactly one. */
+export function singular(text: string): string {
+  return text.replace(/(^|[^\d,.])1 ((?:open |related |new )?)(rows|flags|seats|checks|institutions|enrolments|students|semesters)\b/g, (_m, pre: string, mid: string, noun: string) => `${pre}1 ${mid}${noun.slice(0, -1)}`);
+}
+
+/** "2.4 MB", "830 KB" for a chosen file. */
+export function formatBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
+}
