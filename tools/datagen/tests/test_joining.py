@@ -1,4 +1,4 @@
-"""mockgov/joining_records.jsonl and the cases planted against it."""
+"""mockgov/admission_joinings.jsonl and the cases planted against it."""
 
 import re
 import unicodedata
@@ -7,7 +7,7 @@ from collections import defaultdict
 from rapidfuzz import fuzz
 
 from datagen.config import Config, load_datagen_config
-from datagen.joining import JOINING_FIELDS, year_of
+from datagen.joining import JOINING_FIELDS
 
 CFG = load_datagen_config()["joining"]
 ABC_FILE = "uploads/1-ABC-0001_2026-27.csv"
@@ -26,7 +26,22 @@ def mockgov_name(name: str) -> str:
 
 
 def records(small) -> list[dict]:
-    return small.jsonl("joining_records.jsonl")
+    return small.jsonl("admission_joinings.jsonl")
+
+
+def joining_year(row: dict) -> str:
+    """The year the student joined: the cohort's, or year 2's for a lateral entrant."""
+    start = 2026 - (int(row["year_of_study"]) - 1)
+    if row["admission_route"] == "LATERAL":
+        start += 1
+    return f"{start}-{(start + 1) % 100:02d}"
+
+
+def unpublished(small) -> set[tuple[str, str]]:
+    return {
+        (r["unpublished"]["state"], r["unpublished"]["academic_year"])
+        for r in small.json("ground_truth.json") if r["anomaly_type"] == "SELF_ISSUED_ONLY"
+    }  # fmt: skip
 
 
 def planted(small, kind: str) -> list[dict]:
@@ -41,7 +56,7 @@ def lookup(small):
         index[key].append(rec)
 
     def find(aid: str, row: dict) -> dict | None:
-        key = (aid, year_of(row["admission_date"]), row["programme_code"], row["dob"])
+        key = (aid, joining_year(row), row["programme_code"], row["dob"])
         best, score = None, 89
         for rec in index.get(key, []):
             s = round(fuzz.token_set_ratio(mockgov_name(row["name"]), mockgov_name(rec["name"])))
@@ -66,10 +81,18 @@ def test_record_shape_and_numbers(small):
         else:
             assert re.fullmatch(r"[A-Z]{2}AA-\d{4}-\d{6}", rec["roll_no"]), rec["roll_no"]
             assert rec["roll_no"][5:9] == rec["academic_year"][:4] and rec["round"] is None
+        assert rec["apaar_id"] is None or re.fullmatch(r"\d{12}", rec["apaar_id"])
     counts = small.json("manifest.json")["counts"]
-    assert counts["joining_records"] == len(recs)
+    assert counts["admission_joinings"] == len(recs)
     late = [r for r in recs if r["joined_on"] > DEADLINE(r["academic_year"])]
-    assert counts["joining_records_late"] == len(late) >= CFG["late_joiners"]["small"]
+    assert counts["admission_joinings_late"] == len(late) >= CFG["late_joiners"]["small"]
+
+
+def test_one_state_has_not_published_last_year(small):
+    ((state, year),) = unpublished(small)
+    assert year == "2025-26"
+    published = {(r["state"], r["academic_year"]) for r in records(small)}
+    assert (state, year) not in published and (state, "2026-27") in published
 
 
 def test_every_uploaded_student_who_joined_has_their_own_record(small):
@@ -81,6 +104,9 @@ def test_every_uploaded_student_who_joined_has_their_own_record(small):
         for g in planted(small, "DUPLICATE_WITHIN_UPLOAD")
     }
     files = [f"uploads/{aid}_2026-27.csv" for aid in small.institutions()] + small.update_files()
+    insts = small.institutions()
+    held_back = unpublished(small)
+    registry = {r["apaar_id"]: r["name"] for r in small.jsonl("apaar_registry.jsonl")}
     used = defaultdict(int)
     checked = 0
     for name in files:
@@ -91,16 +117,18 @@ def test_every_uploaded_student_who_joined_has_their_own_record(small):
             if row["status"] in {"WITHDRAWN", "TRANSFERRED"}:
                 continue  # the initial row of the same student was checked
             rec = find(aid, row)
-            if (name, i) in never:
+            if (name, i) in never or (insts[aid]["state_code"], joining_year(row)) in held_back:
                 assert rec is None, (name, i)
                 continue
             assert rec is not None and rec["name"] == row["name"], (name, i)
+            own = row["consent_status"] == "LINKED" and registry.get(row["apaar_id"]) == row["name"]
+            assert rec["apaar_id"] == (row["apaar_id"] if own else None), (name, i)
             assert rec["route"] == row["admission_route"]
             assert rec["category"] == row["category"]
             assert rec["joined_on"] >= row["admission_date"]
             used[rec["roll_no"]] += 1
             checked += 1
-    assert checked > 9000 and max(used.values()) == 1
+    assert checked > 8500 and max(used.values()) == 1
 
 
 def test_joined_on_respects_the_reporting_deadline(small):
@@ -123,37 +151,39 @@ def test_students_who_never_joined(small):
         assert rec["severity_expected"] == "MEDIUM"
         (ref,) = rec["rows"]
         row = small.row(ref["file"], ref["row_no"])
-        assert rec["academic_year"] == year_of(row["admission_date"])
+        assert rec["academic_year"] == joining_year(row)
         assert rec["reporting_deadline"] == DEADLINE(rec["academic_year"])
         # Identity verifies, so the joining record is the only thing missing.
         assert registry[row["apaar_id"]]["name"] == row["name"]
         if row["counselling_ref"]:
             assert row["counselling_ref"] in allotments
-    deck = [r for r in recs if r.get("scenario") == "deck_sample"]
-    assert len(deck) == 1 and deck[0]["rows"][0]["file"] == ABC_FILE
+    card = [r for r in recs if r.get("scenario") == "sample_card"]
+    assert len(card) == 1 and card[0]["rows"][0]["file"] == ABC_FILE
 
 
-def test_the_deck_sample(small):
-    sample = small.json("manifest.json")["deck_sample"]
+def test_the_sample_card(small):
+    card = small.json("manifest.json")["sample_card"]
     gt = small.json("ground_truth.json")
     not_me = next(r for r in gt if r.get("scenario") == "not_me")["rows"][0]
-    assert (sample["file"], sample["row_no"]) == (not_me["file"], not_me["row_no"])
-    assert sample["institution_aicte_id"] == "1-ABC-0001" and sample["programme_code"] == "CSE"
-    assert sample["year_of_study"] == 1 and sample["reply"] == "NO"
-    assert sample["expected_record_status"] == "DISPUTED"
-    assert sample["expected_rows"] == {
+    assert card == {"file": not_me["file"], "row_no": not_me["row_no"]}
+    rec = next(r for r in gt if r.get("scenario") == "sample_card")
+    assert rec["expected_record_status"] == "DISPUTED"
+    assert rec["expected_rows"] == {
         "IDENTITY": "CONFIRMED", "SEAT": "CONFIRMED", "ADMISSION": "CONTRADICTED",
         "STUDYING": "NOT_YET_DUE", "STUDENT": "CONTRADICTED",
     }  # fmt: skip
-    row = small.row(sample["file"], sample["row_no"])
-    assert row["name"] == sample["name"] and row["apaar_id"] == sample["apaar_id"]
+    row = small.row(card["file"], card["row_no"])
+    assert row["programme_code"] == "CSE" and row["year_of_study"] == "1"
     assert row["consent_status"] == "LINKED" and row["admission_route"] == "COUNSELLING"
     # The seat fits: it is not one of the twelve ABC CSE admissions left without a seat.
     excess = next(r for r in gt if r.get("scenario") == "abc_cse_132")
-    assert sample["row_no"] not in {r["row_no"] for r in excess["rows"]}
+    assert card["row_no"] not in {r["row_no"] for r in excess["rows"]}
     tagged = [r["anomaly_type"] for r in gt for x in r["rows"]
-              if (x["file"], x["row_no"]) == (sample["file"], sample["row_no"])]  # fmt: skip
+              if (x["file"], x["row_no"]) == (card["file"], card["row_no"])]  # fmt: skip
     assert sorted(tagged) == ["NOT_IN_JOINING_RECORD", "STUDENT_DENIED"]
+    reply = next(r for r in small.lines("notice_replies.jsonl")
+                 if (r["file"], r["row_no"]) == (card["file"], card["row_no"]))  # fmt: skip
+    assert (reply["reply"], reply["comment"]) == ("NO", "I never joined this college.")
 
 
 def test_colleges_that_left_students_out(small):
@@ -161,6 +191,7 @@ def test_colleges_that_left_students_out(small):
     assert len(recs) == CFG["omitted_colleges"]["small"]
     assert any(r["institution_aicte_id"] == "1-XYZ-0002" and r["scenario"] == "xyz_missing"
                for r in recs)  # fmt: skip
+    recs = [r for r in recs if r.get("scenario") != "overdue"]
     by_roll = {r["roll_no"]: r for r in records(small)}
     registry = {r["apaar_id"] for r in small.jsonl("apaar_registry.jsonl")}
     counselling = {c["roll_no"]: c for c in small.jsonl("counselling.jsonl")}
@@ -171,14 +202,14 @@ def test_colleges_that_left_students_out(small):
         assert rec["expected_flag"] == "MISSING_FROM_UPLOAD"
         assert rec["severity_expected"] == "MEDIUM" and rec["rows"] == []
         assert rec["academic_year"] == "2026-27"
-        assert lo <= len(rec["missing"]) <= hi
+        assert lo <= rec["missing"] == len(rec["missing_students"]) <= hi
         uploaded = {(r["name"], r["dob"]) for r in small.upload(aid)}
         joined = [r for r in records(small)
                   if r["institution_code"] == aid and r["academic_year"] == "2026-27"]  # fmt: skip
         assert rec["joined"] == len(joined)
-        assert rec["uploaded_and_joined"] == len(joined) - len(rec["missing"])
-        assert rec["completeness"] == round(rec["uploaded_and_joined"] / rec["joined"], 4)
-        for student in rec["missing"]:
+        assert rec["uploaded_and_joined"] == len(joined) - rec["missing"]
+        assert rec["completeness_pct"] == round(100 * rec["uploaded_and_joined"] / len(joined), 1)
+        for student in rec["missing_students"]:
             joining = by_roll[student["roll_no"]]
             assert joining["institution_code"] == aid and joining["name"] == student["name"]
             assert joining["joined_on"] == student["joined_on"]
@@ -187,5 +218,5 @@ def test_colleges_that_left_students_out(small):
                 assert student["apaar_id"] in registry
             if student["route"] == "COUNSELLING":
                 assert counselling[student["roll_no"]]["institution_aicte_id"] == aid
-        total += len(rec["missing"])
+        total += rec["missing"]
     assert small.json("manifest.json")["counts"]["missing_from_upload"] == total

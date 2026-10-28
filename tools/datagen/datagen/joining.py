@@ -1,29 +1,31 @@
-"""The state admission authority's joining records and the cases planted against them.
+"""The state admission authority's joinings and the cases planted against them.
 
-`mockgov/joining_records.jsonl` holds one record per student who reported and joined: every
-row of every upload file (late refills included) except international admissions (Study in
-India holds those), a renamed duplicate row (its person already has a record) and the rows
-planted as never joined; plus the students a few colleges left out of their upload. One
-state's record format, simulated for every state.
+`mockgov/admission_joinings.jsonl` (API_CONTRACT A4.25) holds one line per joining of every
+cohort on the roll: every uploaded student (late refills included) except international
+admissions (Study in India holds those), a renamed duplicate row (its person already has a
+line) and the rows planted as never joined; plus the students colleges left out of their
+upload. One state's record format, simulated for every state.
 
-- `academic_year` is the academic year the row's `admission_date` falls in (2026-27 for this
-  year's first-years, 2025-26 for second-years and the year-2 lateral entrants, whose
-  admission is dated in their cohort's window as in counselling.jsonl).
+- `academic_year` is the year the student joined this programme: the cohort's year, and for
+  a lateral entrant the year it entered year 2.
 - `roll_no` is the entrance-exam roll number for counselled, TFW and lateral admissions (the
-  one counselling.jsonl holds) and the authority's approval number `<STATE>AA-<year>-<nnnnnn>`
-  for management, NRI and spot admissions.
+  one counselling.jsonl holds) and the authority's number `<STATE>AA-<year>-<nnnnnn>` for
+  management, NRI and spot admissions.
 - `joined_on` is a few days after the admission and never after the year's reporting
   deadline, except for a few clean first-years who joined late and for refills admitted
   after the deadline.
+- `apaar_id` is the student's APAAR when the registry holds it under that student, else null.
+- One state has published nothing for the previous academic year: its second-years have no
+  line, so their Joining record reads pending, never contradicted (`unpublished`).
 
 Planted, each in ground truth:
 
 - NOT_IN_JOINING_RECORD (MEDIUM): uploaded rows of students who never joined; their
   counselling allotment, when they had one, stays. With the named scenarios one of them is
-  the deck sample: the ABC College CSE first-year who answers "No" through DigiLocker sign-in
-  (STUDENT_DENIED, scenario `not_me`), whose APAAR verifies and whose seat fits.
+  the sample card: the ABC College CSE first-year who answers No (STUDENT_DENIED, scenario
+  `not_me`), whose APAAR verifies and whose seat fits; the record reads Disputed.
 - MISSING_FROM_UPLOAD (MEDIUM, one record per college and year): first-years with a joining
-  record (and an APAAR, a counselling allotment where counselled, a DigiLocker account) whom
+  line (and an APAAR, a counselling allotment where counselled, a DigiLocker account) whom
   their college left out of its upload; XYZ Institute of Technology is one such college.
 
 A random stream of its own, seeded from the run's seed, leaves every other row unchanged.
@@ -39,7 +41,7 @@ from .anomalies import Planter
 from .institutions import ABC_ID, XYZ_ID
 from .students import World, academic_year_label, academic_year_start, admission_window
 
-DECK_EXPECTED_ROWS = {
+SAMPLE_CARD_ROWS = {
     "IDENTITY": "CONFIRMED",
     "SEAT": "CONFIRMED",
     "ADMISSION": "CONTRADICTED",
@@ -47,15 +49,28 @@ DECK_EXPECTED_ROWS = {
     "STUDENT": "CONTRADICTED",
 }
 JOINING_FIELDS = [
-    "state", "academic_year", "roll_no", "name", "dob", "gender", "institution_code",
-    "programme", "joined_on", "round", "route", "category",
+    "state", "academic_year", "name", "dob", "roll_no", "institution_code", "programme",
+    "joined_on", "round", "route", "category", "apaar_id",
 ]  # fmt: skip
 
 
-def year_of(day: str) -> str:
-    """The academic year (July to June) an ISO date falls in."""
-    d = dt.date.fromisoformat(day)
-    return academic_year_label(d.year if d.month >= 7 else d.year - 1)
+def joining_year(row: dict, academic_year: str) -> str:
+    """The academic year the student joined the programme, as the api reads it from the row:
+    the cohort's year, or year 2's for a lateral entrant."""
+    start = academic_year_start(academic_year) - (row["year_of_study"] - 1)
+    if row["admission_route"] == "LATERAL":
+        start += 1
+    return academic_year_label(start)
+
+
+def owns_apaar(row: dict) -> bool:
+    """The row's APAAR is the student's own: LINKED, 12 digits, held under this name."""
+    return (
+        row["consent_status"] == "LINKED"
+        and len(row["apaar_id"]) == 12
+        and row["apaar_id"].isdigit()
+        and row["_registry"] == "match"
+    )
 
 
 class JoiningPlanner:
@@ -66,14 +81,18 @@ class JoiningPlanner:
         self.cfg = world.cfg.joining
         self.rng = random.Random(f"joining:{world.seed}")
         self.year = world.cfg.academic_year
-        self.deadline = world.cfg.reporting_deadline(self.year)
+        self.last_year = academic_year_label(academic_year_start(self.year) - 1)
         self.records: list[dict] = []
         self.missing: dict[str, list[dict]] = {}
         self.late: set[int] = set()
+        # (state, academic_year) the authority has not published
+        self.unpublished: set[tuple[str, str]] = set()
 
     # ---------------------------------------------------------------- driver
 
-    def plan(self) -> list[dict]:
+    def plan(self, self_issued_state: str | None = None) -> list[dict]:
+        if self_issued_state:
+            self.unpublished.add((self_issued_state, self.last_year))
         self.plant_never_joined()
         self.plant_omitted()
         self.pick_late_joiners()
@@ -82,19 +101,23 @@ class JoiningPlanner:
         self.w.joining_records = self.records
         return self.records
 
+    def published(self, row: dict) -> bool:
+        state = self.w.inst_by_id[row["_inst"]]["state_code"]
+        return (state, joining_year(row, self.year)) not in self.unpublished
+
     # ---------------------------------------------------------------- picks
 
     def clean(self, row: dict) -> bool:
         """An untouched, linked, physical, non-international row outside ABC College and the
-        anomaly colleges, that no update file withdraws or transfers."""
+        colleges other plants keep, in a year the authority published."""
         return (
             not row["_tags"]
-            and row["consent_status"] == "LINKED"
-            and row["_registry"] == "match"
+            and owns_apaar(row)
             and row["_prog"]["mode"] == "PHYSICAL"
             and row["admission_route"] != "INTERNATIONAL"
             and row["_inst"] != ABC_ID
             and row["_inst"] not in self.avoid
+            and self.published(row)
         )
 
     def candidates(self, years: set[int]) -> list[dict]:
@@ -109,27 +132,26 @@ class JoiningPlanner:
         k = self.cfg.get("never_joined", 0)
         if w.cfg.scenarios and k:
             rec = next(r for r in w.ground_truth if r.get("scenario") == "not_me")
-            row = rec["_rows"][0]
-            self.never_joined(row, scenario="deck_sample")
+            self.never_joined(rec["_rows"][0], scenario="sample_card")
             k -= 1
         for row in self.rng.sample(self.candidates({1, 2}), k):
             self.never_joined(row)
 
     def never_joined(self, row: dict, scenario: str | None = None) -> None:
-        year = year_of(row["admission_date"])
+        year = joining_year(row, self.year)
         extra = {}
-        if scenario == "deck_sample":
+        if scenario == "sample_card":
             extra = {
-                "expected_rows": DECK_EXPECTED_ROWS,
+                "expected_rows": SAMPLE_CARD_ROWS,
                 "expected_record_status": "DISPUTED",
             }
             note = (
-                "Deck sample: ABC College says this student joined B.Tech CSE; the APAAR "
+                "Sample card: ABC College says this student joined B.Tech CSE; the APAAR "
                 "verifies and the seat fits, but the state admission authority has no "
-                "joining record and the student answers 'No' through DigiLocker sign-in."
+                "joining line and the student answers No."
             )
         else:
-            note = "Uploaded as enrolled, but the state admission authority has no joining record."
+            note = "Uploaded as enrolled, but the state admission authority has no joining line."
         self.planter.record(
             "NOT_IN_JOINING_RECORD", [row],
             expected_flag="NOT_IN_JOINING_RECORD", severity="MEDIUM",
@@ -188,7 +210,6 @@ class JoiningPlanner:
                         row["dob"] = w.dob(start, prog["level"])
                     taken.add((prog["code"], row["dob"]))
                     row["admission_date"] = w.random_date(window[0], last_day).isoformat()
-                    row["_omitted"] = True
                     out.append(row)
             w.omitted_rows.extend(out)
             self.missing[aid] = out
@@ -203,7 +224,11 @@ class JoiningPlanner:
 
     def joined_on(self, row: dict) -> str:
         admitted = dt.date.fromisoformat(row["admission_date"])
-        year = year_of(row["admission_date"])
+        year = joining_year(row, self.year)
+        if int(year[:4]) > admitted.year:
+            # A lateral entrant's admission is dated in its cohort's window, a year before it
+            # entered year 2.
+            admitted = admitted.replace(year=int(year[:4]))
         deadline = dt.date.fromisoformat(self.w.cfg.reporting_deadline(year))
         if id(row) in self.late:
             return (deadline + dt.timedelta(days=self.rng.randint(1, 12))).isoformat()
@@ -223,7 +248,7 @@ class JoiningPlanner:
         for row in w.all_rows + w.update_only_rows + w.omitted_rows:
             if row["admission_route"] == "INTERNATIONAL" or id(row) in renamed:
                 continue
-            if "NOT_IN_JOINING_RECORD" in row["_tags"]:
+            if "NOT_IN_JOINING_RECORD" in row["_tags"] or not self.published(row):
                 continue
             out.append(row)
         return out
@@ -235,7 +260,7 @@ class JoiningPlanner:
         records = []
         for row in self.joined_rows():
             inst = w.inst_by_id[row["_inst"]]
-            year = year_of(row["admission_date"])
+            year = joining_year(row, self.year)
             roll = row["_roll_no"]
             if not roll:
                 key = (inst["state_code"], year[:4])
@@ -243,25 +268,16 @@ class JoiningPlanner:
                 roll = f"{key[0]}AA-{key[1]}-{counters[key]:06d}"
             row["_joining_roll_no"] = roll
             row["_joined_on"] = self.joined_on(row)
-            records.append(
-                {
-                    "state": inst["state_code"],
-                    "academic_year": year,
-                    "roll_no": roll,
-                    "name": row["name"],
-                    "dob": row["dob"],
-                    "gender": row["gender"],
-                    "institution_code": row["_inst"],
-                    "programme": row["programme_code"],
-                    "joined_on": row["_joined_on"],
-                    "round": row["_round"] or None,
-                    "route": row["admission_route"],
-                    "category": row["category"],
-                }
-            )
+            values = (
+                inst["state_code"], year, row["name"], row["dob"], roll, row["_inst"],
+                row["programme_code"], row["_joined_on"], row["_round"] or None,
+                row["admission_route"], row["category"],
+                row["apaar_id"] if owns_apaar(row) else None,
+            )  # fmt: skip
+            records.append(dict(zip(JOINING_FIELDS, values, strict=True)))
         records.sort(
             key=lambda r: (order[r["institution_code"]], r["academic_year"], r["programme"],
-                           r["roll_no"])
+                           r["joined_on"], r["roll_no"])
         )  # fmt: skip
         self.records = records
 
@@ -273,27 +289,34 @@ class JoiningPlanner:
         for aid, rows in self.missing.items():
             if not rows:
                 continue
-            total = joined[aid]
-            missing = [
-                {
-                    "roll_no": r["_joining_roll_no"],
-                    "name": r["name"],
-                    "dob": r["dob"],
-                    "programme_code": r["programme_code"],
-                    "academic_year": self.year,
-                    "joined_on": r["_joined_on"],
-                    "route": r["admission_route"],
-                    "apaar_id": r["apaar_id"] or None,
-                }
-                for r in rows
-            ]
-            self.planter.record(
-                "MISSING_FROM_UPLOAD", [],
-                expected_flag="MISSING_FROM_UPLOAD", severity="MEDIUM",
-                institution_ids=[aid], programme_code=None, academic_year=self.year,
-                missing=missing, joined=total, uploaded_and_joined=total - len(missing),
-                completeness=round((total - len(missing)) / total, 4),
-                scenario="xyz_missing" if aid == XYZ_ID else None,
-                note=f"{len(missing)} first-years in the state admission authority's joining "
-                f"record are missing from the college's {self.year} upload.",
-            )  # fmt: skip
+            self.record_missing_college(aid, rows, joined[aid])
+
+    def record_missing_college(self, aid: str, rows: list[dict], joined: int, **extra) -> None:
+        students = [
+            {
+                "roll_no": r["_joining_roll_no"],
+                "name": r["name"],
+                "dob": r["dob"],
+                "programme_code": r["programme_code"],
+                "academic_year": self.year,
+                "joined_on": r["_joined_on"],
+                "route": r["admission_route"],
+                "apaar_id": r["apaar_id"] if owns_apaar(r) else None,
+            }
+            for r in rows
+        ]
+        self.planter.record(
+            "MISSING_FROM_UPLOAD", [],
+            expected_flag="MISSING_FROM_UPLOAD", severity="MEDIUM",
+            institution_ids=[aid], programme_code=None, academic_year=self.year,
+            missing=len(students), missing_students=students, joined=joined,
+            uploaded_and_joined=joined - len(students),
+            completeness_pct=round(100 * (joined - len(students)) / joined, 1),
+            scenario=extra.pop("scenario", "xyz_missing" if aid == XYZ_ID else None),
+            note=extra.pop(
+                "note",
+                f"{len(students)} first-years in the state admission authority's joining "
+                f"list are missing from the college's {self.year} upload.",
+            ),
+            **extra,
+        )  # fmt: skip

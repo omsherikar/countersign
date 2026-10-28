@@ -157,6 +157,8 @@ class World:
         # mockgov/joining_records.jsonl.
         self.omitted_rows: list[dict] = []
         self.joining_records: list[dict] = []
+        # statuses.py: rows behind the PROVISIONAL_CLAIM and SOMEONE_ELSE demo accounts.
+        self.demo_rows: dict[str, dict] = {}
         self._name_keys: dict[tuple[str, str], str] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]

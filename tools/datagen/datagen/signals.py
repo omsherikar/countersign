@@ -3,21 +3,23 @@
 Signals are for officers only and never set a record's status (DECISIONS D45). Ground truth
 lists what should stand out so the evaluation can score signal precision and recall:
 
-- every GHOST_RING record gains `expected_signal: "GHOST_RING"` (the rings are planted by
-  anomalies.py; the named one is 40 students across 3 colleges sharing contacts);
+- every GHOST_RING record becomes `expected_flag: null` with `expected_signal: "GHOST_RING"`
+  (signals never raise a case on their own; the rings are planted by anomalies.py, the named
+  one 40 students across 3 colleges sharing contacts);
 - ANOMALY records (`expected_flag` null, `expected_signal: "ANOMALY"`) name one college each
-  and the feature that should make it stand out:
-  - `admission_growth`: this year's first-years against last year's admissions. The college
-    admits extra first-years into its free REGULAR seats (never above the approved intake),
-    so it roughly doubles while its peers stay level;
-  - `nri_management_share`: the NRI and management share of its first-years against peers.
-    Its counselled and spot first-years move to the management route and its NRI seats fill
-    up, all inside the seat pools.
+  and `features`, the anomaly model's features (ENGINES 17.11) that should make it stand out,
+  with every feature's `values` and the peers' medians:
+  - `admission_growth` (first-years over second-years on the roll): the college admits extra
+    first-years into its free REGULAR seats (never above the approved intake) until it has
+    about three times last year's admissions, while its peers stay level;
+  - `management_share` and `nri_share` (MANAGEMENT plus SPOT, and NRI, first-years over all
+    first-years): its counselled and spot first-years move to the management route and its
+    NRI seats fill up, all inside the seat pools.
 
 `history.json` holds last year's (the roll's previous academic year) first-year admissions
-per college and programme, the year-over-year feature's denominator: second-years still on
-the roll divided by a retention drawn per programme, or this year's count near level for
-open and online programmes, which have no second-year cohort here.
+per college and programme: second-years still on the roll divided by a retention drawn per
+programme, or this year's count near level for open and online programmes, which have no
+second-year cohort here. The planted growth is measured against it like for like.
 
 A random stream of its own, seeded from the run's seed, leaves every other row unchanged.
 """
@@ -36,7 +38,7 @@ FEATURE_GROWTH = "admission_growth"
 STABLE_GROWTH = 1.25  # a spike college is picked among colleges growing at most this much
 MAX_GROWTH = 3.0  # and grows no further than this
 SHARE_MOVE = 0.95  # of the share college's counselled first-years move to management
-FEATURE_SHARE = "nri_management_share"
+MIN_RECORDS = 20  # the model leaves out smaller colleges
 
 
 class SignalPlanner:
@@ -180,8 +182,42 @@ class SignalPlanner:
             self.plant_share(inst)
         for rec in self.w.ground_truth:
             if rec["anomaly_type"] == "GHOST_RING":
+                rec.update(expected_flag=None, severity_expected=None)
                 rec["expected_signal"] = "GHOST_RING"
         return self.new_rows
+
+    def model_features(self, aid: str) -> dict[str, float]:
+        """admission_growth, nri_share and management_share as ENGINES 17.11 defines them."""
+        rows = self.w.rows_by_inst[aid]
+        first = [r for r in rows if r["year_of_study"] == 1]
+        second = sum(r["year_of_study"] == 2 for r in rows)
+        routes = [r["admission_route"] for r in first]
+        n = len(first) or 1
+        return {
+            "admission_growth": round(len(first) / second, 3) if second else 0.0,
+            "nri_share": round(routes.count("NRI") / n, 3),
+            "management_share": round((routes.count("MANAGEMENT") + routes.count("SPOT")) / n, 3),
+        }
+
+    def peers(self) -> dict[str, float]:
+        """Median of every feature over the colleges the model scores, the planted left out."""
+        values: dict[str, list[float]] = {}
+        for inst in self.w.institutions:
+            aid = inst["aicte_permanent_id"]
+            if aid in self.colleges or len(self.w.rows_by_inst[aid]) < MIN_RECORDS:
+                continue
+            for name, value in self.model_features(aid).items():
+                values.setdefault(name, []).append(value)
+        return {name: round(statistics.median(v), 3) for name, v in values.items()}
+
+    def record(self, aid: str, features: list[str], note: str, **extra) -> None:
+        self.planter.record(
+            "ANOMALY", [],
+            expected_flag=None, institution_ids=[aid], programme_code=None,
+            expected_signal="ANOMALY", features=features, values=self.model_features(aid),
+            peer_medians=self.peers(), first_years=len(self.first_years(aid)),
+            academic_year=self.w.cfg.academic_year, note=note, **extra,
+        )  # fmt: skip
 
     def peer_median(self, feature) -> float:
         values = [
@@ -207,18 +243,14 @@ class SignalPlanner:
         self.new_rows += added
         self.colleges.add(aid)
         growth = self.growth(aid)
-        median = self.peer_median(self.growth)
         last = self.admitted_last_year(aid)
-        self.planter.record(
-            "ANOMALY", [],
-            expected_flag=None, institution_ids=[aid], programme_code=None,
-            expected_signal="ANOMALY", feature=FEATURE_GROWTH, value=round(growth, 2),
-            peer_median=round(median, 2), first_years=len(self.first_years(aid)),
-            admitted_last_year=last, added_rows=len(added),
-            academic_year=w.cfg.academic_year,
-            note=f"{len(self.first_years(aid))} first-years against {last} admitted last year "
-            f"({growth:.2f} times); the median college is at {median:.2f}. Every admission is "
-            "inside the approved intake.",
+        self.record(
+            aid, [FEATURE_GROWTH],
+            f"{len(self.first_years(aid))} first-years against {last} admitted last year "
+            f"({growth:.2f} times, like for like); every admission is inside the approved "
+            "intake.",
+            admitted_last_year=last, growth_like_for_like=round(growth, 2),
+            added_rows=len(added),
         )  # fmt: skip
 
     def plant_share(self, inst: dict) -> None:
@@ -243,13 +275,8 @@ class SignalPlanner:
                 w.set_route(row, inst, "NRI")
         self.colleges.add(aid)
         value = self.share(self.first_years(aid))
-        median = self.peer_median(lambda a: self.share(self.first_years(a)))
-        self.planter.record(
-            "ANOMALY", [],
-            expected_flag=None, institution_ids=[aid], programme_code=None,
-            expected_signal="ANOMALY", feature=FEATURE_SHARE, value=round(value, 2),
-            peer_median=round(median, 2), first_years=len(self.first_years(aid)),
-            academic_year=w.cfg.academic_year,
-            note=f"{value:.0%} of its first-years came by the NRI or management route; the "
-            f"median college is at {median:.0%}. Every admission is inside its seat pool.",
+        self.record(
+            aid, ["management_share", "nri_share"],
+            f"{value:.0%} of its first-years came by the NRI or management route; every "
+            "admission is inside its seat pool.",
         )  # fmt: skip

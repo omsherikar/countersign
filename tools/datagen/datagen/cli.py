@@ -18,6 +18,7 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     from .graduates import GraduateBuilder
     from .joining import JoiningPlanner
     from .signals import SignalPlanner
+    from .statuses import StatusPlanner
     from .students import World
     from .updates import UpdatePlanner
     from .writers import write_all
@@ -54,8 +55,20 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     eligibility.plant(avoid=signals.colleges)
     world.timings["eligibility_signals"] = time.perf_counter() - t
     t = time.perf_counter()
-    JoiningPlanner(world, planter, avoid=signals.colleges).plan()
-    world.timings["joining_records"] = time.perf_counter() - t
+    statuses = StatusPlanner(world, planter, avoid=signals.colleges)
+    statuses.plant_provisional()
+    joining = JoiningPlanner(world, planter, avoid=signals.colleges)
+    joining.plan(self_issued_state=statuses.choose_self_issued_state())
+    statuses.plant(joining)
+    world.demo_rows = {
+        role: row
+        for role, row in (
+            ("PROVISIONAL_CLAIM", statuses.provisional),
+            ("SOMEONE_ELSE", statuses.someone_else),
+        )
+        if row is not None
+    }
+    world.timings["joinings_statuses"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
     summary = write_all(world, out, xlsx=want_xlsx)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)

@@ -10,8 +10,21 @@ CFG = load_datagen_config()["signals"]
 def anomalies(small, feature: str | None = None) -> list[dict]:
     return [
         r for r in small.json("ground_truth.json")
-        if r["anomaly_type"] == "ANOMALY" and (feature is None or r["feature"] == feature)
+        if r["anomaly_type"] == "ANOMALY" and (feature is None or feature in r["features"])
     ]  # fmt: skip
+
+
+def model_features(small, aid: str) -> dict[str, float]:
+    """ENGINES 17.11: first-years over second-years, and route shares of the first-years."""
+    rows = small.upload(aid)
+    first = [r for r in rows if r["year_of_study"] == "1"]
+    second = sum(r["year_of_study"] == "2" for r in rows)
+    routes = [r["admission_route"] for r in first]
+    return {
+        "admission_growth": len(first) / second if second else 0.0,
+        "nri_share": routes.count("NRI") / len(first),
+        "management_share": (routes.count("MANAGEMENT") + routes.count("SPOT")) / len(first),
+    }
 
 
 def first_years(small, aid: str) -> list[dict]:
@@ -64,23 +77,31 @@ def test_the_spike_college_grows_far_above_its_peers(small):
         aid = rec["institution_aicte_id"]
         assert rec["expected_flag"] is None and rec["severity_expected"] is None
         assert rec["expected_signal"] == "ANOMALY" and rec["rows"] == []
-        assert abs(rec["value"] - values[aid]) < 0.01
+        assert rec["features"] == ["admission_growth"]
+        assert abs(rec["growth_like_for_like"] - values[aid]) < 0.01
         assert values[aid] == max(values.values())
-        assert rec["value"] >= 2.5 * statistics.median(values.values())
+        assert values[aid] >= 2.5 * statistics.median(values.values())
         assert rec["admitted_last_year"] == history[aid]["admitted"]
         assert rec["added_rows"] > 0
+        model = model_features(small, aid)
+        assert abs(rec["values"]["admission_growth"] - model["admission_growth"]) < 0.001
+        assert model["admission_growth"] >= 2 * rec["peer_medians"]["admission_growth"]
 
 
 def test_the_share_college_admits_far_more_nri_and_management(small):
-    recs = anomalies(small, "nri_management_share")
+    recs = anomalies(small, "management_share")
     assert len(recs) == CFG["nri_management_share"]["small"]
     values = {aid: share(small, aid) for aid in small.institutions()}
     for rec in recs:
         aid = rec["institution_aicte_id"]
         assert rec["expected_signal"] == "ANOMALY" and rec["rows"] == []
-        assert abs(rec["value"] - values[aid]) < 0.01
+        assert rec["features"] == ["management_share", "nri_share"]
         assert values[aid] == max(values.values())
-        assert rec["value"] >= 2.5 * statistics.median(values.values())
+        assert values[aid] >= 2.5 * statistics.median(values.values())
+        model = model_features(small, aid)
+        for name in rec["features"]:
+            assert abs(rec["values"][name] - model[name]) < 0.001
+            assert model[name] >= 2 * rec["peer_medians"][name], name
 
 
 def test_anomaly_colleges_carry_no_other_named_plant(small):
@@ -97,5 +118,6 @@ def test_anomaly_colleges_carry_no_other_named_plant(small):
 def test_every_ghost_ring_is_an_expected_signal(small):
     rings = [r for r in small.json("ground_truth.json") if r["anomaly_type"] == "GHOST_RING"]
     assert rings and all(r["expected_signal"] == "GHOST_RING" for r in rings)
+    assert all(r["expected_flag"] is None and r["severity_expected"] is None for r in rings)
     named = next(r for r in rings if r.get("scenario") == "ghost_ring_40")
     assert len(named["rows"]) == 40 and len(named["institution_aicte_ids"]) == 3

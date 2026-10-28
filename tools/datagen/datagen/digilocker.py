@@ -12,8 +12,9 @@ One account per person, international students excluded (they have no DigiLocker
 - graduates without an APAAR have one too.
 
 `digilocker_id` is `DL-` and two groups of four letters and digits; the demo student's is
-fixed (`DL-RAVI-4417`). A random stream of its own, seeded from the run's seed, leaves every
-other file unchanged.
+fixed (`DL-RAVI-4417`). The demo accounts (manifest `demo_digilocker_accounts`) come first in
+the file, Ravi Kumar Sharma at the top, so the sign-in page lists them first. A random stream
+of its own, seeded from the run's seed, leaves every other file unchanged.
 """
 
 from __future__ import annotations
@@ -80,6 +81,14 @@ class AccountBuilder:
             if not grad["apaar_id"]:
                 self.add(grad["name"], grad["dob"], grad["gender"], None)
         return self.accounts
+
+    def put_first(self, account_ids: list[str]) -> None:
+        """Move these accounts to the top of the file, in this order."""
+        order = {a: n for n, a in enumerate(account_ids)}
+        self.accounts.sort(key=lambda a: order.get(a["digilocker_id"], len(order)))
+
+    def get(self, account_id: str) -> dict:
+        return next(a for a in self.accounts if a["digilocker_id"] == account_id)
 
     def account_of(self, row: dict) -> str | None:
         """The account the student behind an upload row signs in with."""

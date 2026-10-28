@@ -98,7 +98,9 @@ signals:
   nri_management_share: {small: 1,  full: 5}    # NRI and management share far above peers
   retention:            [0.90, 0.98]            # last year's admissions = second-years / this
 
-# DigiLocker sign-in: refused-consent students who answer after claiming their record with
-# the provisional id the college gave them.
-digilocker:
-  provisional_claims:   {small: 4,  full: 30}
+# Records planted to check the record status rule (statuses.py): clean records countersigned
+# by their joining line alone, and second-years whose only confirmed enrolment row is their
+# own college's credits (their state has published no joining record for that year).
+statuses:
+  clean_independent:    {small: 5,  full: 20}
+  self_issued_only:     {small: 3,  full: 12}

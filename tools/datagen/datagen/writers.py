@@ -187,26 +187,41 @@ def finalize_ground_truth(world: World) -> list[dict]:
     return out
 
 
-def deck_sample(ground_truth: list[dict], replies: list[dict]) -> dict | None:
-    rec = next((r for r in ground_truth if r.get("scenario") == "deck_sample"), None)
-    if rec is None:
-        return None
-    row = rec["rows"][0]
-    reply = next(r for r in replies if (r["file"], r["row_no"]) == (row["file"], row["row_no"]))
-    return {
-        "file": row["file"],
-        "row_no": row["row_no"],
-        "name": row["name"],
-        "apaar_id": row["apaar_id"],
-        "institution_aicte_id": row["institution_aicte_id"],
-        "programme_code": row["programme_code"],
-        "year_of_study": row["year_of_study"],
-        "reply": reply["reply"],
-        "channel": reply["channel"],
-        "comment": reply["comment"],
-        "expected_rows": rec["expected_rows"],
-        "expected_record_status": rec["expected_record_status"],
-    }
+DEMO_ROLES = (
+    "DEMO_STUDENT", "SECOND_DEMO_NOTICE", "PROVISIONAL_CLAIM", "SOMEONE_ELSE", "SAMPLE_CARD",
+)  # fmt: skip
+
+
+def demo_digilocker_accounts(
+    world: World, planner: ReplyPlanner, accounts: AccountBuilder
+) -> list[dict]:
+    """The accounts the live demo signs in with, each with the upload row it stands for."""
+    if not world.cfg.scenarios:
+        return []
+    rows = dict(planner.demo_rows())
+    rows.update(world.demo_rows)
+    sample = next((r for r in world.ground_truth if r.get("scenario") == "not_me"), None)
+    if sample is not None:
+        rows["SAMPLE_CARD"] = sample["_rows"][0]
+    out = []
+    for role in DEMO_ROLES:
+        row = rows.get(role)
+        account_id = accounts.account_of(row) if row is not None else None
+        if account_id is None:
+            continue
+        account = accounts.get(account_id)
+        out.append(
+            {
+                "role": role,
+                "digilocker_id": account_id,
+                "name": account["name"],
+                "dob": account["dob"],
+                "apaar_id": account["apaar_id"],
+                "file": row["_file"],
+                "row_no": row["row_no"],
+            }
+        )
+    return out
 
 
 def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
@@ -268,19 +283,28 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     dump_jsonl(out / "mockgov" / "counselling.jsonl", counselling)
     dump_jsonl(out / "mockgov" / "abc_credits.jsonl", abc)
     dump_jsonl(out / "mockgov" / "sii.jsonl", sii)
-    dump_jsonl(out / "mockgov" / "joining_records.jsonl", world.joining_records)
-    accounts = AccountBuilder(world, registry)
-    dump_jsonl(out / "mockgov" / "digilocker_accounts.jsonl", accounts.build())
+    dump_jsonl(out / "mockgov" / "admission_joinings.jsonl", world.joining_records)
     world.timings["write_mockgov"] = time.perf_counter() - t
 
     t = time.perf_counter()
     dump_jsonl(out / "graduates.jsonl", graduate_records(world.graduates))
-    planner = ReplyPlanner(world, files, {r["apaar_id"] for r in registry}, accounts)
+    planner = ReplyPlanner(world, files, {r["apaar_id"] for r in registry})
     replies = planner.plan()
     dump_jsonl(out / "notice_replies.jsonl", replies)
+    accounts = AccountBuilder(world, registry)
+    accounts.build()
+    demo_accounts = demo_digilocker_accounts(world, planner, accounts)
+    accounts.put_first([d["digilocker_id"] for d in demo_accounts])
+    dump_jsonl(out / "mockgov" / "digilocker_accounts.jsonl", accounts.accounts)
+    sample = next((r for r in world.ground_truth if r.get("scenario") == "sample_card"), None)
     world.timings["write_graduates_replies"] = time.perf_counter() - t
 
     ground_truth = finalize_ground_truth(world)
+    sample_card = (
+        {"file": sample["rows"][0]["file"], "row_no": sample["rows"][0]["row_no"]}
+        if sample
+        else None
+    )
     dump_json(out / "ground_truth.json", ground_truth)
     dump_json(out / "history.json", world.history)
 
@@ -303,8 +327,8 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "counselling": len(counselling),
         "abc_credits": len(abc),
         "sii": len(sii),
-        "joining_records": len(world.joining_records),
-        "joining_records_late": sum(
+        "admission_joinings": len(world.joining_records),
+        "admission_joinings_late": sum(
             r["joined_on"] > world.cfg.reporting_deadline(r["academic_year"])
             for r in world.joining_records
         ),
@@ -315,7 +339,6 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "notice_replies_yes": sum(r["reply"] == "YES" for r in replies),
         "notice_replies_no": sum(r["reply"] == "NO" for r in replies),
         "notice_replies_none": sum(r["reply"] == "NONE" for r in replies),
-        "notice_replies_claims": sum(r["claim_provisional_id"] for r in replies),
         "history_institutions": len(world.history.get("institutions", [])),
         "ground_truth": len(ground_truth),
         "ground_truth_by_type": dict(sorted(by_type.items())),
@@ -332,8 +355,10 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "counts": counts,
         # Notices the live demo answers by hand; notice_replies.jsonl leaves them unanswered.
         "demo_unanswered_notices": planner.unanswered,
+        "reporting_deadline": {year: world.cfg.reporting_deadline(year)},
+        "demo_digilocker_accounts": demo_accounts,
         # The deck's sample record (ABC College CSE), or null without the named scenarios.
-        "deck_sample": deck_sample(ground_truth, replies),
+        "sample_card": sample_card,
     }
     dump_json(out / "manifest.json", manifest)
     summary = dict(manifest)

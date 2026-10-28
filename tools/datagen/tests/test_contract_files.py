@@ -30,7 +30,8 @@ def test_every_contract_file_exists(small):
     for name in [
         "institutions.json", "users.json", "ground_truth.json", "manifest.json", "summary.json",
         "mockgov/apaar_registry.jsonl", "mockgov/counselling.jsonl",
-        "mockgov/abc_credits.jsonl", "mockgov/sii.jsonl", "mockgov/joining_records.jsonl",
+        "mockgov/abc_credits.jsonl", "mockgov/sii.jsonl", "mockgov/admission_joinings.jsonl",
+        "mockgov/digilocker_accounts.jsonl",
         "history.json",
     ]:  # fmt: skip
         assert (small.path / name).is_file(), name
@@ -182,8 +183,10 @@ def test_mockgov_jsonl_shapes(small):
 def test_manifest_and_summary(small):
     manifest = small.json("manifest.json")
     assert set(manifest) == {
-        "size", "seed", "generated_at", "counts", "demo_unanswered_notices", "deck_sample",
+        "size", "seed", "generated_at", "counts", "demo_unanswered_notices", "reporting_deadline",
+        "demo_digilocker_accounts", "sample_card",
     }  # fmt: skip
+    assert manifest["reporting_deadline"] == {"2026-27": "2026-09-30"}
     assert manifest["size"] == "small" and manifest["seed"] == 42
     counts = manifest["counts"]
     assert counts["institutions"] == 50

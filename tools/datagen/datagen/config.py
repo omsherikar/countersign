@@ -107,7 +107,7 @@ class Config:
     joining: dict[str, Any] = field(default_factory=dict)
     eligibility: dict[str, Any] = field(default_factory=dict)
     signals: dict[str, Any] = field(default_factory=dict)
-    digilocker: dict[str, Any] = field(default_factory=dict)
+    statuses: dict[str, Any] = field(default_factory=dict)
 
     def reporting_deadline(self, academic_year: str) -> str:
         """rules.yaml `reporting.deadline` (a date, or a mapping by year), else datagen.yaml,
@@ -179,5 +179,5 @@ class Config:
             joining=for_size(raw.get("joining", {}), size),
             eligibility=for_size(raw.get("eligibility", {}), size),
             signals=for_size(raw.get("signals", {}), size),
-            digilocker=for_size(raw.get("digilocker", {}), size),
+            statuses=for_size(raw.get("statuses", {}), size),
         )
