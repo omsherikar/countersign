@@ -41,7 +41,8 @@ export const NAV: Record<Exclude<Role, "VERIFIER">, NavItem[]> = {
     { label: "nav.cases", href: "/aicte/cases", icon: Inbox, week: 2, available: true },
     { label: "nav.reports", href: "/aicte/reports", icon: FileChartColumn, week: 4, available: false },
     { label: "nav.system", href: "/admin/system", icon: Server, week: 1, available: true },
-    { label: "nav.audit", href: "/admin/audit", icon: ScrollText, week: 3, available: false },
+    { label: "nav.audit", href: "/admin/audit", icon: ScrollText, week: 3, available: true },
+    { label: "nav.data_requests", href: "/admin/data-requests", icon: Shield, week: 3, available: true },
     { label: "nav.psi", href: "/admin/psi", icon: Lock, week: 4, available: false },
   ],
   RO_OFFICER: [
