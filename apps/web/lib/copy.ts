@@ -42,7 +42,7 @@ export const copy = {
   "login.hide": "Hide",
   "login.submit": "Sign in",
   "login.submitting": "Signing in",
-  "login.demo_footer": "Demo passwords are shared and reset nightly. Not for real data.",
+  "login.demo_footer": "Shared demo passwords. Synthetic data only, never real students.",
   "login.card.admin": "AICTE officer / National",
   "login.card.ro_west": "Regional officer / Western (Mumbai)",
   "login.card.abc": "Registrar / ABC College of Engineering",
