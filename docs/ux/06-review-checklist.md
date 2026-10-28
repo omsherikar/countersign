@@ -1,6 +1,8 @@
-# Week 1 review checklist
+# Review checklist
 
 One line per check, pass or fail. Run against the built pages with the seeded data (`make up && make datagen && make seed`), signed in as each demo user. Record the result per page in a table under each section when reviewing. Copy ids refer to `05-copy-deck.md`.
+
+Sections A to K are the Week 1 pages. Sections L to U are the Week 2 pages (`04-pages-later.md` W2-1 to W2-9, API_CONTRACT Addendum 2); from Week 2 the seed also loads the update files, and where a Week 1 line and a Week 2 line disagree (labels, the Countersigned tile, the default sort, nav items) the Week 2 line wins.
 
 ## A. Global (check on every page)
 
@@ -150,3 +152,61 @@ One line per check, pass or fail. Run against the built pages with the seeded da
 - [ ] Login -> `/aicte` -> ABC College detail -> `/ro` -> `/college` -> `/student` -> `/admin/system` can be walked in under 3 minutes without any error toast.
 - [ ] Setting chaos `apaar down` and pressing Ping shows Unavailable; resetting chaos and pinging again shows OK.
 - [ ] `make demo-reset` followed by a page refresh shows the same numbers as the first run.
+
+## L. Week 2 global (check on every Week 2 page)
+
+- [ ] Numbers rule: no screen compares all-year enrolments with one year's seats; no ratio, bar, percentage, difference or "against" sentence pairs Students on roll (`enrolments`) with Approved seats.
+- [ ] Every Approved seats figure (tile, column, cell) is followed directly by Admitted for the same academic year.
+- [ ] Every Students on roll or On roll figure carries "All years of study" (hint or tooltip) and never sits between Approved seats and Admitted.
+- [ ] No fill percentage appears anywhere: no "%" beside seats, admitted or on-roll figures, including state cards.
+- [ ] ABC College CSE 2026-27 reads Approved 120, Admitted 132, Seated 120, Unseated 12 on the /aicte, /ro and /college programme rows, and its flag reads "132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat."
+- [ ] An institution's Admitted figure equals the sum of its programmes' Admitted column.
+- [ ] Flag summaries, evidence facts, check details, row problem messages and batch `error` sentences match the api response character for character; no component builds them from `flag.*.summary` or `check.detail.*`.
+- [ ] Flag types use the `flag.<TYPE>.name` words; "Invalid APAAR", "Ghost ring", "Duplicate in upload", "fraud" and "fake" appear nowhere.
+- [ ] A PENDING check is hollow and never red or crossed on every strip, badge and cell.
+- [ ] Open-flag counts (tiles, cells, tab labels) are ink, never red; severity colour appears only on severity chips.
+- [ ] Upload status words are only Queued, Validating, Processing, Done and Failed; "Checking" never appears as a status.
+- [ ] The word "rejected" appears on no upload screen.
+- [ ] Masked values print exactly as sent (`XXXX XXXX 4417`, `XXXXXX4521`, `<11 characters>`); no page shows a 12-digit APAAR or a 10-digit mobile.
+- [ ] A masked mobile appears only on /student and on enrolment detail for officers and the registrar; never in a table and never for the university.
+- [ ] Enrolment detail, flag detail and the row problems table each carry [privacy.read_logged].
+- [ ] Dates read like `5 Oct 2026` in api sentences and in web-rendered dates; "Sept" appears nowhere.
+- [ ] Nav: the registrar's Upload and Flags and the officers' Cases are live links; Reports, Audit, Notices, My proofs, Degree print and Why this score stay disabled with their week.
+- [ ] No Week 2 page scrolls sideways at 1280, 1024 or 375 px (tables scroll inside their own wrapper).
+- [ ] No Clear, Request documents, Escalate, Confirm or Respond button appears anywhere.
+
+## M. `/college/upload`
+
+- [ ] Heading "Upload admissions file", academic year select at 2026-27, [upload.lead] and [upload.changes_note] present.
+- [ ] "Download CSV template" and "Download XLSX template" save `countersign_upload_template.csv` and `.xlsx` with the 19 headers in §A2.2 order.
+- [ ] The columns panel lists six required and thirteen optional columns in §A2.2 order, in monospace.
+- [ ] No Kind control is shown and no `kind` field is sent.
+- [ ] The declaration text equals [upload.declaration]; pressing Upload without the tick shows "Tick the declaration to upload." under the checkbox, focuses it and sends no request.
+- [ ] A .pdf shows [upload.err_type] and a 21 MB file shows [upload.err_size], both with no network request.
+- [ ] The request through the proxy is `multipart/form-data` with a boundary and carries only `file`, `academic_year` and `declaration=true`.
+- [ ] While sending, the button reads "Sending file, n%" and the inputs are disabled.
+- [ ] A file without `name` and `dob` columns shows "The file is missing required columns: name, dob." and [upload.header_help], stays on the page and keeps the file chosen.
+- [ ] A header-only file shows "The file has a header but no rows."
+- [ ] A second upload while one is running shows [err.UPLOAD_IN_PROGRESS] with a link to the running batch.
+- [ ] A 202 lands on `/college/uploads/{id}` reading Queued or a later status.
+- [ ] Previous uploads has columns File, Uploaded, By, Kind, Source, Status, Rows, Accepted, With errors, With warnings, newest first; seeded batches read "Demo seed"; each row links to its batch page.
+
+## N. `/college/uploads/[batchId]`
+
+- [ ] The header shows the filename and "<Kind> · <Source> · uploaded <date>, <time> IST by <name>".
+- [ ] The rail shows Queued, Validating, Processing, Done in order, the current one marked by icon and word, not colour alone.
+- [ ] While processing, the line reads "Step n of 8: <stage word>" with the `upload_stage.*` words; while queued it reads [upload.queued_note].
+- [ ] The progress bar has `role="progressbar"` with `aria-valuenow` and never goes backwards between polls.
+- [ ] Polling runs every 2 s and stops at Done or Failed (no further `GET /uploads/{id}` in the Network tab).
+- [ ] The done card's numbers equal `counts.accepted`, `.seated`, `.unseated`, `.flags_raised`, and its change line equals `counts.created`, `.updated`, `.unchanged`, `.withdrawn`, `.transferred`, `.released`.
+- [ ] The done card shows [upload.done_note] and links to the seat ledger, enrolments and flags.
+- [ ] Uploading the same file again shows [upload.same_file] and "0 new".
+- [ ] With chaos `apaar down`, the APAAR registry line reads [upload.source_waiting] with `sources[].unavailable` and the batch still reaches Done.
+- [ ] A failed batch shows [upload.failed], the api `error` sentence verbatim, [upload.failed_earlier] and a link to upload again.
+- [ ] Row problems has columns Row, Level, Column, Problem, Value as uploaded; Level is a word with an icon; Column is the template name in monospace.
+- [ ] Each row problem's Problem equals the api `message` and its Value equals `value_masked` (null reads "blank").
+- [ ] The heading count equals the errors endpoint `total`; All, Errors and Warnings send `level` and update the count.
+- [ ] "Download errors as CSV" is a link that saves `<file stem>_errors.csv` with the header `row_no,level,field,code,message,value_masked`.
+- [ ] A batch with no problems shows [upload.errors_none].
+- [ ] The registrar opening another college's batch id sees [err.NOT_FOUND_upload].
+
