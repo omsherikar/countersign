@@ -13,6 +13,8 @@ from app.adapters.base import (
     ApaarResult,
     CounsellingResult,
     DigiLockerResult,
+    JoiningList,
+    JoiningResult,
     RealAdapterDisabled,
     SiiResult,
 )
@@ -56,6 +58,28 @@ class RealCounselling(_RealBase):
         roll_no: str | None = None,
         institution_aicte_id: str | None = None,
     ) -> CounsellingResult:
+        self._guard()
+        raise AssertionError("unreachable")
+
+
+class RealAdmissionAuthority(_RealBase):
+    source = "admission_authority"
+
+    async def joining(
+        self,
+        *,
+        state: str,
+        academic_year: str,
+        name: str,
+        dob: date,
+        institution_code: str,
+        programme: str,
+        roll_no: str | None = None,
+    ) -> JoiningResult:
+        self._guard()
+        raise AssertionError("unreachable")
+
+    async def joinings(self, *, institution_code: str, academic_year: str) -> JoiningList:
         self._guard()
         raise AssertionError("unreachable")
 

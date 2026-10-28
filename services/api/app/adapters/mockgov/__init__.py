@@ -14,6 +14,9 @@ from app.adapters.base import (
     ApaarResult,
     CounsellingResult,
     DigiLockerResult,
+    Joining,
+    JoiningList,
+    JoiningResult,
     Semester,
     SiiResult,
     SourceUnavailable,
@@ -39,11 +42,18 @@ class MockGovClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def request(self, source: str, method: str, path: str, json: Any | None = None) -> Any:
+    async def request(
+        self,
+        source: str,
+        method: str,
+        path: str,
+        json: Any | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
         last_error: SourceUnavailable | None = None
         for _attempt in range(RETRIES + 1):
             try:
-                response = await self._client.request(method, path, json=json)
+                response = await self._client.request(method, path, json=json, params=params)
             except httpx.TimeoutException:
                 last_error = SourceUnavailable(
                     source, f"timeout after {int(self.timeout * 1000)} ms"
@@ -148,6 +158,8 @@ class MockGovAbc(_MockGovBase):
                     credits=int(s["credits"]),
                     uploaded_at=s.get("uploaded_at"),
                     result=s.get("result", "PENDING"),
+                    issuer=s.get("issuer"),
+                    issuer_name=s.get("issuer_name"),
                 )
                 for s in data.get("semesters", [])
             ],
@@ -155,6 +167,85 @@ class MockGovAbc(_MockGovBase):
 
     async def ping(self) -> None:
         await self.credits(PROBE_APAAR_ID, "2026-27")
+
+
+def _date_or_none(value: Any) -> date | None:
+    return date.fromisoformat(value) if value else None
+
+
+class MockGovAdmissionAuthority(_MockGovBase):
+    """The simulated state admission authority (API_CONTRACT C.9, C.10)."""
+
+    source = "admission_authority"
+
+    async def joining(
+        self,
+        *,
+        state: str,
+        academic_year: str,
+        name: str,
+        dob: date,
+        institution_code: str,
+        programme: str,
+        roll_no: str | None = None,
+    ) -> JoiningResult:
+        data = await self.client.request(
+            self.source,
+            "POST",
+            "/admission-authority/joining",
+            {
+                "state": state,
+                "academic_year": academic_year,
+                "name": name,
+                "dob": dob.isoformat(),
+                "roll_no": roll_no,
+                "institution_code": institution_code,
+                "programme": programme,
+            },
+        )
+        return JoiningResult(
+            found=bool(data["found"]),
+            joined_on=_date_or_none(data.get("joined_on")),
+            round=data.get("round"),
+            route=data.get("route"),
+            category=data.get("category"),
+            published=bool(data.get("published", True)),
+        )
+
+    async def joinings(self, *, institution_code: str, academic_year: str) -> JoiningList:
+        data = await self.client.request(
+            self.source,
+            "GET",
+            "/admission-authority/joinings",
+            params={"institution_code": institution_code, "academic_year": academic_year},
+        )
+        return JoiningList(
+            published=bool(data.get("published", True)),
+            items=[
+                Joining(
+                    roll_no=item.get("roll_no"),
+                    name=item["name"],
+                    dob=date.fromisoformat(item["dob"]),
+                    programme=item["programme"],
+                    joined_on=date.fromisoformat(item["joined_on"]),
+                    round=item.get("round"),
+                    route=item["route"],
+                    category=item["category"],
+                    apaar_last4=item.get("apaar_last4"),
+                )
+                for item in data.get("items", [])
+            ],
+        )
+
+    async def ping(self) -> None:
+        await self.joining(
+            state="MH",
+            academic_year="2026-27",
+            name="probe",
+            dob=date(2000, 1, 1),
+            institution_code="0-PROBE-0000",
+            programme="PROBE",
+        )
 
 
 class MockGovDigiLocker(_MockGovBase):

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from app.adapters.base import SOURCES, AdapterSet, RealAdapterDisabled, SourceName
 from app.adapters.inmemory import (
     InMemoryAbc,
+    InMemoryAdmissionAuthority,
     InMemoryApaar,
     InMemoryCounselling,
     InMemoryDigiLocker,
@@ -15,13 +16,21 @@ from app.adapters.inmemory import (
 )
 from app.adapters.mockgov import (
     MockGovAbc,
+    MockGovAdmissionAuthority,
     MockGovApaar,
     MockGovClient,
     MockGovCounselling,
     MockGovDigiLocker,
     MockGovSii,
 )
-from app.adapters.real import RealAbc, RealApaar, RealCounselling, RealDigiLocker, RealSii
+from app.adapters.real import (
+    RealAbc,
+    RealAdmissionAuthority,
+    RealApaar,
+    RealCounselling,
+    RealDigiLocker,
+    RealSii,
+)
 from app.core.config import Settings, get_settings
 
 
@@ -36,6 +45,7 @@ def build_adapters(settings: Settings | None = None) -> AdapterSet:
             abc=InMemoryAbc(),
             digilocker=InMemoryDigiLocker(),
             sii=InMemorySii(),
+            admission_authority=InMemoryAdmissionAuthority(),
         )
     if kind == "mockgov":
         client = MockGovClient(settings.mockgov_base_url, timeout=settings.gov_timeout_seconds)
@@ -46,6 +56,7 @@ def build_adapters(settings: Settings | None = None) -> AdapterSet:
             abc=MockGovAbc(client),
             digilocker=MockGovDigiLocker(client),
             sii=MockGovSii(client),
+            admission_authority=MockGovAdmissionAuthority(client),
             client=client,
         )
     enabled = settings.allow_real_gov_apis
@@ -56,6 +67,7 @@ def build_adapters(settings: Settings | None = None) -> AdapterSet:
         abc=RealAbc(enabled=enabled),
         digilocker=RealDigiLocker(enabled=enabled),
         sii=RealSii(enabled=enabled),
+        admission_authority=RealAdmissionAuthority(enabled=enabled),
     )
 
 
