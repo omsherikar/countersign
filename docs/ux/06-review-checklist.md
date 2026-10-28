@@ -230,7 +230,7 @@ Sections A to K are the Week 1 pages. Sections L to U are the Week 2 pages (`04-
 - [ ] The enrolment block shows "2026-27 approval", year, route with counselling reference, category, "Active since <date>", admitted on, mode and "Row <n> of <file>".
 - [ ] The seat block shows "<seat code> · Regular · 2026-27 approval · assigned <date>", or "No seat held." with a link to the named flag for an unseated student.
 - [ ] The checks table has five rows in order; Detail equals `detail.summary` verbatim; Result uses the copy deck words.
-- [ ] With chaos `apaar down` and a new upload, an affected Identity row reads "Awaiting source", hollow, Detail "APAAR registry did not respond. This check will retry on its own.", plus [check.attempts].
+- [ ] With chaos `apaar down` and a new upload, an affected Identity row reads "Awaiting source", hollow, Detail "APAAR registry did not respond. This check stays pending until a recheck or the next upload.", plus [check.attempts].
 - [ ] A name-review case (similarity 75 to 89) reads "Needs review", not "Awaiting source".
 - [ ] "Recheck pending checks" shows only for the AICTE officer, the regional officer and the registrar, and only when a check other than Student is pending.
 - [ ] After chaos reset, Recheck turns that Identity row to Countersigned and announces "Identity: Pending to Countersigned" in an `aria-live` region.

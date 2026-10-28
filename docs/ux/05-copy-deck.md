@@ -819,7 +819,7 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.NOT_FOUND_generic | We could not find that. |
 | err.VALIDATION_ERROR | Check the highlighted fields. |
 | err.RATE_LIMITED | Too many attempts. Try again in {seconds} s. |
-| err.SOURCE_UNAVAILABLE | {source_name} did not respond. This check will retry on its own. |
+| err.SOURCE_UNAVAILABLE | {source_name} did not respond. This check stays pending until a recheck or the next upload. |
 | err.FILE_TOO_LARGE | The file is larger than 20 MB. Split it by programme and upload each part. |
 | err.TOO_MANY_ROWS | The file has more than 50,000 rows. Split it and upload each part. |
 | err.UNSUPPORTED_FILE_TYPE | Only .csv and .xlsx files can be uploaded. |
@@ -876,7 +876,7 @@ Reference copy of API_CONTRACT §A2.14. The engines write one of these into each
 
 | id | check | result | when | text |
 |---|---|---|---|---|
-| check.detail.unavailable | any | Pending | the source did not answer | {source_name} did not respond. This check will retry on its own. |
+| check.detail.unavailable | any | Pending | the source did not answer | {source_name} did not respond. This check stays pending until a recheck or the next upload. |
 | check.detail.IDENTITY.na_no_apaar | Identity | n/a | no APAAR (consent Refused or Pending) | APAAR not linked; admission is not blocked. |
 | check.detail.IDENTITY.na_international | Identity | n/a | international student | International student; identity is checked through the passport, not APAAR. |
 | check.detail.IDENTITY.fail_malformed | Identity | Not countersigned | malformed APAAR on upload | APAAR as uploaded {problem}; the enrolment was kept without it. |

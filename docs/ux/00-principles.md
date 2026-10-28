@@ -101,7 +101,7 @@ Pattern: `<institution> says you joined <programme> (<academic year>). Is that r
 - Never: "Verify your enrolment immediately", "Action required", deadlines in bold red.
 
 ### Error messages
-- Say what happened, then what to do, in that order. "The APAAR registry did not respond. This check will retry on its own."
+- Say what happened, then what to do, in that order. "The APAAR registry did not respond. This check stays pending until a recheck or the next upload."
 - Never show an error code alone; show the message and keep the code in small text for support: "Ref: SOURCE_UNAVAILABLE".
 - 403 is phrased as a role statement, not a scolding: "This page is for AICTE officers. You are signed in as a registrar."
 
