@@ -876,39 +876,140 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 
 ## 10. Verifier
 
+Public pages, no sign-in, rate limited (D27, D32). They never offer search and never show a field the student did not share.
+
+Entry page (`/verify`)
+
 | id | text |
 |---|---|
+| verify.bar | Verify a proof |
 | verify.heading | Verify an enrolment or degree proof |
-| verify.lead | Scan the QR on the document, or paste the code printed under it. |
+| verify.lead | Scan the QR on the document, or type the code printed under it. |
 | verify.scan | Scan with camera |
+| verify.scan_stop | Stop camera |
+| verify.scan_hint | Hold the QR inside the frame. |
+| verify.scan_unsupported | This browser cannot scan QR codes. Type the code instead. |
+| verify.camera_denied | The camera is not allowed for this page. Type the code instead, or allow the camera in your browser settings. |
 | verify.code_label | Code |
-| verify.placeholder | e.g. K7PQ-3M2X-9ZAB |
+| verify.placeholder | e.g. K7PQ-3M2X-9ZAB-4TNE-W8RC-6HDF |
+| verify.code_hint | 24 letters and digits. Dashes and spaces are optional. |
+| verify.code_format | A code has 24 letters and digits, in 6 groups of 4. Check it and try again. |
 | verify.check | Check |
-| verify.coming | Verification opens in Week 3. Until then no code can be checked here. |
-| verify.what | What you will see: whether the proof is valid, who issued it, and only the fields the student chose to share. Never a full APAAR number. |
+| verify.checking | Checking |
+| verify.paste_link | Have the proof text instead of a code? |
+| verify.paste_label | Proof text |
+| verify.paste_hint | Paste the full text you were given. It is long and starts with eyJ. |
+| verify.paste_check | Check proof text |
+| verify.what | What you will see: whether the proof is valid, who issued it, and only the fields the student chose to share. Never a full APAAR number, and no search: only a proof a student shares can be checked. |
+| verify.about_link | What is Countersign? |
+| verify.about | Countersign is AICTE's way of checking that every enrolment a college reports is backed by independent sources: the APAAR registry, the counselling allotment list, the seat ledger, the Academic Bank of Credits and the student's own reply. A proof shows that check, and only the fields the student chose to share. |
+| verify.rate_limited | Too many checks from this network in a minute. Try again in {seconds} s. |
+
+Result page (`/verify/[code]`, and pasted proof text)
+
+| id | text |
+|---|---|
+| verify.result_title | Proof check |
+| verify.state.VALID | Valid |
+| verify.state.REVOKED | Revoked |
+| verify.state.EXPIRED | Expired |
+| verify.state.INVALID | Not valid |
+| verify.kind.ENROLMENT | Enrolment proof |
+| verify.kind.DEGREE | Degree proof |
 | verify.valid | Valid proof |
 | verify.valid_sub | Issued by Countersign for {institution_name} on {issued_date}. |
-| verify.revocation | Revocation list checked just now. |
+| verify.signature | Signature checked against Countersign's published keys. |
+| verify.revocation | Revocation checked just now. |
+| verify.revocation_at | Revocation checked at {time}. |
+| verify.holder_bound | The student shared this proof for this check, from their own wallet. |
+| verify.pasted_note | Checked from pasted text, so Countersign cannot tell whether it was made for you. Ask the student for a fresh code if that matters. |
+| verify.shared_heading | Shared by the student |
+| verify.not_shared | Nothing else is shown. The student chose what to share. |
 | verify.revoked | This proof has been revoked. |
-| verify.revoked_sub | The student or the issuer withdrew it on {revoked_date}. Ask for a fresh proof. |
+| verify.revoked_sub | AICTE withdrew it, for example because the student left the programme. It no longer confirms anything. Ask the student about it. |
 | verify.expired | This proof has expired. |
-| verify.expired_sub | Proofs are valid for 10 minutes after they are created. Ask for a fresh one. |
-| verify.invalid | This code is not a Countersign proof. |
-| verify.invalid_sub | Check the code and try again. |
-| verify.about_link | What is Countersign? |
+| verify.expired_sub | A shared code works for 10 minutes, and every proof has an end date. Ask the student for a new one. |
+| verify.invalid | This is not a valid Countersign proof. |
+| verify.invalid_sub | The code may be mistyped, or the proof was changed after it was issued. Check the code and try again; if it still fails, do not rely on it. |
+| verify.check_another | Check another proof |
+
+Degree QR result (`/verify/d/[jws]`)
+
+| id | text |
+|---|---|
+| verify.degree_valid | Valid degree proof |
+| verify.degree_sub | Signed by Countersign for {university_name}. |
+| verify.degree_heading | On the degree |
+| verify.degree_printed | Printed proofs are not tied to a phone. Compare the name with the person's photo ID. |
+| verify.degree_wallet | This QR carries a short signed summary of the degree. The graduate's wallet holds the full proof. |
+| verify.degree_revoked_sub | AICTE withdrew this degree proof. It no longer confirms anything. Ask the graduate about it. |
+
+Field labels (the api sends `label` with every disclosed field; these rows mirror them)
+
+| id | text |
+|---|---|
+| verify.field.name | Name |
+| verify.field.institution | Institution |
+| verify.field.programme | Programme |
+| verify.field.academic_year | Academic year |
+| verify.field.year_of_study | Year of study |
+| verify.field.dob | Date of birth |
+| verify.field.apaar_masked | APAAR (masked) |
+| verify.field.countersigned | Checks that agree |
+| verify.field.university | University |
+| verify.field.year_of_award | Year of award |
+| verify.field.proof_id | Proof id |
+
+Result states (D27): the heading, a badge with icon and `verify.state.*` word, and the sub line. VALID shows `verify.kind.*`, `verify.valid_sub`, `verify.signature`, `verify.revocation` (or `verify.revocation_at` when `status_checked_at` is more than a minute old), `verify.holder_bound` when `holder_bound` is true, then `verify.shared_heading` with the `disclosed` fields as label and value pairs in the order sent, then `verify.not_shared`. REVOKED, EXPIRED and INVALID show the heading, the sub line and `verify.check_another`, and no fields. A pasted proof (`POST /verify`) adds `verify.pasted_note` to a VALID result, because its share code is reported, not enforced. A degree QR shows `verify.degree_valid`, `verify.degree_sub`, `verify.signature`, `verify.revocation`, `verify.degree_heading` with its fields, `verify.degree_printed` and `verify.degree_wallet`; revoked uses `verify.revoked` with `verify.degree_revoked_sub`. A 404 `PRESENTATION_NOT_FOUND` shows [err.PRESENTATION_NOT_FOUND]; a 429 shows `verify.rate_limited` with a countdown. Values print as sent: the APAAR is always `XXXX XXXX 4417`, never more.
 
 ## 11. University
 
 | id | text |
 |---|---|
 | university.heading | Affiliated institutions |
-| university.degree_teaser | Degree print opens in Week 3. You will pick a graduating student and print a degree insert with masked APAAR and a QR. |
 | degree.heading | Degree print |
-| degree.print | Print |
+| degree.lead | Graduates of your affiliated institutions. Issue a degree proof, then print the insert with the masked APAAR and a QR anyone can scan. |
+| degree.search | Search by name or the last four digits of APAAR |
+| degree.count | {total} graduates |
+| degree.col.student | Graduate |
+| degree.col.year_of_award | Year of award |
+| degree.col.proof | Degree proof |
+| degree.status.none | Not issued |
+| degree.status.active | Issued {issued_date} |
+| degree.status.revoked | Revoked |
 | degree.issue | Issue degree proof |
-| degree.issue_note | The student can see this proof in their wallet and control what they share from it. |
-| degree.scan_line | Scan to verify at {verify_url} |
+| degree.issue_heading | Issue a degree proof for {student_name}? |
+| degree.issue_body | Countersign signs a degree proof for {programme_name} ({year_of_award}) and puts it in the graduate's wallet. You can then print the insert. |
+| degree.issue_note | The graduate can see this proof in their wallet and choose what they share from it. |
+| degree.issue_revocation_note | If the degree is withdrawn later, AICTE revokes the proof and anyone who scans the printed QR sees Revoked. |
+| degree.issue_confirm | Issue proof |
+| degree.issue_cancel | Cancel |
+| degree.issuing | Issuing |
+| degree.issued_toast | Degree proof issued. It is in {student_name}'s wallet. |
+| degree.print_insert | Print degree insert |
+| degree.pdf | Download PDF |
+| degree.pdf_note | A sample A4 insert with the same QR, for filing or sending. |
+| degree.provisional_note | This graduate has no APAAR, so the insert prints the provisional id. |
+| degree.print_title | Degree insert, {student_name} |
+| degree.print_hint | Print on A4, portrait. Navigation and colours are left out of the printout. |
+| degree.print | Print |
+| degree.print_back | Back to graduates |
+| degree.print.accompanies | This insert accompanies the degree awarded to |
+| degree.print.name | Name |
+| degree.print.programme | Programme |
+| degree.print.institution | Institution |
+| degree.print.year | Year of award |
+| degree.print.apaar | APAAR |
+| degree.print.provisional | Provisional id |
 | degree.apaar_line | APAAR {apaar_masked} |
+| degree.scan_line | Scan to verify at {verify_url} |
+| degree.print.proof_id | Proof id {short_id} |
+| degree.print.issued | Proof issued {issued_date} |
+| degree.print.signed | Signed by Countersign for {university_name}. A changed insert does not verify. |
+
+`/university/degrees` lists `GET /university/graduates?q&page` (D28): Graduate (name, linked to nothing), [col.apaar] (masked APAAR or provisional id), [col.institution], [col.programme], `degree.col.year_of_award`, `degree.col.proof` (`degree.status.*` word with an icon). Row action: `degree.issue` when there is no active degree proof (also after a revoked one), else `degree.print_insert` and `degree.pdf`. The issue sheet shows `degree.issue_heading`, `degree.issue_body`, `degree.issue_note`, `degree.issue_revocation_note` (and `degree.provisional_note` for a graduate without APAAR), then `degree.issue_confirm` and `degree.issue_cancel`. 409 `CREDENTIAL_NOT_ELIGIBLE` shows [err.CREDENTIAL_NOT_ELIGIBLE]; 409 `CREDENTIAL_REVOKED` on print shows [err.CREDENTIAL_REVOKED].
+
+Print view text under the QR: `degree.print.proof_id` and `degree.scan_line`, with `{verify_url}` the verify page's host and path ("localhost:3000/verify"). The QR's own link (`/verify/d/{jws}`, about 350 characters) is never printed as text.
 
 ## 12. Admin and system
 
@@ -990,6 +1091,7 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.NOTICE_LIVE | The student still has a notice they can answer. You can resend once it expires or is not delivered. |
 | err.CREDENTIAL_NOT_ELIGIBLE | A proof cannot be issued for this record yet. Refresh the page to see its current status. |
 | err.CREDENTIAL_REVOKED | This proof has been withdrawn, so it cannot be shared or printed. |
+| err.PRESENTATION_NOT_FOUND | No proof matches this code. Check each group of four and try again. |
 | err.INTERNAL | Something went wrong on our side. Try again. |
 | err.NETWORK | Could not reach Countersign. Check your connection and try again. |
 | err.ref | Ref: {code} |
@@ -1031,7 +1133,8 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | empty.enrolments_student | No college has reported an enrolment for you. |
 | empty.affiliates | No institutions are affiliated to your university in this academic year. |
 | empty.audit | No audit entries. |
-| empty.graduates | No graduating students found. |
+| empty.graduates | No graduates found for your affiliated institutions. |
+| empty.graduates_search | No graduate matches "{q}". Search by name or the last four digits of APAAR. |
 
 ## 15. Check detail sentences
 
