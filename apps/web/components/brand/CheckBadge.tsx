@@ -1,56 +1,46 @@
 import * as React from "react";
-import { Check, Clock, Minus, X } from "lucide-react";
-import { t, tk } from "@/lib/copy";
+import { CalendarClock, Check, Clock, CloudOff, Minus, X, type LucideIcon } from "lucide-react";
+import { stateWord } from "@/lib/checks";
+import { tk } from "@/lib/copy";
+import type { CheckType, EvidenceState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** Mirrors `CheckStatus` and `CheckType` in lib/types.ts (API_CONTRACT.md D). */
-export type CheckStatus = "CONFIRMED" | "CONTRADICTED" | "PENDING" | "NOT_YET_DUE" | "NOT_APPLICABLE" | "SOURCE_UNAVAILABLE";
-export type CheckType = "IDENTITY" | "ADMISSION" | "SEAT" | "STUDYING" | "STUDENT";
+export type { CheckType, EvidenceState };
 
-/** Words from the copy deck: check.* and check.status.* (Countersigned, Not countersigned, Pending, n/a). */
-export const CHECK_TYPE_LABEL = Object.fromEntries(
-  (["IDENTITY", "ADMISSION", "SEAT", "STUDYING", "STUDENT"] as const).map((c) => [c, tk(`check.${c}`)]),
-) as Record<CheckType, string>;
-
-export const CHECK_STATUS_LABEL = Object.fromEntries(
-  (["CONFIRMED", "CONTRADICTED", "PENDING", "NOT_YET_DUE", "NOT_APPLICABLE", "SOURCE_UNAVAILABLE"] as const).map((s) => [s, tk(`check.status.${s}`)]),
-) as Record<CheckStatus, string>;
-
-const STYLE: Record<CheckStatus, { chip: string; Icon: React.ComponentType<{ className?: string }> }> = {
-  CONFIRMED: { chip: "bg-check-pass-soft text-check-pass-ink border-check-pass/40", Icon: Check },
-  CONTRADICTED: { chip: "bg-check-fail-soft text-check-fail-ink border-check-fail/40", Icon: X },
-  PENDING: { chip: "bg-check-pending-soft text-check-pending-ink border-check-pending/40 border-dashed", Icon: Clock },
-  NOT_YET_DUE: { chip: "bg-check-na-soft text-check-na-ink border-check-na/40 border-dotted", Icon: Minus },
-  NOT_APPLICABLE: { chip: "bg-check-na-soft text-check-na-ink border-check-na/40 border-dotted", Icon: Minus },
-  SOURCE_UNAVAILABLE: { chip: "bg-check-pending-soft text-check-pending-ink border-check-pending/40 border-dashed", Icon: Clock },
+/** Icon and hue per evidence state (page spec W4, the marks table). */
+export const STATE_MARK: Record<EvidenceState, { chip: string; ink: string; Icon: LucideIcon }> = {
+  CONFIRMED: { chip: "bg-check-pass-soft text-check-pass-ink border-check-pass/40", ink: "text-check-pass-ink", Icon: Check },
+  CONTRADICTED: { chip: "bg-check-fail-soft text-check-fail-ink border-check-fail/50", ink: "text-check-fail-ink", Icon: X },
+  PENDING: { chip: "bg-check-pending-soft text-check-pending-ink border-check-pending/40 border-dashed", ink: "text-check-pending-ink", Icon: Clock },
+  NOT_YET_DUE: { chip: "bg-check-na-soft text-check-na-ink border-check-na/40 border-dotted", ink: "text-check-na-ink", Icon: CalendarClock },
+  NOT_APPLICABLE: { chip: "bg-check-na-soft text-check-na-ink border-check-na/40 border-dotted", ink: "text-check-na-ink", Icon: Minus },
+  SOURCE_UNAVAILABLE: { chip: "bg-check-pending-soft text-check-pending-ink border-check-pending/40 border-dashed", ink: "text-check-pending-ink", Icon: CloudOff },
 };
 
 export interface CheckBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  status: CheckStatus;
-  /** When given, the badge reads "Identity: Pass" instead of just "Pass". */
+  status: EvidenceState;
+  /** When given, the badge reads "Identity: Confirmed". */
   type?: CheckType;
-  /** Source system that answered, shown in a title tooltip (e.g. "APAAR"). */
-  source?: string;
-  /** Glyph only, label in the accessible name. For dense table cells. */
+  /** Glyph only, the word in the accessible name. For dense table cells. */
   compact?: boolean;
-  /** Overrides the status word, e.g. a pending word from copy deck §3 ("Awaiting source"). */
+  /** Overrides the state word, e.g. "Confirmed: fits approved intake". */
   word?: string;
 }
 
 /**
- * One countersignature. Colour never carries the meaning alone: every badge
- * has a glyph and a word, and the pending/not-applicable states also differ
- * by border style so they survive greyscale print.
+ * One evidence row's state (copy deck §21). Colour never carries the meaning
+ * alone: every badge has a glyph and a word, and the states that hold no
+ * fact also differ by border style so they survive greyscale print.
  */
-export function CheckBadge({ status, type, source, compact = false, word, className, ...rest }: CheckBadgeProps) {
-  const { chip, Icon } = STYLE[status];
-  const statusLabel = word ?? CHECK_STATUS_LABEL[status];
-  const label = type ? `${CHECK_TYPE_LABEL[type]}: ${statusLabel}` : statusLabel;
+export function CheckBadge({ status, type, compact = false, word, className, ...rest }: CheckBadgeProps) {
+  const { chip, Icon } = STATE_MARK[status];
+  const statusLabel = word ?? stateWord(status);
+  const label = type ? `${tk(`check.${type}`)}: ${statusLabel}` : statusLabel;
   return (
     <span
       role="img"
-      aria-label={source ? `${label} (${source})` : label}
-      title={source ? `${label}. ${t("col.source")}: ${source}` : label}
+      aria-label={label}
+      title={tk(`evidence.tip.${status}`)}
       className={cn(
         "inline-flex h-5 items-center gap-1 whitespace-nowrap rounded-chip border px-1.5 text-xs font-medium leading-none",
         compact && "w-5 justify-center px-0",
@@ -60,7 +50,7 @@ export function CheckBadge({ status, type, source, compact = false, word, classN
       {...rest}
     >
       <Icon className="size-3 shrink-0" aria-hidden="true" />
-      {!compact && <span>{type ? CHECK_TYPE_LABEL[type] : statusLabel}</span>}
+      {!compact && <span>{type ? tk(`check.${type}`) : statusLabel}</span>}
       {!compact && type && <span className="opacity-70">{statusLabel}</span>}
     </span>
   );

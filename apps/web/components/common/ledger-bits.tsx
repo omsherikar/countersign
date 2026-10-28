@@ -6,9 +6,6 @@ import type { InstitutionType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-/** The live strip lives in components/countersign; re-exported for the Week 1 callers. */
-export { CountersignStrip } from "@/components/countersign/countersign-strip";
-
 /** "12 unseated" in amber with the ledger tooltip; zero renders a plain "0". */
 export function UnseatedCount({ n }: { n: number }) {
   if (n <= 0) return <span className="text-ink-muted">0</span>;
