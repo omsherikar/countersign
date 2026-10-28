@@ -282,6 +282,10 @@ In `strip.score_pending`, `{pending}` counts pending checks other than Student; 
 | notice_reply.NONE | No reply yet |
 | notice_reply.EXPIRED | No reply (expired) |
 | provisional.label | Provisional id |
+| gender.M | Male |
+| gender.F | Female |
+| gender.O | Other |
+| gender.U | Not stated |
 
 ## 5. Flag names and evidence templates
 
@@ -775,6 +779,8 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.FORBIDDEN_redirect | That page is for {required_roles_words}. You are signed in as {role_word}. |
 | err.NOT_FOUND_institution | This institution is not in your scope or does not exist. |
 | err.NOT_FOUND_upload | This upload is not in your scope or does not exist. |
+| err.NOT_FOUND_enrolment | This enrolment is not in your scope or does not exist. |
+| err.NOT_FOUND_flag | This flag is not in your scope or does not exist. |
 | err.NOT_FOUND_generic | We could not find that. |
 | err.VALIDATION_ERROR | Check the highlighted fields. |
 | err.RATE_LIMITED | Too many attempts. Try again in {seconds} s. |
@@ -813,6 +819,13 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | empty.flags_institution | No flags open. Flags appear here after the first upload is checked. |
 | empty.flags_college | No flags. Flags appear after your upload is checked. Nothing is rejected automatically; an officer reviews every flag. |
 | empty.cases | No open flags. Flags appear here after uploads are checked. |
+| empty.cases_filtered | No flags match these filters. |
+| empty.clear_filters | Clear filters |
+| empty.flags_by_type | No open flags for {academic_year}. |
+| empty.flags_enrolment | No flags name this enrolment. |
+| empty.related | No related enrolments you can see. |
+| empty.checks | Not yet checked. Checks run when the upload is processed. |
+| empty.enrolments_filtered | No enrolments match these filters. |
 | empty.seats | No seats in this pool. |
 | empty.uploads | No uploads yet. |
 | empty.notices_student | You have no notices yet. |
@@ -856,3 +869,123 @@ Reference copy of API_CONTRACT §A2.14. The engines write one of these into each
 | check.detail.STUDENT.pending | Student | Notice not sent yet | until student notices start | Notice not sent yet. |
 
 `{problem}` is, for example, "has 11 digits, expected 12" or "contains characters other than digits". The result column gives the word the web shows beside the sentence (`check.status.*` or `check.pending.*`).
+
+## 16. Enrolment detail
+
+Routes `/aicte/enrolments/[id]`, `/ro/enrolments/[id]`, `/college/enrolments/[id]`, `/university/enrolments/[id]`, from `GET /enrolments/{id}` (API_CONTRACT §A2.11).
+
+| id | text |
+|---|---|
+| enrolment.crumb | Enrolment |
+| enrolment.title | {student_name}, {programme_code} |
+| enrolment.section.student | Student |
+| enrolment.section.enrolment | Enrolment |
+| enrolment.section.checks | Countersign checks |
+| enrolment.section.seat | Seat |
+| enrolment.section.flags | Flags on this enrolment |
+| enrolment.field.institution | Institution |
+| enrolment.field.programme | Programme |
+| enrolment.field.mode | Mode |
+| enrolment.field.intake | Intake |
+| enrolment.intake_value | {cohort_year} approval |
+| enrolment.field.year | Year of study |
+| enrolment.field.route | Admission route |
+| enrolment.field.counselling_ref | Counselling reference |
+| enrolment.field.category | Category |
+| enrolment.field.status | Status |
+| enrolment.status_value | {status_word} since {status_date} |
+| enrolment.field.admitted_on | Admitted on |
+| enrolment.field.uploaded | Uploaded |
+| enrolment.field.source_row | Source row |
+| enrolment.source_row | Row {row_no} of {filename} |
+| enrolment.source_row_none | Not from an upload |
+| enrolment.field.dob | Date of birth |
+| enrolment.field.gender | Gender |
+| enrolment.field.mobile | Mobile |
+| enrolment.field.nationality | Nationality |
+| enrolment.score_label | Countersigned |
+| enrolment.seat_value | {seat_code} · {seat_type_word} · {academic_year} approval · assigned {assigned_date} |
+| enrolment.unseated | No seat held. |
+| enrolment.unseated_flag | See the {flag_name} flag. |
+| col.check | Check |
+| col.result | Result |
+| col.source | Source |
+| col.checked_at | Checked |
+| col.detail | Detail |
+
+The Result cell uses `check.status.*`, or for PENDING the pending word from §3. The Detail cell prints `detail.summary` verbatim; when `attempts` is above 0, [check.attempts] follows in small text. A null `checked_at` prints [check.never]. Mobile prints `mobile_masked` exactly as sent; a null value leaves the line out. `enrolment.unseated_flag` takes the SEAT check's `detail.flag_type` and links to that flag in `flags` when it is there. The footer carries [privacy.read_logged].
+
+## 17. Recheck
+
+`POST /enrolments/{id}/recheck` (AICTE officer, regional officer, the registrar for their own college) and `POST /institutions/{id}/recheck` (AICTE officer, regional officer), API_CONTRACT §A2.12 and §A2.13.
+
+| id | text |
+|---|---|
+| recheck.enrolment | Recheck pending checks |
+| recheck.enrolment_tip | Asks the sources again for this enrolment's pending checks. The student check waits for the student's reply and is not rechecked. |
+| recheck.institution | Recheck pending checks |
+| recheck.institution_tip | Asks the sources again for every pending check of this institution's active enrolments in {academic_year}. Use it after a source comes back. The student check is not rechecked. |
+| recheck.running | Rechecking |
+| recheck.result_heading | Recheck finished |
+| recheck.result_line | {check}: {before_word} to {after_word} |
+| recheck.still_pending | {check}: still pending |
+| recheck.none | Nothing to recheck. No check other than the student's reply is pending. |
+| recheck.flags_raised | {n} new flags raised. |
+| recheck.institution_result | {rechecked} pending checks asked again in {seconds} s: {now_pass} now countersigned, {now_fail} not countersigned, {now_na} n/a, {still_pending} still pending. |
+
+The enrolment button shows only when a check other than Student is PENDING. Each item of `results` prints `recheck.result_line` with `check.status.*` words, or `recheck.still_pending` when `after` is PENDING; `rechecked: 0` prints `recheck.none`; `flags_raised` above 0 adds `recheck.flags_raised`. `{seconds}` is `duration_ms` / 1000 with one decimal. A 429 shows [err.RATE_LIMITED] and counts down `details.retry_after` on the button.
+
+## 18. Flag list and detail
+
+Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/flags`, and flag detail, from `GET /flags` and `GET /flags/{id}` (API_CONTRACT §A2.15, §A2.16). Read only until officer actions arrive in Week 3.
+
+| id | text |
+|---|---|
+| flags.heading_college | Flags against your college |
+| flags.see_all | See all flags |
+| flags.filter.status | Status |
+| flags.filter.severity | Severity |
+| flags.filter.type | Type |
+| flags.filter.institution | Institution |
+| flags.filter.state | State |
+| flags.filter.programme | Programme |
+| flags.filter.all | All |
+| flags.search | Search evidence, institution or permanent id |
+| flags.sort.severity_desc | Most severe first |
+| flags.sort.created_desc | Newest first |
+| flags.sort_tip | Most severe first, then oldest first |
+| table.count.flags_any | {total} flags in {institutions} institutions |
+| table.count.flags_one | {total} open flags |
+| col.severity | Severity |
+| col.flag_type | Type |
+| col.institution | Institution |
+| col.evidence | Evidence |
+| col.related | Related |
+| col.related_tip | Enrolments this flag names that you can see |
+| col.opened | Opened |
+| col.assignee | Assignee |
+| flag.chip | {type_name}, {severity_word} |
+| flag.meta | {severity_word} · {status_word} · opened {created_date} |
+| flag.where | {institution_name} · {programme_code} · {academic_year} |
+| flag.where_no_programme | {institution_name} · {academic_year} |
+| flag.facts.label | Fact |
+| flag.facts.value | Value |
+| flag.facts.source | Source |
+| flag.rule | Rule: {rule_source} |
+| flag.enrolment_heading | Enrolment this flag is about |
+| flag.related_heading | Related enrolments ({n}) |
+| flag.related_hidden | {n} related enrolments at another institution are not shown to your college. |
+| flag.readonly_officer | Read only for now. Clearing, requesting documents, escalating and confirming open in Week 3. |
+| flag.readonly_college | Read only. An officer reviews every flag. If they ask for documents, you will be able to respond here from Week 3. |
+
+Count line: with the status filter on Open use [table.count.flags]; with any other status filter use `table.count.flags_any`; on one institution's Flags tab and on `/college/flags` use `table.count.flags_one`. `{institutions}` is the response's `institutions`. The Evidence cell prints `summary` verbatim on one line, truncated, with the full sentence on focus and hover. Opened prints the `created_at` date. The Assignee column is hidden while every `assignee` is null. History shows one line, [case.history.opened] with the `created_at` time. `flag.related_hidden` shows when `related_hidden` is above 0. `flag.chip` is the accessible name of a flag chip in an enrolment row.
+
+## 19. Dashboard flags
+
+| id | text |
+|---|---|
+| section.flags_by_type | Open flags by type |
+| flags_by_type.link | Show {type_name} cases |
+| flags_by_type.total | {total} open flags |
+
+`flags_by_type` rows with `open: 0` are hidden; when every row is 0 the panel shows [empty.flags_by_type]. Each row names the type with `flag.<TYPE>.name` and links to the case queue filtered by that type with status Open. Counts are ink with weight; severity colour appears only on severity chips, never on a count.
