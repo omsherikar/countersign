@@ -112,7 +112,7 @@ export function EnrolmentsTable({
               </th>
               <th scope="col">{t("col.countersign")}</th>
               <th scope="col">{t("col.flags")}</th>
-              <th scope="col" className="num hidden 2xl:table-cell">
+              <th scope="col" className="num hidden xl:table-cell">
                 {t("col.uploaded")}
               </th>
             </tr>
@@ -167,7 +167,7 @@ export function EnrolmentsTable({
                     </span>
                   )}
                 </td>
-                <td className="num hidden text-ink-muted 2xl:table-cell">{formatDate(e.uploaded_at)}</td>
+                <td className="num hidden text-ink-muted xl:table-cell">{formatDate(e.uploaded_at)}</td>
               </tr>
             ))}
           </tbody>
