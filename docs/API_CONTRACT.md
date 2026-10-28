@@ -898,3 +898,100 @@ Placeholder words: `{source_name}` from copy deck `source.*` (APAAR registry, Co
 | STUDENT | PENDING | Week 2, always | `Notice not sent yet.` |
 
 Status words on the web: PASS, FAIL and NA as in the copy deck (`check.status.*`). PENDING depends on the detail; proposed copy keys (UX owns the words): `check.pending.unavailable` "Awaiting source" when `source_unavailable`, `check.pending.review` "Needs review" when `needs_review`, `check.pending.student` "Not sent yet" for STUDENT, `check.pending.results` "Awaiting results" for STUDYING with `awaiting_semester`.
+
+### A2.15 `GET /flags` (read-only in Week 2)
+
+Roles: `AICTE_ADMIN` (all), `RO_OFFICER` (flags whose institution is in its region), `INSTITUTION` (flags against its own institution, redacted as in §A2.16). `UNIVERSITY`, `STUDENT`: 403.
+
+Query: `page`, `page_size`, `type?`, `severity?`, `status?` (no default: all statuses; the case queue sends `status=OPEN`), `institution_id?`, `programme_id?`, `state?` (state code), `academic_year?`, `q?` (case-insensitive substring of the summary, the institution name or its `aicte_permanent_id`), `sort?` = `severity_desc` (default: HIGH, MEDIUM, LOW, then oldest first) | `created_desc` (newest first).
+
+```json
+200 {
+  "items": [
+    {
+      "id": "f1f1f1f1-7777-4888-8999-000011112222",
+      "type": "EXCESS_ADMISSION",
+      "severity": "HIGH",
+      "status": "OPEN",
+      "institution": { "id": "a0b1c2d3-1111-4222-8333-444455556666", "name": "ABC College of Engineering", "aicte_permanent_id": "1-ABC-0001", "state_code": "MH", "state_name": "Maharashtra", "region": "WEST" },
+      "programme": { "id": "p1...", "code": "CSE", "name": "B.Tech Computer Science and Engineering" },
+      "enrolment_id": null,
+      "academic_year": "2026-27",
+      "summary": "132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat.",
+      "related_count": 12,
+      "assignee": null,
+      "created_at": "2026-10-28T10:02:20Z",
+      "updated_at": "2026-10-28T10:02:20Z"
+    }
+  ],
+  "total": 37, "page": 1, "page_size": 25,
+  "institutions": 9
+}
+```
+
+`institutions` is the number of distinct institutions across the whole filtered set (the "37 open flags in 9 institutions" line). `assignee` is `{id, name} | null`, always null in Week 2. `related_count` counts the related enrolments the caller may see.
+
+`FlagSummary`, used in enrolment detail: `{id, type, severity, status, summary, created_at}`.
+
+### A2.16 `GET /flags/{id}`
+
+Same roles and scoping; outside scope 404 "Flag not found.". Writes READ audit entries for the students in `enrolment` and `related_enrolments`.
+
+```json
+200 {
+  "id": "f1f1f1f1-7777-4888-8999-000011112222",
+  "type": "EXCESS_ADMISSION", "severity": "HIGH", "status": "OPEN",
+  "institution": { "id": "a0b1...", "name": "ABC College of Engineering", "aicte_permanent_id": "1-ABC-0001", "state_code": "MH", "state_name": "Maharashtra", "region": "WEST" },
+  "programme": { "id": "p1...", "code": "CSE", "name": "B.Tech Computer Science and Engineering" },
+  "enrolment_id": null,
+  "academic_year": "2026-27",
+  "summary": "132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat.",
+  "evidence": {
+    "summary": "132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat.",
+    "facts": [
+      { "label": "Approved intake", "value": "120", "source": "AICTE approval 2026-27" },
+      { "label": "Admitted (active)", "value": "132", "source": "College uploads, Regular and NRI routes" },
+      { "label": "Seated", "value": "120", "source": "Seat ledger" },
+      { "label": "Unseated", "value": "12", "source": "Seat ledger" }
+    ],
+    "related_enrolment_ids": [ "e9...", "e10..." ],
+    "rule_source": "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))"
+  },
+  "enrolment": null,
+  "related_enrolments": [ { ...EnrolmentRow (§A2.10)..., "institution": { "id": "a0b1...", "name": "ABC College of Engineering" } } ],
+  "related_hidden": 0,
+  "related_count": 12,
+  "assignee": null,
+  "history": [],
+  "created_at": "2026-10-28T10:02:20Z",
+  "updated_at": "2026-10-28T10:02:20Z"
+}
+```
+
+- `enrolment`: the flag's own enrolment as an EnrolmentRow plus `institution`, or null for programme-level flags (EXCESS_ADMISSION, QUOTA_BREACH).
+- `related_enrolments`: every enrolment in `evidence.related_enrolment_ids` the caller may see, as EnrolmentRow plus `institution {id, name}`, in the order of the ids. Officers (AICTE_ADMIN, RO_OFFICER) see both sides of a cross-institution flag, whatever the other side's region.
+- **Redaction for `INSTITUTION`**: `summary` and `evidence.summary` are `evidence.summary_for_institution` when the engine stored one; facts with `audience: "OFFICER"` are dropped and facts with `audience: "INSTITUTION"` kept (officers get the reverse; facts without `audience` go to everyone); enrolments of other institutions are removed from `related_enrolments` and `evidence.related_enrolment_ids` and counted in `related_hidden`. The wire never carries `audience`, `summary_for_institution` or `data`.
+- `history` is always `[]` in Week 2; Week 3 fills it from `case_actions`. The page shows "Flag opened" from `created_at`.
+
+### A2.17 Evidence templates per flag type
+
+Stored by the engines in `flags.evidence`, shown verbatim. `summary` is one sentence and never holds a student name or a full id; facts may hold the name as uploaded (only authorised, audited readers see them). Names in the first column follow copy deck `flag.<TYPE>.name`. `{cohort_year}` is the approval year (`2026-27`); for flags that are not about seats `{academic_year}` is the roll year.
+
+| type | severity | `summary` | `facts` (label: value, source) | `rule_source` |
+|---|---|---|---|---|
+| EXCESS_ADMISSION | HIGH | `{admitted} admitted against {approved} approved seats in {programme_code} ({cohort_year}); {unseated} without a seat.` | Approved intake: `{approved}`, AICTE approval {cohort_year}. Admitted (active): `{admitted}`, College uploads, Regular and NRI routes. Seated: `{seated}`, Seat ledger. Unseated: `{unseated}`, Seat ledger. When `peak_unseated` is higher than `unseated`, also Most unseated at once: `{peak_unseated}`, Seat ledger | the REGULAR pool's `rule_source` |
+| QUOTA_BREACH | MEDIUM; HIGH for INTERNATIONAL or NRI more than 2 over | `{admitted} {seat_type_word} admissions against {capacity} {seat_type_word} seats in {programme_code} ({cohort_year}).` | Pool: `{seat_type_word}`, Seat ledger. Capacity: `{capacity}`, rules.yaml. Admitted via route: `{admitted} ({route_words})`, College uploads. Unseated: `{unseated}`, Seat ledger. Rule percentage: `{share}% of approved intake {approved}`, rules.yaml | that pool's `rule_source` |
+| LATE_REFILL | MEDIUM | `Seat {seat_code} assigned on {assigned_date}, after the last admission date {cutoff_date}.` | Seat: `{seat_code}`, Seat ledger. Released on: `{released_date}`, Seat ledger. Assigned on: `{assigned_date}`, College upload {filename}, row {row_no}. Last admission date: `{cutoff_date}`, rules.yaml cutoff_dates | `Last admission date for {cohort_year} (rules.yaml cutoff_dates)` |
+| INVALID_APAAR (not in registry) | HIGH | `APAAR ending {apaar_last4} is not in the APAAR registry.` | APAAR (masked): `XXXX XXXX {apaar_last4}`, College upload. Registry reply: `Not found`, APAAR registry. Checked at: `{checked_date}`, APAAR registry | `APAAR verification` |
+| INVALID_APAAR (malformed) | MEDIUM | `APAAR as uploaded {problem}, so it could not be checked.` | APAAR (masked): `<{n} characters>`, College upload. Registry reply: `Not checked`, APAAR registry. Checked at: `{checked_date}`, Countersign | `APAAR verification` |
+| NAME_MISMATCH (name) | MEDIUM below 75; LOW from 75 to 89 | `Name on upload differs from the APAAR registry (similarity {name_score} of 100).` | Name on upload: `{name}`, College upload. Similarity: `{name_score} of 100`, APAAR registry. Date of birth match: `Yes`, APAAR registry. Checked at: `{checked_date}`, APAAR registry | `APAAR verification` |
+| NAME_MISMATCH (date of birth) | MEDIUM | `Date of birth on upload differs from the APAAR registry.` | Name on upload: `{name}`, College upload. Similarity: `{name_score} of 100`, APAAR registry. Date of birth match: `No`, APAAR registry. Checked at: `{checked_date}`, APAAR registry | `APAAR verification` |
+| DUPLICATE_WITHIN_UPLOAD (one file) | MEDIUM | `Rows {row_a} and {row_b} of {filename} describe the same student.` | Match on: `{match_words}`, Duplicate detection. Row A: `{filename_a}, row {row_a}`, College upload. Row B: `{filename_b}, row {row_b}`, College upload. Names as uploaded: `{name_a} / {name_b}`, College upload | `Upload validation` |
+| DUPLICATE_WITHIN_UPLOAD (two files) | MEDIUM | `Row {row_b} of {filename_b} describes the same student as row {row_a} of {filename_a}.` | as above | `Upload validation` |
+| DUPLICATE_CROSS_INSTITUTION | HIGH with a shared APAAR or passport; MEDIUM by name, date of birth and mobile | `The same student appears as active at {institution_a} and {institution_b} ({academic_year}).` For the institution: `The same student appears as active here and at another institution in {state_b} ({academic_year}).` | Match on: `{match_words}`, Duplicate detection. Institution A programme: `{institution_a}: {programme_a}`, College upload {uploaded_a}. Institution B programme: `{institution_b}: {programme_b}`, College upload {uploaded_b} (audience OFFICER), or `Another institution in {state_b}: {programme_b}` (audience INSTITUTION). Uploaded on: `{uploaded_a} and {uploaded_b}`, College uploads | `One active full-time enrolment per student` |
+| DUAL_ENROLMENT_ALLOWED | LOW | `The student holds two enrolments; one is distance or online, which is permitted.` | Enrolment A mode: `{institution_a}: {programme_a}, {mode_a_word}`, College upload. Enrolment B mode: `{institution_b}: {programme_b}, {mode_b_word}`, College upload (audience OFFICER), or `Another institution in {state_b}: {programme_b}, {mode_b_word}` (audience INSTITUTION). UGC notification: `Pursuing two academic programmes simultaneously, 2022`, UGC | `UGC dual-degree guidelines 2022` |
+| NO_ACADEMIC_ACTIVITY | MEDIUM | `No credits recorded in ABC for {missing} semesters while enrolled in year {year_of_study}.` | Semesters checked: `{expected} ({first_academic_year} to {last_academic_year})`, ABC. Credits found: `Sem 1: 0, Sem 2: 0`, ABC. Last ABC entry: `{last_entry_date}` or `None`, ABC | `ABC credit record` |
+
+Words: `{match_words}` is `Same APAAR`, `Same passport`, or `Name ({name_score} of 100), date of birth and mobile` (whichever matched, joined with "and"); `{mode_word}` is `physical`, `open and distance learning` or `online`; `{route_words}` lists the routes mapped to the pool (`NRI`; `TFW`; `Lateral`; `International`); A is always the flag's own institution and B the other one.
+
+Two changes from copy deck §5, to be mirrored there: QUOTA_BREACH counts `{admitted}` (enrolments by route), because assigned seats can never exceed capacity; LATE_REFILL cites the `rules.yaml` cutoff date instead of APH cl. 6.13(f), which is the lateral-entry vacancy clause.
