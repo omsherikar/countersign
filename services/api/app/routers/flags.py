@@ -47,6 +47,7 @@ from app.schemas.flags import (
     FlagDetail,
     FlagPage,
     FlagRow,
+    MissingStudent,
 )
 
 router = APIRouter(prefix="/flags", tags=["flags"])
@@ -382,6 +383,11 @@ async def build_detail(
     college = user.role is UserRole.INSTITUTION
     decision = (await latest_decisions(session, [flag])).get(flag.id)
     approval = await decisions.approval_view(session, flag)
+    missing: list[dict[str, Any]] = []
+    if flag.type is FlagType.MISSING_FROM_UPLOAD:
+        from app.engine import completeness
+
+        missing = await completeness.missing_for_case(session, flag)
     return FlagDetail(
         **_row(
             user,
@@ -405,6 +411,7 @@ async def build_detail(
         related_hidden=len(flag.related_enrolment_ids) - len(related),
         outstanding_enrolment_ids=[str(i) for i in await decisions.outstanding(session, flag)],
         approval=CaseApproval(**approval) if approval else None,
+        missing_students=[MissingStudent(**m) for m in missing],
         history=[CaseHistoryItem(**item) for item in await cases.history(session, flag, user)],
         allowed_actions=[] if college else cases.allowed_actions(user.role, flag),
         can_respond=college and flag.status is FlagStatus.DOCS_REQUESTED,

@@ -30,6 +30,7 @@ from starlette.datastructures import UploadFile
 from app.core.config import get_settings
 from app.core.deps import RequestId, SessionDep, require_roles
 from app.core.errors import ApiError, not_found
+from app.db.session import session_factory
 from app.engine import pipeline
 from app.engine.upload import mapping as column_mapping
 from app.engine.upload.batches import COUNT_KEYS, batch_in_progress, create_batch
@@ -341,17 +342,23 @@ async def _accept(
 
 
 async def _run_inline(batch_id: uuid.UUID) -> None:
-    """UPLOAD_INLINE: the batch, then its student notices once it is DONE, as the worker
-    would chain them. A notice failure is logged; the batch stays DONE."""
+    """UPLOAD_INLINE: the batch, then its student notices and the college's completeness
+    once it is DONE, as the worker would chain them. A failure in either is logged; the batch
+    stays DONE."""
     batch = await pipeline.run_batch(batch_id)
     if batch.status is not UploadStatus.DONE:
         return
+    from app.engine.completeness import refresh_one
     from app.notices.dispatch import send_notices_for_batch
 
     try:
         await send_notices_for_batch(batch_id)
     except Exception:
         log.exception("could not send student notices", extra={"batch_id": str(batch_id)})
+    try:
+        await refresh_one(session_factory(), batch.institution_id, batch.academic_year)
+    except Exception:
+        log.exception("could not refresh completeness", extra={"batch_id": str(batch_id)})
 
 
 async def _start(session: AsyncSession, batch: UploadBatch, background: BackgroundTasks) -> None:
