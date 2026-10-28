@@ -54,7 +54,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.geo import Region, State, University
-from app.models.institution import Approval, ApprovalVersion, Institution, Programme
+from app.models.institution import Approval, Institution, Programme
 from app.models.seat import SeatPool
 from app.models.student import Student
 from app.models.upload import UploadBatch
@@ -133,34 +133,6 @@ class SeedError(ValueError):
 
 
 # ------------------------------------------------------------------ public API
-
-
-INITIAL_APPROVAL = "Initial approval"
-
-
-async def _keep_current_version(session: AsyncSession, approval: Approval) -> None:
-    """The approval's current version carries its intake; a new approval gets version 1, in
-    force from the day it was recorded, as migration 0004 backfills existing approvals."""
-    version = (
-        await session.execute(
-            select(ApprovalVersion).where(
-                ApprovalVersion.approval_id == approval.id,
-                ApprovalVersion.version == approval.current_version,
-            )
-        )
-    ).scalar_one_or_none()
-    if version is None:
-        session.add(
-            ApprovalVersion(
-                approval_id=approval.id,
-                version=approval.current_version,
-                approved_intake=approval.approved_intake,
-                effective_from=datetime.now(UTC).date(),
-                source=INITIAL_APPROVAL,
-            )
-        )
-    else:
-        version.approved_intake = approval.approved_intake
 
 
 async def import_directory(
@@ -399,7 +371,6 @@ async def _import_programmes(
                 if cutoff:
                     approval.cutoff_date = date.fromisoformat(cutoff)
                 summary.bump("approvals", False)
-            await _keep_current_version(session, approval)
 
             await _import_approval_versions(session, approval, arow.get("versions"), summary)
 

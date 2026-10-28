@@ -2,7 +2,7 @@ import asyncio
 import os
 import subprocess
 import sys
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -22,7 +22,7 @@ from app.models.enums import (
     UploadSource,
     UserRole,
 )
-from app.models.institution import Approval, ApprovalVersion, Institution, Programme
+from app.models.institution import Approval, Institution, Programme
 from app.models.seat import Seat, SeatPool
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
@@ -73,22 +73,6 @@ async def test_import_fixture_then_rerun_is_idempotent(clean_db):
     assert await _count(Student) == 46 and await _count(Enrolment) == 47 and await _count(User) == 7
 
     async with session_factory()() as session:
-        # each approval carries its version 1 with the same intake, once
-        versions = (
-            await session.execute(
-                select(
-                    Approval.academic_year,
-                    Approval.approved_intake,
-                    ApprovalVersion.version,
-                    ApprovalVersion.approved_intake,
-                    ApprovalVersion.effective_from,
-                ).join(ApprovalVersion, ApprovalVersion.approval_id == Approval.id)
-            )
-        ).all()
-        assert len(versions) == 8
-        for _year, intake, version, version_intake, effective_from in versions:
-            assert (version, version_intake) == (1, intake)
-            assert effective_from == datetime.now(UTC).date()
         ok, length, broken = await audit.verify_chain(session)
         assert ok and broken is None and length > 0
 
