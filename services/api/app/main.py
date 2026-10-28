@@ -19,7 +19,17 @@ from app.core.errors import envelope, install_error_handlers
 from app.core.logging import configure_logging
 from app.core.ratelimit import limiter
 from app.db.session import dispose_engine, get_engine
-from app.routers import admin, auth, dashboard, healthz, institutions, meta, students
+from app.routers import (
+    admin,
+    auth,
+    dashboard,
+    enrolments,
+    flags,
+    healthz,
+    institutions,
+    meta,
+    students,
+)
 
 log = logging.getLogger("countersign.api")
 
@@ -113,6 +123,8 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(dashboard.router)
     app.include_router(institutions.router)
+    app.include_router(enrolments.router)
+    app.include_router(flags.router)
     app.include_router(students.router)
     app.include_router(meta.router)
     app.include_router(admin.router)

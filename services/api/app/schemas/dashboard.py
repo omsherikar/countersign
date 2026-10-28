@@ -14,9 +14,11 @@ class Kpis(BaseModel):
     institutions: int
     programmes: int
     approved_seats: int
+    admitted: int = 0
     enrolments: int
     flags_open: int = 0
     countersigned_pct: float | None = None
+    clear_pct: float | None = None
 
 
 class StateRow(BaseModel):
@@ -26,6 +28,7 @@ class StateRow(BaseModel):
     institutions: int
     programmes: int
     approved_seats: int
+    admitted: int = 0
     enrolments: int
     flags_open: int = 0
 
@@ -35,13 +38,20 @@ class RegionRow(BaseModel):
     region_name: str
     institutions: int
     approved_seats: int
+    admitted: int = 0
     enrolments: int
     flags_open: int = 0
+
+
+class FlagTypeCount(BaseModel):
+    type: str
+    open: int
 
 
 class DashboardSummary(BaseModel):
     academic_year: str
     scope: DashboardScope
     kpis: Kpis
+    flags_by_type: list[FlagTypeCount]
     by_state: list[StateRow]
     by_region: list[RegionRow]

@@ -87,7 +87,10 @@ async def test_detail_scope_and_shape(
     assert detail["address_city"] == "Pune" and detail["established_year"] == 2004
     assert detail["region_name"] == "Western (Mumbai)"
     assert detail["integrity_index"] is None and detail["integrity_components"] is None
-    assert detail["flags_open"] == 0 and detail["last_upload"] is None
+    assert detail["flags_open"] == 0
+    last = detail["last_upload"]  # the seeded file is the college's latest upload (A2.20)
+    assert (last["rows"], last["errors"], last["status"]) == (20, 0, "DONE")
+    assert detail["admitted"] == 19 and detail["enrolments"] == 20
     assert [p["code"] for p in detail["programmes"]] == ["CSE", "MBA"]
     cse = detail["programmes"][0]
     assert cse["name"] == "B.Tech Computer Science and Engineering"
