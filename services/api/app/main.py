@@ -32,6 +32,7 @@ from app.routers import (
     meta,
     students,
     uploads,
+    users,
 )
 
 log = logging.getLogger("countersign.api")
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
         enrolments,
         flags,
         cases,
+        users,
         uploads,
         students,
         meta,
