@@ -10,7 +10,7 @@ import type { ProgrammeDetail, SeatPool } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { UnseatedCount } from "@/components/common/ledger-bits";
 
-const COLS = 8;
+const COLS = 9;
 
 /** "Regular 114 of 114", "TFW 4 of 6 (supernumerary)", "International 1 of 18 (6 reserved for CIWG)". */
 export function poolLine(pool: SeatPool): string {
@@ -106,6 +106,7 @@ export function ProgrammesTable({
             <th scope="col">{t("col.programme")}</th>
             <th scope="col">{t("col.level")}</th>
             <th scope="col">{t("col.shift")}</th>
+            <th scope="col">{t("col.mode")}</th>
             <th scope="col" className="num" title={t("col.approved_tip", { academic_year: academicYear })}>
               {t("col.approved")}
             </th>
@@ -143,6 +144,7 @@ export function ProgrammesTable({
                   <td className="wrap min-w-[16rem]">{p.name}</td>
                   <td>{tk(`level.${p.level}`)}</td>
                   <td>{tk(`shift.${p.shift}`)}</td>
+                  <td className="text-ink-muted">{p.mode ? tk(`mode.${p.mode}`) : ""}</td>
                   <td className="num">{formatCount(p.approval.approved_intake)}</td>
                   <td className="num font-medium">
                     {formatCount(p.enrolments)}
