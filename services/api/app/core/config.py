@@ -61,10 +61,20 @@ class Settings(BaseSettings):
     smtp_host: str = "mailpit"
     smtp_port: int = 1025
     mail_from: str = "notices@countersign.demo"
+    # the mailer refuses any other SMTP host unless allow_real_smtp, which is never set
+    smtp_allowed_hosts: Annotated[list[str], NoDecode] = ["mailpit", "localhost", "127.0.0.1"]
+    allow_real_smtp: bool = False
+    notice_from: str = "Countersign <notices@countersign.invalid>"
 
-    @field_validator("cors_origins", mode="before")
+    # Student notices, cases, credentials
+    web_origin: str = "http://localhost:3000"  # base of notice links and verify URLs
+    issuer_url: str = "http://localhost:8000"  # `iss` of credentials, base of the JWKS URL
+    case_files_dir: str = "/data/case-files"
+    demo_mode: bool = False  # enables demo-only tooling such as the audit tamper command
+
+    @field_validator("cors_origins", "smtp_allowed_hosts", mode="before")
     @classmethod
-    def _split_origins(cls, value: object) -> object:
+    def _split_list(cls, value: object) -> object:
         if isinstance(value, str):
             return [v.strip() for v in value.split(",") if v.strip()]
         return value

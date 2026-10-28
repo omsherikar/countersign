@@ -78,6 +78,13 @@ dual_enrolment:
   # UGC 2022: one physical programme plus one ODL/online is allowed
   allowed_modes: [["PHYSICAL", "ODL"], ["PHYSICAL", "ONLINE"]]
 
+notices:
+  # the student notice loop; Countersign service levels, not handbook rules
+  expiry_days: 30          # a notice link can be answered for this many days
+  change_window_days: 7    # one change of answer allowed within this many days of the first reply
+  resend_limit: 3          # resends per enrolment per academic year
+  source: "Countersign DECISIONS D23, D24"
+
 ghost_ring:
   min_component_cross_college: 3
   min_colleges: 2

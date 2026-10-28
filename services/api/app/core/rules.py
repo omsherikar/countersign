@@ -110,6 +110,13 @@ class DualEnrolment(BaseModel):
     allowed_modes: list[list[str]]
 
 
+class Notices(BaseModel):
+    expiry_days: int = Field(gt=0)
+    change_window_days: int = Field(ge=0)
+    resend_limit: int = Field(ge=0)
+    source: str | None = None
+
+
 class GhostRing(BaseModel):
     min_component_cross_college: int
     min_colleges: int
@@ -131,6 +138,7 @@ class Rules(BaseModel):
     name_matching: NameMatching
     cutoff_dates: dict[str, str] = Field(default_factory=dict)
     dual_enrolment: DualEnrolment | None = None
+    notices: Notices
     ghost_ring: GhostRing | None = None
     integrity_index: IntegrityIndex | None = None
 
