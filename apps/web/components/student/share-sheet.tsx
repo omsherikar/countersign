@@ -7,7 +7,7 @@ import { t, tk } from "@/lib/copy";
 import { useCredential, usePresent } from "@/lib/queries-student";
 import type { ClaimKey, CredentialCard, PresentationCreated } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { SheetDialog, bigButton, outlineButton, primaryButton, retryDeadline, useSecondsLeft } from "@/components/student/bits";
+import { QrImage, SheetDialog, bigButton, outlineButton, primaryButton, retryDeadline, useSecondsLeft } from "@/components/student/bits";
 import { deckError, errorCodeOf } from "@/components/student/errors";
 
 /** Deck section 8 order: institution and programme first and locked, then the rest unticked. */
@@ -32,12 +32,6 @@ function verifyPlace(url: string): string {
   } catch {
     return "/verify";
   }
-}
-
-/** The QR from the api as an image, never as injected markup. */
-export function QrImage({ svg, alt, className }: { svg: string; alt: string; className?: string }) {
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`} alt={alt} className={cn("block bg-white", className)} />;
 }
 
 /**

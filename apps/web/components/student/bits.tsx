@@ -200,3 +200,14 @@ export function Disclosure({
     </details>
   );
 }
+
+/* ---- QR ------------------------------------------------------------------ */
+
+/**
+ * A QR from the api's `qr_svg`, drawn as an image from a data URL rather
+ * than injected markup, so nothing in the string can run or restyle the page.
+ */
+export function QrImage({ svg, alt, className }: { svg: string; alt: string; className?: string }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`} alt={alt} className={cn("block bg-white", className)} />;
+}
