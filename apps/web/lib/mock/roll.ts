@@ -57,6 +57,8 @@ export interface RollEntry {
   round: number;
   upload: { batch_id: string; filename: string; row_no: number | null } | null;
   special: Special;
+  /** Set on the planted students so flags.ts finds them, not a generated namesake. */
+  planted?: boolean;
   /** The flag the SEAT and ADMISSION sentences point at when unseated. */
   seatFlagName: string;
   checks: Check[];
@@ -273,7 +275,7 @@ function find(entries: RollEntry[], code: string, year: number, idx: number): Ro
 
 function patchStudent(e: RollEntry, patch: Partial<EnrolmentRow["student"]>, extra: Partial<RollEntry> = {}) {
   e.row.student = { ...e.row.student, ...patch };
-  Object.assign(e, extra);
+  Object.assign(e, extra, { planted: true });
 }
 
 function applyScenarios(aicte: string, entries: RollEntry[]) {
@@ -520,9 +522,9 @@ export function entryById(id: string): RollEntry | undefined {
   return BY_ID.get(id);
 }
 
-/** Finds a planted student by name (scenario wiring in flags.ts). */
+/** Finds a planted student by name (scenario wiring in flags.ts); generated namesakes are skipped. */
 export function entryByName(institutionId: string, name: string, year = 1): RollEntry {
-  const hit = rollFor(institutionId).find((e) => e.row.student.name === name && e.row.year_of_study === year);
+  const hit = rollFor(institutionId).find((e) => e.planted && e.row.student.name === name && e.row.year_of_study === year);
   if (!hit) throw new Error(`mock roll: no ${name} at ${institutionId}`);
   return hit;
 }
