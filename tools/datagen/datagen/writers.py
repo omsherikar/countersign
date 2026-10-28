@@ -230,7 +230,9 @@ def demo_digilocker_accounts(
     return out
 
 
-def write_all(world: World, out: Path, *, xlsx: bool = True, submissions=None) -> dict:
+def write_all(
+    world: World, out: Path, *, xlsx: bool = True, submissions=None, perf: int | None = None
+) -> dict:
     import time
 
     out.mkdir(parents=True, exist_ok=True)
@@ -380,6 +382,12 @@ def write_all(world: World, out: Path, *, xlsx: bool = True, submissions=None) -
         # The deck's sample record (ABC College CSE), or null without the named scenarios.
         "sample_card": sample_card,
     }
+    if perf:
+        from .perf import PerfBuilder
+
+        t = time.perf_counter()
+        manifest["perf"] = PerfBuilder(world, perf).write(out, write_csv, dump_json, dump_jsonl)
+        world.timings["perf"] = time.perf_counter() - t
     dump_json(out / "manifest.json", manifest)
     summary = dict(manifest)
     summary.update(

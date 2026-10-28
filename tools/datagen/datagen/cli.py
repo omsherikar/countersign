@@ -12,7 +12,15 @@ from pathlib import Path
 from .config import Config
 
 
-def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: bool | None = None):
+def generate(
+    size: str,
+    seed: int,
+    out: Path,
+    *,
+    scenarios: bool = True,
+    xlsx: bool | None = None,
+    perf: int | None = None,
+):
     from .anomalies import Planter
     from .eligibility import EligibilityPlanner
     from .graduates import GraduateBuilder
@@ -76,7 +84,7 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     }
     world.timings["joinings_statuses"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
-    summary = write_all(world, out, xlsx=want_xlsx, submissions=submissions)
+    summary = write_all(world, out, xlsx=want_xlsx, submissions=submissions, perf=perf)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)
     with open(out / "summary.json", "w", encoding="utf-8", newline="\n") as fh:
         json.dump(summary, fh, indent=2, ensure_ascii=False)
@@ -127,6 +135,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="also write .xlsx uploads (default from datagen.yaml per size)",
     )
 
+    gen.add_argument(
+        "--perf",
+        type=int,
+        default=None,
+        metavar="N",
+        help="also write perf/: one college with exactly N legitimate rows, for throughput",
+    )
+
     summ = sub.add_parser("summary", help="print summary.json of a generated directory")
     summ.add_argument("dir", type=Path)
     return parser
@@ -141,7 +157,10 @@ def main(argv: list[str] | None = None) -> int:
         return pytest.main(argv[1:])
     args = build_parser().parse_args(argv)
     if args.command == "generate":
-        summary = generate(args.size, args.seed, args.out, scenarios=args.scenarios, xlsx=args.xlsx)
+        summary = generate(
+            args.size, args.seed, args.out, scenarios=args.scenarios, xlsx=args.xlsx,
+            perf=args.perf,
+        )  # fmt: skip
         print_summary(summary)
         return 0
     path = args.dir / "summary.json"
