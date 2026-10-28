@@ -24,6 +24,7 @@ import { Crumbs, SectionHeader, type Crumb } from "@/components/common/page-head
 import { ReadLoggedNote } from "@/components/common/ledger-bits";
 import { CountersignStrip } from "@/components/countersign/countersign-strip";
 import { useMe } from "@/components/providers/root-provider";
+import { NoticeBlock } from "@/components/enrolment/notice-block";
 
 export type EnrolmentVariant = "aicte" | "ro" | "college" | "university";
 
@@ -301,6 +302,8 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
                 <SectionHeader id="checks-heading" title={t("enrolment.section.checks")} />
                 <ChecksTable checks={d.checks} />
               </section>
+
+              {variant !== "university" && <NoticeBlock d={d} officer={officer} />}
             </div>
 
             <aside aria-labelledby="flags-heading" className="min-w-0 lg:col-span-4">

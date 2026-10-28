@@ -136,6 +136,20 @@ export function useResolveDataRequest() {
 
 /* ---- Notices (A3.5) ------------------------------------------------------- */
 
+/**
+ * The student's comment on a No reaches officers only through the Student
+ * denied flag's evidence (A3.7, A3.8); the enrolment never carries it. Shares
+ * the flag detail cache.
+ */
+export function useStudentComment(flagId: string | undefined, label: string) {
+  return useQuery({
+    queryKey: keys.flag(flagId ?? ""),
+    queryFn: () => api.get<FlagDetail>(`/flags/${flagId}`),
+    enabled: Boolean(flagId),
+    select: (flag) => flag.evidence.facts.find((f) => f.label === label)?.value ?? null,
+  });
+}
+
 /** POST /enrolments/{id}/notices/resend; the enrolment refetches so the block and the Student check follow. */
 export function useResendNotice(enrolmentId: string) {
   const qc = useQueryClient();
