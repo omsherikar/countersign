@@ -57,7 +57,7 @@ function PoolsPanel({ programme }: { programme: ProgrammeDetail }) {
         </tbody>
       </table>
       {programme.approval.cutoff_date && (
-        <p className="mt-1.5 text-xs text-ink-muted">Last admission date {formatDate(programme.approval.cutoff_date)}.</p>
+        <p className="mt-1.5 text-xs text-ink-muted">{t("app.pools.cutoff", { date: formatDate(programme.approval.cutoff_date) })}</p>
       )}
     </div>
   );
