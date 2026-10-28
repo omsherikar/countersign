@@ -19,7 +19,10 @@ def test_dates_in_sentences() -> None:
 def test_source_unavailable() -> None:
     detail = ev.source_unavailable("APAAR", "HTTP 503")
     assert detail == {
-        "summary": "APAAR registry did not respond. This check will retry on its own.",
+        "summary": (
+            "APAAR registry did not respond. "
+            "This check stays pending until a recheck or the next upload."
+        ),
         "source_unavailable": True,
         "source_error": "HTTP 503",
     }
@@ -231,6 +234,9 @@ def test_quota_breach_evidence() -> None:
         "Rule percentage": "5% of approved intake 120",
     }
     assert evidence["rule_source"] == "APH 2024-27 cl. 2.8(b)"
+    sources = {f["label"]: f["source"] for f in evidence["facts"]}
+    assert sources["Capacity"] == sources["Rule percentage"] == "AICTE approval rules"
+    assert not any("rules.yaml" in (f["source"] or "") for f in evidence["facts"])
 
 
 def test_late_refill_evidence() -> None:
@@ -252,7 +258,12 @@ def test_late_refill_evidence() -> None:
         "value": "5 Oct 2026",
         "source": "College upload 1-ABC-0001_2026-27_update1.csv, row 4",
     }
-    assert evidence["rule_source"] == "Last admission date for 2026-27 (rules.yaml cutoff_dates)"
+    assert evidence["rule_source"] == "Last admission date for 2026-27 (AICTE admission schedule)"
+    assert evidence["facts"][3] == {
+        "label": "Last admission date",
+        "value": "15 Sep 2026",
+        "source": "AICTE admission schedule",
+    }
 
 
 def test_apaar_and_name_evidence() -> None:

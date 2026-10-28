@@ -190,7 +190,7 @@ async def test_withdrawal_releases_and_refill_after_cutoff_is_late(world, sessio
         "College upload 1-T_2026-27_update1.csv, row 4",
     )
     assert flag.evidence["rule_source"] == (
-        "Last admission date for 2026-27 (rules.yaml cutoff_dates)"
+        "Last admission date for 2026-27 (AICTE admission schedule)"
     )
 
     # Re-running the same delta changes nothing.

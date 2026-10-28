@@ -63,6 +63,10 @@ MODE_WORDS = {
     ProgrammeMode.ONLINE: "online",
 }
 
+# Evidence never names a config file (API_CONTRACT A2 errata 6).
+APPROVAL_RULES = "AICTE approval rules"
+ADMISSION_SCHEDULE = "AICTE admission schedule"
+
 AUDIENCE_OFFICER = "OFFICER"
 AUDIENCE_INSTITUTION = "INSTITUTION"
 
@@ -123,7 +127,10 @@ def source_unavailable(
     source: str, error: str | None = None, *, disabled: bool = False
 ) -> dict[str, Any]:
     detail: dict[str, Any] = {
-        "summary": f"{SOURCE_NAMES[source]} did not respond. This check will retry on its own.",
+        "summary": (
+            f"{SOURCE_NAMES[source]} did not respond. "
+            "This check stays pending until a recheck or the next upload."
+        ),
         "source_unavailable": True,
     }
     if disabled:
@@ -486,10 +493,10 @@ def late_refill(
             fact("Seat", seat_code, "Seat ledger"),
             fact("Released on", fmt_date(released_on) if released_on else "Unknown", "Seat ledger"),
             fact("Assigned on", fmt_date(assigned_on), upload_source(filename, row_no)),
-            fact("Last admission date", fmt_date(cutoff), "rules.yaml cutoff_dates"),
+            fact("Last admission date", fmt_date(cutoff), ADMISSION_SCHEDULE),
         ],
         related,
-        f"Last admission date for {cohort_year} (rules.yaml cutoff_dates)",
+        f"Last admission date for {cohort_year} ({ADMISSION_SCHEDULE})",
     )
 
 
@@ -562,7 +569,7 @@ def quota_breach(
     route_words = "; ".join(ROUTE_WORDS[r] for r in routes)
     facts = [
         fact("Pool", word, "Seat ledger"),
-        fact("Capacity", capacity, "rules.yaml"),
+        fact("Capacity", capacity, APPROVAL_RULES),
         fact("Admitted via route", f"{admitted} ({route_words})", "College uploads"),
         fact("Unseated", unseated, "Seat ledger"),
     ]
@@ -571,7 +578,7 @@ def quota_breach(
             fact(
                 "Rule percentage",
                 f"{_share_words(share)} of approved intake {approved}",
-                "rules.yaml",
+                APPROVAL_RULES,
             )
         )
     return _evidence(
