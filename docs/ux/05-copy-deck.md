@@ -232,9 +232,21 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 | flag_status.CONFIRMED | Confirmed |
 | upload_status.QUEUED | Queued |
 | upload_status.VALIDATING | Validating |
-| upload_status.CHECKING | Checking |
+| upload_status.PROCESSING | Processing |
 | upload_status.DONE | Done |
 | upload_status.FAILED | Failed |
+| upload_stage.PARSE | Reading the file |
+| upload_stage.VALIDATE | Checking rows |
+| upload_stage.FILE_DUPLICATES | Looking for repeated rows |
+| upload_stage.UPSERT | Saving students and enrolments |
+| upload_stage.LEDGER | Assigning seats |
+| upload_stage.CHECKS | Checking with sources |
+| upload_stage.DUPLICATES | Looking for duplicates |
+| upload_stage.FLAGS | Raising flags |
+| upload_stage.DONE | Done |
+| upload_source.FILE | File upload |
+| upload_source.API | College system |
+| upload_source.SEED | Demo seed |
 | notice_reply.YES | Confirmed |
 | notice_reply.NO | Denied |
 | notice_reply.NONE | No reply yet |
@@ -293,43 +305,162 @@ Rules for every template: no verdict words (never "fraud", "fake", "illegal"); c
 
 ## 7. Upload
 
+Screens: `/college/upload` (the form) and `/college/uploads/[batchId]` (status and row problems), API_CONTRACT §A2.2 to §A2.9. The api writes each row problem's `message` and a failed batch's `error`; the web prints both verbatim. The `rowerr.*` rows mirror §A2.3 so a reviewer can check them; the browser never rebuilds them.
+
+Status and stage move together (§A2.7): the rail shows the five `upload_status.*` words; the line under it shows the current `upload_stage.*` word. Validating covers Reading the file, Checking rows and Looking for repeated rows; Processing covers the next five stages.
+
+Form
+
 | id | text |
 |---|---|
 | upload.heading | Upload admissions file |
+| upload.lead | One file covers one academic year of your college. It changes only the students in it; students you leave out stay as they are. |
+| upload.year | Academic year |
 | upload.drop | Drop a CSV or XLSX here, or choose a file |
 | upload.choose | Choose file |
+| upload.chosen | {filename}, {size} |
+| upload.remove | Remove file |
 | upload.template | Template |
-| upload.max | Max 20 MB |
+| upload.template_csv | Download CSV template |
+| upload.template_xlsx | Download XLSX template |
+| upload.max | Up to 20 MB and 50,000 rows |
 | upload.columns | Columns expected |
-| upload.kind.INITIAL | Initial upload for this year |
-| upload.kind.UPDATE | Update to an earlier upload |
-| upload.declaration | I declare that every student in this file has consented to their APAAR being used to verify this enrolment, and that the file is true to the college's admission register. |
+| upload.columns_required | Required |
+| upload.columns_optional | Optional |
+| upload.columns_note | Column names are matched ignoring case, spaces and hyphens. Columns Countersign does not use are listed after the upload and ignored. |
+| upload.changes_note | To report a withdrawal or a transfer, upload that student's row again with status Withdrawn or Transferred and the status date. Leave status blank for a new admission. |
+| upload.declaration | I declare that this file is true to the college's admission register, and that each APAAR in it is shared with that student's consent as recorded in the consent column. |
 | upload.submit | Upload |
+| upload.sending | Sending file, {pct}% |
 | upload.err_type | Only .csv and .xlsx files can be uploaded. |
 | upload.err_size | The file is larger than 20 MB. Split it by programme and upload each part. |
 | upload.err_declaration | Tick the declaration to upload. |
+| upload.header_help | Download a template to see the column names Countersign expects. |
+| upload.in_progress_link | See the upload in progress |
+| upload.kind.INITIAL | Initial |
+| upload.kind.UPDATE | Update |
+| upload.kind_tip | The first completed upload of a year is the initial upload and later ones are updates. Countersign sets this; you do not choose it. |
 | upload.previous | Previous uploads |
-| upload.rows | Rows {total} · Accepted {ok} · Errors {error} |
+| col.file | File |
+| col.uploaded_by | By |
+| col.kind | Kind |
+| col.upload_source | Source |
+| col.rows | Rows |
+| col.accepted | Accepted |
+| col.with_errors | With errors |
+| col.with_warnings | With warnings |
+
+Batch page
+
+| id | text |
+|---|---|
+| upload.batch_meta | {kind_word} · {source_word} · uploaded {uploaded_at} by {uploaded_by} |
+| upload.rail_label | Upload status |
+| upload.queued_note | Waiting to start. Uploads are processed one at a time. |
+| upload.step | Step {n} of 8: {stage_word} |
+| upload.progress_label | Progress |
+| upload.rows | Rows {rows} · Accepted {accepted} · With errors {errors} · With warnings {warnings} |
 | upload.checking | Checking against sources |
-| upload.source_waiting | {source}: awaiting source, will retry |
-| upload.failed | This upload could not be processed: {reason}. Accepted rows from earlier uploads are unchanged. |
-| upload.errors_heading | Row errors ({n}) |
-| upload.errors_download | Download errors as CSV |
-| upload.errors_none | No row errors |
-| upload.errors_next | Fix the rows in your file and upload it again as an update. Accepted rows are already in the seat ledger. |
+| upload.source_line | {source_name}: {calls} checked |
+| upload.source_waiting | {source_name} did not respond for {n} checks. Those checks stay pending, not failed, and run again at the next recheck or the next upload of those rows. |
+| upload.same_file | This file was already uploaded on {uploaded_date}. Uploading it again changes nothing. |
+| upload.ignored_columns | Columns not recognised and ignored: {columns} |
+| upload.done_heading | Upload processed |
 | upload.done_summary | {ok} rows accepted · {seated} seats assigned · {unseated} unseated · {flags} flags opened |
-| upload.done_note | Flags are for review by an officer. Nothing has been rejected. |
+| upload.done_changes | {created} new · {updated} updated · {unchanged} unchanged · {withdrawn} withdrawn · {transferred} transferred · {released} seats released |
+| upload.done_note | Flags are for review by an officer. A flag does not remove or change any enrolment. |
+| upload.failed | This upload could not be finished. |
+| upload.failed_earlier | Earlier uploads are unchanged. |
+| upload.upload_again | Upload a file |
 | upload.view_ledger | View seat ledger |
-| college.no_upload_yet | Last upload: none yet. Upload opens in Week 2. |
-| rowerr.APAAR_FORMAT | APAAR must be 12 digits |
-| rowerr.DUPLICATE_IN_FILE | Same APAAR appears on row {other_row} |
-| rowerr.UNKNOWN_PROGRAMME | Programme code {value} is not approved for your college |
-| rowerr.DOB_FORMAT | Date of birth must be YYYY-MM-DD |
-| rowerr.MISSING_REQUIRED | {field} is required |
-| rowerr.ROUTE_INVALID | Admission route must be one of Counselling, Management, NRI, Spot, Lateral, International, TFW |
-| rowerr.YEAR_INVALID | Year of study must be between 1 and 6 |
-| rowerr.CONSENT_INVALID | Consent status must be Linked, Refused, Pending or International |
-| rowerr.PASSPORT_REQUIRED | International students need a passport number |
+| upload.view_enrolments | View enrolments |
+| upload.view_flags | View flags |
+| college.no_upload_yet | Last upload: none yet. |
+| last_upload.line | Last upload {uploaded_date}: {rows} rows, {errors} with errors · {status_word} |
+
+`upload.done_summary` takes `{ok}` = `counts.accepted`, `{seated}`, `{unseated}` and `{flags}` = `counts.flags_raised`. `upload.done_changes` takes the `counts` keys of the same names. `upload.failed` is followed by the batch `error` sentence verbatim, then `upload.failed_earlier`. `upload.same_file` shows when `same_file_as` is set, with its `uploaded_at` as the date. `last_upload.line` reads the institution's `last_upload` (`rows`, `errors`, `status`).
+
+Row errors and warnings
+
+| id | text |
+|---|---|
+| upload.errors_heading | Row errors and warnings ({n}) |
+| upload.errors_filter.all | All |
+| upload.errors_filter.ERROR | Errors |
+| upload.errors_filter.WARNING | Warnings |
+| upload.level.ERROR | Error |
+| upload.level.WARNING | Warning |
+| upload.level_tip.ERROR | This row was not saved. Fix it and upload the row again. |
+| upload.level_tip.WARNING | This row was saved. The value shown was not used, or was recorded as the message says. |
+| col.row | Row |
+| col.level | Level |
+| col.column | Column |
+| col.problem | Problem |
+| col.value | Value as uploaded |
+| upload.value_blank | blank |
+| upload.errors_download | Download errors as CSV |
+| upload.errors_none | No row errors or warnings |
+| upload.errors_next | Fix the rows marked Error and upload them again, on their own or in the whole file. Rows already accepted do not change when you upload them again. |
+
+`{n}` in `upload.errors_heading` is the errors endpoint `total` (entries; a row can have several). The Column cell prints the column name as in the template (`apaar_id`, monospace), with the `field.*` word as its tooltip. The Value cell prints `value_masked` exactly as sent; null prints [upload.value_blank].
+
+Column words (`{field_word}` and column tooltips)
+
+| id | text |
+|---|---|
+| field.apaar_id | APAAR |
+| field.name | Name |
+| field.dob | Date of birth |
+| field.gender | Gender |
+| field.mobile | Mobile |
+| field.email | Email |
+| field.address | Address |
+| field.nationality | Nationality |
+| field.passport_no | Passport number |
+| field.programme_code | Programme code |
+| field.academic_year | Academic year |
+| field.year_of_study | Year of study |
+| field.admission_route | Admission route |
+| field.counselling_ref | Counselling reference |
+| field.category | Category |
+| field.consent_status | Consent status |
+| field.status | Status |
+| field.status_date | Status date |
+| field.admission_date | Admission date |
+
+Row problem messages (mirror of API_CONTRACT §A2.3, written by the api)
+
+| id | level | column | text |
+|---|---|---|---|
+| rowerr.MISSING_REQUIRED | Error | the column | {field_word} is required |
+| rowerr.APAAR_FORMAT | Warning | `apaar_id` | APAAR must be 12 digits |
+| rowerr.DUPLICATE_IN_FILE | Error | `apaar_id` | Same APAAR appears on row {other_row} |
+| rowerr.DUPLICATE_IN_FILE.passport_no | Error | `passport_no` | Same passport number appears on row {other_row} |
+| rowerr.DUPLICATE_IN_FILE.name | Error | `name` | Same student (name, date of birth and mobile) appears on row {other_row} |
+| rowerr.UNKNOWN_PROGRAMME | Error | `programme_code` | Programme code {value} is not approved for your college |
+| rowerr.NO_APPROVAL_FOR_COHORT | Error | `year_of_study` | {programme_code} has no approval for {cohort_year}, the intake of a year {year_of_study} student in {academic_year} |
+| rowerr.DOB_FORMAT | Error | `dob` | Date of birth must be YYYY-MM-DD |
+| rowerr.DOB_IMPLAUSIBLE | Error | `dob` | Date of birth {value} gives an age of {age} at admission; expected 14 to 60 |
+| rowerr.BAD_ENUM.admission_route | Error | `admission_route` | Admission route must be one of Counselling, Management, NRI, Spot, Lateral, International, TFW |
+| rowerr.BAD_ENUM.category | Error | `category` | Category must be one of General, EWS, OBC, SC, ST, Other |
+| rowerr.BAD_ENUM.consent_status | Error | `consent_status` | Consent status must be Linked, Refused, Pending or International |
+| rowerr.BAD_ENUM.status | Error | `status` | Status must be Active, Withdrawn or Transferred |
+| rowerr.BAD_ENUM.gender | Warning | `gender` | Gender must be M, F, O or U; recorded as U |
+| rowerr.YEAR_OF_STUDY_INVALID | Error | `year_of_study` | Year of study must be a whole number between 1 and {max} |
+| rowerr.YEAR_MISMATCH | Error | `academic_year` | Academic year {value} does not match this upload's academic year {academic_year} |
+| rowerr.PASSPORT_REQUIRED | Error | `passport_no` | International students need a passport number |
+| rowerr.NATIONALITY_FORMAT | Error | `nationality` | Nationality must be a two-letter country code, e.g. IN |
+| rowerr.DATE_FORMAT.status_date | Error | `status_date` | Status date must be YYYY-MM-DD |
+| rowerr.DATE_FORMAT.admission_date | Error | `admission_date` | Admission date must be YYYY-MM-DD |
+| rowerr.DATE_IN_FUTURE.status_date | Error | `status_date` | Status date {value} is after the upload date |
+| rowerr.DATE_IN_FUTURE.admission_date | Error | `admission_date` | Admission date {value} is after the upload date |
+| rowerr.MOBILE_FORMAT | Warning | `mobile` | Mobile must be 10 digits; the value was not used |
+| rowerr.EMAIL_FORMAT | Warning | `email` | Email address is not valid; the value was not used |
+| rowerr.CONSENT_CONFLICT.apaar_unused | Warning | `consent_status` | APAAR given but consent is {consent_word}; the APAAR was not used |
+| rowerr.CONSENT_CONFLICT.no_apaar | Warning | `consent_status` | Consent is Linked but no APAAR was given; recorded as Pending |
+| rowerr.NOT_PREVIOUSLY_ENROLLED | Warning | `status` | No earlier enrolment matches this student; recorded as {status_word} with no seat |
+
+`{field_word}` is the `field.*` word of the column (the api uses the same six words for the required columns). `{max}` is the programme's duration, 6 when the programme is unknown. `{consent_word}` is `consent.*`; `{status_word}` is `enrol_status.*`.
 
 ## 8. Student notice and wallet
 
@@ -518,10 +649,18 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.FORBIDDEN | This page is for {required_roles_words}. You are signed in as {role_word}. |
 | err.FORBIDDEN_redirect | That page is for {required_roles_words}. You are signed in as {role_word}. |
 | err.NOT_FOUND_institution | This institution is not in your scope or does not exist. |
+| err.NOT_FOUND_upload | This upload is not in your scope or does not exist. |
 | err.NOT_FOUND_generic | We could not find that. |
 | err.VALIDATION_ERROR | Check the highlighted fields. |
 | err.RATE_LIMITED | Too many attempts. Try again in {seconds} s. |
 | err.SOURCE_UNAVAILABLE | {source} did not respond. This check will retry on its own. |
+| err.FILE_TOO_LARGE | The file is larger than 20 MB. Split it by programme and upload each part. |
+| err.TOO_MANY_ROWS | The file has more than 50,000 rows. Split it and upload each part. |
+| err.UNSUPPORTED_FILE_TYPE | Only .csv and .xlsx files can be uploaded. |
+| err.UPLOAD_HEADER_INVALID | The file is missing required columns: {columns}. |
+| err.UPLOAD_HEADER_DUPLICATE | The column {column} appears more than once. |
+| err.UPLOAD_EMPTY | The file has a header but no rows. |
+| err.UPLOAD_IN_PROGRESS | An upload for this college and year is still being processed. |
 | err.INTERNAL | Something went wrong on our side. Try again. |
 | err.NETWORK | Could not reach Countersign. Check your connection and try again. |
 | err.ref | Ref: {code} |
@@ -530,6 +669,8 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.go_home | Go to my overview |
 | err.tile_failed | Could not load |
 | err.signin | Sign in |
+
+`err.UPLOAD_HEADER_INVALID` takes `{columns}` from `details.missing_columns` joined with ", "; `err.UPLOAD_HEADER_DUPLICATE` is shown once per entry in `details.duplicate_columns`; both are followed by [upload.header_help]. `err.UPLOAD_IN_PROGRESS` is followed by a link [upload.in_progress_link] to `details.batch_id`. A 422 `VALIDATION_ERROR` on `declaration` or `academic_year` shows the api's field message under that field.
 
 `required_roles_words` maps `AICTE_ADMIN` -> "AICTE officers", `RO_OFFICER` -> "regional officers", `INSTITUTION` -> "registrars", `STUDENT` -> "students", `UNIVERSITY` -> "university controllers"; join with " and ".
 
