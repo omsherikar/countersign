@@ -2,12 +2,16 @@
 
 institutions.json -> regions, states, universities, institutions, programmes (with mode),
                      approvals (+ seat pools and seats through engine.seatpools)
+graduates.jsonl   -> when present: students who finished in an earlier year, each with a
+                     GRADUATED enrolment and no seat, batch, checks or flags (graduates.py)
 users.json        -> staff users first, student users after the uploads
 uploads/*.csv     -> every file through run_batch in-process, the same engine a college
                      upload uses (D22): initial files first, sorted by name, then the update
                      files sorted by college and number. A file already seeded unchanged is
                      skipped.
 Every step writes one SEED entry to the audit chain with counts only, never PII.
+Other files in the directory are not read here: notice_replies.jsonl belongs to
+`python -m app.seed.replies`, which runs after the notices are sent.
 """
 
 from __future__ import annotations
@@ -150,6 +154,14 @@ async def import_directory(
     async with factory() as session:
         await import_institutions(session, source / "institutions.json", rules, summary)
         await session.commit()
+
+    graduates_path = source / "graduates.jsonl"
+    if graduates_path.is_file():
+        from app.seed.graduates import import_graduates
+
+        async with factory() as session:
+            await import_graduates(session, graduates_path, summary)
+            await session.commit()
 
     users_path = source / "users.json"
     if users_path.is_file():

@@ -62,13 +62,14 @@ async def test_import_fixture_then_rerun_is_idempotent(clean_db):
         1,
     )
     assert created["enrolments"] == 41 + 2
-    assert await _count(Student) == 42 and await _count(Enrolment) == 43
+    # 42 students and 43 enrolments from the uploads, plus 4 graduates (graduates.jsonl)
+    assert await _count(Student) == 46 and await _count(Enrolment) == 47
     assert "entity" in summary.table() and "1-PQR-0003_2026-27_update1.csv" in summary.table()
 
     again = await import_directory(session_factory(), FIXTURE_DIR)
     assert all(v.created == 0 for v in again.counts.values()), again.counts
     assert [u.status for u in again.uploads] == ["SKIPPED"] * 4
-    assert await _count(Student) == 42 and await _count(Enrolment) == 43 and await _count(User) == 7
+    assert await _count(Student) == 46 and await _count(Enrolment) == 47 and await _count(User) == 7
 
     async with session_factory()() as session:
         ok, length, broken = await audit.verify_chain(session)
@@ -218,13 +219,13 @@ async def test_reset_flag_and_cli(clean_db):
             )
         )
         await session.commit()
-    assert await _count(Student) == 43
+    assert await _count(Student) == 47
 
     result = await asyncio.to_thread(_run_cli, "--from", str(FIXTURE_DIR), "--reset")
     assert result.returncode == 0, result.stderr
     assert "enrolments" in result.stdout and "created" in result.stdout
     assert "seeded 4 upload files, 45 rows, in " in result.stdout
-    assert await _count(Student) == 42
+    assert await _count(Student) == 46
 
 
 async def test_bad_input_fails_loudly(clean_db, tmp_path: Path):

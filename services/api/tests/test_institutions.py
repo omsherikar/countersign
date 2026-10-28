@@ -223,8 +223,9 @@ async def test_seats_are_per_approval_year(three_cohorts):
 
 async def test_enrolments(admin, registrar_abc, registrar_xyz, student):
     abc = await institution_id("1-ABC-0001")
+    roll = {"academic_year": "2026-27"}  # the fixture also holds 2025-26 graduates (D28)
     body = (
-        await registrar_abc.get(f"/institutions/{abc}/enrolments", params={"page_size": 50})
+        await registrar_abc.get(f"/institutions/{abc}/enrolments", params={"page_size": 50, **roll})
     ).json()
     assert body["total"] == 20
     names = [e["student"]["name"] for e in body["items"]]
@@ -277,7 +278,7 @@ async def test_enrolments(admin, registrar_abc, registrar_xyz, student):
     ).json()["total"] == 5
     assert (
         await admin.get(f"/institutions/{abc}/enrolments", params={"academic_year": "2025-26"})
-    ).json()["total"] == 0
+    ).json()["total"] == 3  # the graduates, all GRADUATED
     assert (
         await admin.get(f"/institutions/{abc}/enrolments", params={"status": "WITHDRAWN"})
     ).json()["total"] == 0
@@ -287,7 +288,7 @@ async def test_enrolments(admin, registrar_abc, registrar_xyz, student):
     ).json()["total"] == 4
 
     by_year = (
-        await admin.get(f"/institutions/{abc}/enrolments", params={"sort": "year_desc"})
+        await admin.get(f"/institutions/{abc}/enrolments", params={"sort": "year_desc", **roll})
     ).json()
     assert by_year["items"][0]["year_of_study"] == 2
     by_route = (
