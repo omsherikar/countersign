@@ -17,10 +17,26 @@ async def test_form_body_on_mutating_route_is_415(client):
 async def test_validation_error_lists_fields(client):
     response = await client.post("/auth/login", json={"email": "not-an-email"})
     assert response.status_code == 422
-    body = response.json()
-    assert body["error"]["code"] == "VALIDATION_ERROR"
-    fields = {f["field"] for f in body["error"]["details"]["fields"]}
-    assert fields == {"email", "password"}
+    error = response.json()["error"]
+    assert error["code"] == "VALIDATION_ERROR"
+    assert error["message"] == "email: must be an email address"
+    assert error["details"]["fields"] == [
+        {"field": "email", "message": "must be an email address"},
+        {"field": "password", "message": "Field required"},
+    ]
+
+
+async def test_validation_message_names_the_first_field(client, admin):
+    response = await client.post("/auth/login", json={})
+    assert response.json()["error"]["message"] == "email: field required"
+
+    response = await admin.get("/institutions", params={"page_size": 500})
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["message"] == "page_size: input should be less than or equal to 200"
+    assert error["details"]["fields"] == [
+        {"field": "page_size", "message": "Input should be less than or equal to 200"}
+    ]
 
 
 async def test_malformed_json_is_a_validation_error(client):
@@ -28,7 +44,10 @@ async def test_malformed_json_is_a_validation_error(client):
         "/auth/login", content=b"{not json", headers={"content-type": "application/json"}
     )
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    error = response.json()["error"]
+    assert error["code"] == "VALIDATION_ERROR"
+    assert error["message"] == "body: not valid JSON"
+    assert error["details"]["fields"] == [{"field": "body", "message": "Not valid JSON"}]
 
 
 async def test_method_not_allowed_uses_envelope(client):
