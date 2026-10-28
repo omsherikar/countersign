@@ -253,6 +253,16 @@ async def institution_detail(
             )
         )
 
+    enrolments_total = (
+        await session.execute(
+            select(func.count()).where(
+                Enrolment.institution_id == institution.id,
+                Enrolment.academic_year == get_settings().academic_year,
+                Enrolment.status == EnrolmentStatus.ACTIVE,
+            )
+        )
+    ).scalar_one()
+
     return InstitutionDetail(
         id=str(institution.id),
         aicte_permanent_id=institution.aicte_permanent_id,
@@ -266,6 +276,8 @@ async def institution_detail(
         university_name=university.name if university else None,
         address_city=institution.address_city,
         established_year=institution.established_year,
+        approved_seats=sum(a.approved_intake for _, a in prog_rows),
+        enrolments=enrolments_total,
         programmes=programmes,
     )
 

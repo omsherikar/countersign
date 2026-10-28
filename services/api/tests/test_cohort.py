@@ -51,5 +51,11 @@ async def test_programme_admitted_counts_its_own_cohort(three_cohorts):
         assert row["enrolments"] == 132 + 86 + 50
         kpis = (await admin.get("/dashboard/summary")).json()["kpis"]
         assert kpis["enrolments"] == 132 + 86 + 50
+
+        # The detail carries the same totals as its list row, so a tab badge never
+        # mistakes one cohort's admissions for the whole roll.
+        detail = (await admin.get(f"/institutions/{abc}")).json()
+        assert detail["enrolments"] == row["enrolments"] == 132 + 86 + 50
+        assert detail["approved_seats"] == row["approved_seats"] == 120
     finally:
         await admin.aclose()

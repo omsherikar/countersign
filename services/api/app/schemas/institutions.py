@@ -78,6 +78,10 @@ class InstitutionDetail(BaseModel):
     established_year: int | None
     integrity_index: float | None = None
     integrity_components: dict[str, Any] | None = None
+    # Same totals as the list row: approved intake for the year, every ACTIVE
+    # enrolment in the current academic year (all years of study).
+    approved_seats: int = 0
+    enrolments: int = 0
     flags_open: int = 0
     last_upload: LastUpload | None = None
     programmes: list[ProgrammeDetail]
