@@ -18,6 +18,9 @@ const TIME_SECONDS = new Intl.DateTimeFormat("en-GB", {
   timeZone: TZ,
 });
 
+/** ICU writes September as "Sept" in en-GB and en-IN; the deck and the api sentences say "Sep". */
+const fmtDay = (d: Date) => DATE.format(d).replace(/\bSept\b/, "Sep");
+
 export function formatCount(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "";
   return COUNT.format(n);
@@ -33,7 +36,7 @@ function toDate(value: string): Date {
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "";
   const d = toDate(value);
-  return Number.isNaN(d.getTime()) ? value : DATE.format(d);
+  return Number.isNaN(d.getTime()) ? value : fmtDay(d);
 }
 
 /** "14 Jul 2026, 09:30 IST" */
@@ -41,7 +44,7 @@ export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "";
   const d = toDate(value);
   if (Number.isNaN(d.getTime())) return value;
-  return `${DATE.format(d)}, ${TIME.format(d)} IST`;
+  return `${fmtDay(d)}, ${TIME.format(d)} IST`;
 }
 
 /** "09:30:12" in IST, for "Checked" lines on the system page. */
