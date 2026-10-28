@@ -289,7 +289,7 @@ export function DataRequestsPage() {
               <th scope="col">{t("admin.requests.col.student")}</th>
               <th scope="col">{t("admin.requests.col.details")}</th>
               <th scope="col">{t("admin.requests.col.status")}</th>
-              <th scope="col" className="num">
+              <th scope="col" className="num hidden xl:table-cell">
                 {t("admin.requests.col.resolved")}
               </th>
               <th scope="col">
@@ -327,11 +327,17 @@ export function DataRequestsPage() {
                   <span className="block font-medium">{r.student.name}</span>
                   <MaskedApaar apaarMasked={r.student.apaar_masked} provisionalId={r.student.provisional_id} className="text-xs" />
                 </td>
-                <td className="wrap !h-auto min-w-[18rem] py-2 align-top leading-snug [overflow-wrap:anywhere]">{r.details}</td>
+                <td className="wrap !h-auto min-w-[13rem] py-2 align-top leading-snug [overflow-wrap:anywhere] xl:min-w-[18rem]">{r.details}</td>
                 <td className="!h-auto py-2 align-top">
                   <StatusChip status={r.status} />
+                  {r.resolved_at && (
+                    // Below 1280 px the resolved date sits under the status instead of in its own column.
+                    <span className="mt-1 block text-xs whitespace-nowrap text-ink-muted xl:hidden">
+                      {t("admin.requests.col.resolved")} {formatDate(r.resolved_at)}
+                    </span>
+                  )}
                 </td>
-                <td className="num !h-auto py-2 align-top text-ink-muted">{r.resolved_at ? formatDate(r.resolved_at) : ""}</td>
+                <td className="num hidden !h-auto py-2 align-top text-ink-muted xl:table-cell">{r.resolved_at ? formatDate(r.resolved_at) : ""}</td>
                 <td className="!h-auto py-1.5 align-top">
                   {r.status === "OPEN" && (
                     <Button

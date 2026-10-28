@@ -303,20 +303,29 @@ export function AuditPage() {
                   <td className="whitespace-nowrap text-ink-muted tabular-nums">{formatDateTime(r.at)}</td>
                   <td className={cn(!r.actor_email && "text-ink-muted")}>{actorWord(r)}</td>
                   <td>{tk(`audit_action.${r.action}`)}</td>
-                  <td className="code">{r.entity_type}</td>
+                  <td className="code !h-auto whitespace-normal xl:whitespace-nowrap">
+                    {r.entity_type.split("_").map((part, i) => (
+                      <React.Fragment key={i}>
+                        {i > 0 && (
+                          <>
+                            _<wbr />
+                          </>
+                        )}
+                        {part}
+                      </React.Fragment>
+                    ))}
+                  </td>
                   <td>
                     <Short value={r.entity_id} />
                   </td>
-                  <td>
-                    <span className="flex items-center gap-3">
-                      <Short value={r.hash} tip={t("audit.hash_tip", { hash: r.hash })} />
-                      {isBreak && (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium whitespace-nowrap text-check-fail-ink">
-                          <X className="size-3.5" aria-hidden="true" />
-                          {t("audit.break_marker")}
-                        </span>
-                      )}
-                    </span>
+                  <td className={cn(isBreak && "!h-auto py-1.5")}>
+                    <Short value={r.hash} tip={t("audit.hash_tip", { hash: r.hash })} />
+                    {isBreak && (
+                      <span className="mt-0.5 flex items-start gap-1 text-xs leading-snug font-medium text-check-fail-ink xl:whitespace-nowrap">
+                        <X className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+                        {t("audit.break_marker")}
+                      </span>
+                    )}
                   </td>
                 </tr>
               );
