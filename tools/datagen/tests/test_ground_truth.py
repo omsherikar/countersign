@@ -12,6 +12,15 @@ FLAG_TYPES = {
     "NO_ACADEMIC_ACTIVITY", "STUDENT_DENIED", "GHOST_RING",
 }  # fmt: skip
 NOT_FLAGGED = {"CONSENT_REFUSED_NO_APAAR", "WITHDRAWAL", "TRANSFER"}
+FIXED_SEVERITY = {
+    "EXCESS_ADMISSION": "HIGH",
+    "LATE_REFILL": "MEDIUM",
+    "NAME_MISMATCH": "MEDIUM",
+    "DUPLICATE_WITHIN_UPLOAD": "MEDIUM",
+    "DUPLICATE_CROSS_INSTITUTION": "HIGH",
+    "DUAL_ENROLMENT_ALLOWED": "LOW",
+    "NO_ACADEMIC_ACTIVITY": "MEDIUM",
+}
 APAAR = re.compile(r"[0-9]{12}")
 
 
@@ -50,6 +59,19 @@ def test_record_shape_and_flag_vocabulary(small):
             assert rec["severity_expected"] in {"LOW", "MEDIUM", "HIGH"}
 
 
+def test_severity_follows_the_engine_rules(small):
+    for rec in small.json("ground_truth.json"):
+        flag = rec["expected_flag"]
+        if flag in FIXED_SEVERITY:
+            assert rec["severity_expected"] == FIXED_SEVERITY[flag], rec["note"]
+        elif flag == "INVALID_APAAR":
+            want = "HIGH" if rec["kind"] == "UNKNOWN" else "MEDIUM"
+            assert rec["severity_expected"] == want
+        elif flag == "QUOTA_BREACH":
+            high = rec["seat_type"] in {"NRI", "INTERNATIONAL"} and rec["unseated"] > 2
+            assert rec["severity_expected"] == ("HIGH" if high else "MEDIUM")
+
+
 def test_every_reference_resolves_to_an_upload_row(small):
     for rec in small.json("ground_truth.json"):
         for ref, row in zip(rec["student_refs"], rec["rows"], strict=True):
@@ -82,9 +104,17 @@ def test_abc_cse_132_against_120(small):
     first_years = [r for r in rows if r["programme_code"] == "CSE" and r["year_of_study"] == "1"]
     assert len(first_years) == 132
     assert all(r["admission_route"] not in {"TFW", "INTERNATIONAL", "LATERAL"} for r in first_years)
+    assert Counter(r["admission_route"] == "NRI" for r in first_years)[True] == 6
     rec = next(r for r in small.json("ground_truth.json") if r.get("scenario") == "abc_cse_132")
-    assert rec["approved_intake"] == 120 and rec["admitted"] == 132
+    assert rec["approved_intake"] == 120 and rec["admitted"] == 132 and rec["unseated"] == 12
     assert len(rec["rows"]) == 12
+    # The twelve are the last admitted, so they are the ones the ledger leaves unseated.
+    unseated = {r["row_no"] for r in rec["rows"]}
+    last = max(
+        r["admission_date"] for i, r in enumerate(rows, start=2)
+        if r in first_years and i not in unseated
+    )  # fmt: skip
+    assert all(small.row(r["file"], r["row_no"])["admission_date"] > last for r in rec["rows"])
 
 
 def test_demo_student_and_initials_duplicate(small):

@@ -57,3 +57,28 @@ def test_materially_different_name_shares_no_first_name():
     gen = names.NameGenerator(random.Random(3))
     other = names.materially_different("Priya Sharma", gen, "hindi", "F")
     assert other.split()[0] != "Priya"
+
+
+def test_renamed_variants_keep_the_blocking_key():
+    from datagen.matching import name_key
+
+    gen = names.NameGenerator(random.Random(11))
+    for group in names.GROUPS:
+        for gender in ("M", "F"):
+            for _ in range(15):
+                name = gen.indian_name(group, gender)
+                for variant in (names.with_initials(name), names.transliteration_variant(name)):
+                    assert variant != name
+                    assert name_key(variant, "2007-03-21") == name_key(name, "2007-03-21"), (
+                        name, variant,
+                    )  # fmt: skip
+
+
+def test_materially_different_scores_below_review():
+    from datagen.matching import registry_score
+
+    gen = names.NameGenerator(random.Random(5))
+    for group in names.GROUPS:
+        name = gen.indian_name(group, "M")
+        other = names.materially_different(name, gen, group, "M")
+        assert registry_score(name, other) < 75

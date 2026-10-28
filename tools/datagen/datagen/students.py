@@ -10,6 +10,8 @@ import datetime as dt
 import math
 import random
 import re
+from collections import Counter
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from faker import Faker
@@ -68,15 +70,21 @@ def admission_window(rules: dict, cohort_start: int) -> tuple[dt.date, dt.date]:
     return dt.date(cohort_start, 7, 1), end
 
 
+def share_of(value: int, share: float) -> int:
+    """Whole seats for a share, rounded half up exactly as the api's seatpools module does."""
+    seats = Decimal(str(value)) * Decimal(str(share))
+    return max(0, int(seats.quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+
+
 class Pools:
     """Seat-pool capacities for one approval, computed from rules.yaml."""
 
     def __init__(self, rules: dict, programme: dict, intake: int):
         sp = rules["seat_pools"]
         self.intake = intake
-        self.nri = round_half_up(intake * sp["NRI"]["share"])
-        self.tfw = round_half_up(intake * sp["TFW"]["share"])
-        self.lateral = round_half_up(intake * sp["LATERAL"]["share"])
+        self.nri = share_of(intake, sp["NRI"]["share"])
+        self.tfw = share_of(intake, sp["TFW"]["share"])
+        self.lateral = share_of(intake, sp["LATERAL"]["share"])
         self.regular = intake - self.nri
         share = 0.0
         for slab in sp["INTERNATIONAL"]["slabs"]:
@@ -85,7 +93,20 @@ class Pools:
             if programme["discipline"] in groups and programme["level"] in slab["match"]["level"]:
                 share = slab["share"]
                 break
-        self.international = round_half_up(intake * share)
+        self.international = share_of(intake, share)
+        # One third of the international seats are reserved for CIWG students (Indian
+        # nationals), so a foreign national can take only the rest.
+        self.ciwg = share_of(self.international, sp["INTERNATIONAL"]["ciwg_reserved_fraction"])
+
+    def usable(self) -> dict[str, int]:
+        """Seats a student who is not CIWG can take, per pool."""
+        return {
+            "REGULAR": self.regular,
+            "NRI": self.nri,
+            "TFW": self.tfw,
+            "LATERAL": self.lateral,
+            "INTERNATIONAL": self.international - self.ciwg,
+        }
 
 
 class World:
@@ -115,6 +136,11 @@ class World:
         # Rows that exist only in update files (late refills); they take part in the
         # identity checks below and in the APAAR registry.
         self.update_only_rows: list[dict] = []
+        # (aicte_id, programme_code) -> seat type of a planted EXCESS_ADMISSION or
+        # QUOTA_BREACH in the first-year cohort; nothing else may be added to that cohort.
+        self.seat_cases: dict[tuple[str, str], str] = {}
+        # aicte_id -> the programme whose first-year REGULAR pool its update file refills.
+        self.refill_programmes: dict[str, str] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]
         self.scale = 1.0
@@ -547,9 +573,41 @@ class World:
         inst = self.inst_by_id[aicte_id]
         return next(p for p in inst["programmes"] if p["code"] == code)
 
-    def headroom(self, aicte_id: str, prog: dict) -> int:
-        intake = approved_intake(prog, self.cfg.academic_year) or 0
-        return intake - self.y1_count.get((aicte_id, prog["code"]), 0)
+    # ---------------------------------------------------------------- seats
+
+    def route_pool(self, route: str) -> str:
+        return self.cfg.rules["admission_routes"][route]["pool"]
+
+    def cohort_pools(self, prog: dict, year_of_study: int) -> Pools | None:
+        """Pools of the approval a year-of-study cohort was admitted against, if any."""
+        start = academic_year_start(self.cfg.academic_year) - (year_of_study - 1)
+        intake = approved_intake(prog, academic_year_label(start))
+        return None if intake is None else self.pools(prog, intake)
+
+    def cohort_rows(self, aicte_id: str, code: str, year_of_study: int) -> list[dict]:
+        return [
+            r for r in self.rows_by_inst[aicte_id]
+            if r["programme_code"] == code and r["year_of_study"] == year_of_study
+        ]  # fmt: skip
+
+    def pool_counts(self, aicte_id: str, code: str, year_of_study: int) -> Counter:
+        return Counter(
+            self.route_pool(r["admission_route"])
+            for r in self.cohort_rows(aicte_id, code, year_of_study)
+        )
+
+    def room(self, aicte_id: str, prog: dict, year_of_study: int, route: str) -> int:
+        """Free seats a new non-CIWG admission by `route` would find in its cohort pool.
+        A first-year cohort holding a planted seat case has none to give."""
+        if year_of_study > prog["duration_years"]:
+            return 0
+        if year_of_study == 1 and (aicte_id, prog["code"]) in self.seat_cases:
+            return 0
+        pools = self.cohort_pools(prog, year_of_study)
+        if pools is None:
+            return 0
+        pool = self.route_pool(route)
+        return pools.usable()[pool] - self.pool_counts(aicte_id, prog["code"], year_of_study)[pool]
 
     def pick_row(self, predicate, attempts: int = 20000) -> dict | None:
         n = len(self.all_rows)

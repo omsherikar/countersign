@@ -1,20 +1,27 @@
 """Planted anomalies and the named demo scenarios, each recorded in ground truth.
 
-Ground-truth records follow API_CONTRACT section E (`anomaly_type`, `institution_aicte_id`,
-`programme_code`, `student_refs`, `expected_flag`, `note`) and add `severity_expected`,
-`institution_aicte_ids` and `rows` (file + row_no per referenced upload row) so every
-reference can be resolved mechanically.
+Ground-truth records follow API_CONTRACT section E and A2.24 (`anomaly_type`,
+`institution_aicte_id`, `programme_code`, `student_refs`, `expected_flag`, `note`) and add
+`severity_expected`, `institution_aicte_ids` and `rows` (file + row_no per referenced upload
+row) so every reference can be resolved mechanically.
+
+Every case is planted so the rules in docs/ENGINES.md produce its flag as written: seat
+cases overflow exactly the pool they name and their overflow rows are the last admitted;
+renamed duplicates keep the blocking key and the mobile; registry names of a mismatch
+score below 75. Rows nobody planted stay inside every pool.
 """
 
 from __future__ import annotations
 
 from . import names
 from .institutions import ABC_ID, XYZ_ID, approved_intake
+from .matching import name_key, normalise_name
 from .students import World
 
 SEVERITY = {
     "EXCESS_ADMISSION": "HIGH",
     "QUOTA_BREACH": "MEDIUM",
+    "LATE_REFILL": "MEDIUM",
     "DUPLICATE_WITHIN_UPLOAD": "MEDIUM",
     "DUPLICATE_CROSS_INSTITUTION": "HIGH",
     "DUAL_ENROLMENT_ALLOWED": "LOW",
@@ -24,6 +31,7 @@ SEVERITY = {
     "STUDENT_DENIED": "HIGH",
     "NAME_MISMATCH": "MEDIUM",
 }
+GOVERNMENT_TYPES = {"GOVERNMENT", "GOVERNMENT_AIDED", "UNIVERSITY_DEPARTMENT"}
 
 
 def is_physical(row: dict) -> bool:
@@ -36,6 +44,11 @@ def is_linked(row: dict) -> bool:
 
 def clean_linked_physical(row: dict) -> bool:
     return is_linked(row) and is_physical(row)
+
+
+def quota_severity(seat_type: str, unseated: int) -> str:
+    """ENGINES.md section 10: HIGH when an NRI or INTERNATIONAL pool is more than 2 over."""
+    return "HIGH" if seat_type in {"NRI", "INTERNATIONAL"} and unseated > 2 else "MEDIUM"
 
 
 class Planter:
@@ -57,15 +70,17 @@ class Planter:
         institution_ids: list[str],
         programme_code: str | None,
         note: str,
+        severity: str | None = None,
         **extra,
     ) -> dict:
-        severity = SEVERITY.get(expected_flag) if expected_flag else None
+        if expected_flag and severity is None:
+            severity = SEVERITY[expected_flag]
         for row in rows:
             row["_tags"].append(anomaly_type)
         rec = {
             "anomaly_type": anomaly_type,
             "expected_flag": expected_flag,
-            "severity_expected": severity,
+            "severity_expected": severity if expected_flag else None,
             "institution_aicte_id": institution_ids[0],
             "institution_aicte_ids": institution_ids,
             "programme_code": programme_code,
@@ -80,14 +95,14 @@ class Planter:
 
     # ---------------------------------------------------------------- picks
 
-    def pick_programme(self, predicate=None, exclude_demo: bool = True):
+    def pick_programme(self, predicate=None):
         candidates = []
         for inst in self.w.institutions:
             for prog in inst["programmes"]:
                 key = (inst["aicte_permanent_id"], prog["code"])
                 if key in self.used_programmes or prog["mode"] != "PHYSICAL":
                     continue
-                if exclude_demo and key == (ABC_ID, "CSE"):
+                if key == (ABC_ID, "CSE"):
                     continue
                 if approved_intake(prog, self.cfg.academic_year) is None:
                     continue
@@ -116,9 +131,14 @@ class Planter:
         row.update(overrides)
         return self.w.add_row(row)
 
-    def extra_row(self, inst: dict, prog: dict, year_of_study: int = 1) -> dict:
-        row = self.w.new_student(inst, prog, year_of_study, "MANAGEMENT")
-        return row
+    def extra_route(self, inst: dict) -> str:
+        return "SPOT" if inst["type"] in GOVERNMENT_TYPES else "MANAGEMENT"
+
+    def has_room(self, row: dict, inst: dict, prog: dict, route: str = "MANAGEMENT") -> bool:
+        return self.w.room(inst["aicte_permanent_id"], prog, row["year_of_study"], route) >= 1
+
+    def first_years(self, aicte_id: str, code: str) -> list[dict]:
+        return sorted(self.w.cohort_rows(aicte_id, code, 1), key=lambda r: r["_seq"])
 
     # ----------------------------------------------------------- scenarios
 
@@ -131,7 +151,7 @@ class Planter:
         # 1. "Ravi Kumar Sharma" / "R. K. Sharma": same DOB, mobile and email, no APAAR yet.
         dup = self.copy_row(
             ravi, abc, cse, name=names.with_initials(ravi["name"]), apaar_id="",
-            consent_status="PENDING",
+            consent_status="PENDING", _late=True,
         )  # fmt: skip
         ravi["_tags"].remove("DEMO_STUDENT")
         rec = self.record(
@@ -143,17 +163,24 @@ class Planter:
         ravi["_tags"].append("DEMO_STUDENT")
         rec["demo_student_apaar"] = ravi["apaar_id"]
 
-        # 2. ABC College CSE 2026-27: approved 120, uploaded 132 first-years (11 more + the dup).
-        extras = [self.extra_row(abc, cse) for _ in range(11)]
+        # 2. ABC College CSE 2026-27: approved 120 (REGULAR 114 + NRI 6, both full),
+        # uploaded 132 first-years: 11 more plus the duplicate, admitted last, unseated.
+        extras = [self.w.new_student(abc, cse, 1, "MANAGEMENT") for _ in range(11)]
+        for row in extras:
+            row["_late"] = True
         self.used_programmes.add((ABC_ID, "CSE"))
+        counts = w.pool_counts(ABC_ID, "CSE", 1)
+        pools = w.cohort_pools(cse, 1)
         self.record(
             "EXCESS_ADMISSION", extras + [dup],
             expected_flag="EXCESS_ADMISSION", institution_ids=[ABC_ID], programme_code="CSE",
-            approved_intake=120, admitted=w.y1_count[(ABC_ID, "CSE")], scenario="abc_cse_132",
+            approved_intake=120, admitted=counts["REGULAR"] + counts["NRI"],
+            unseated=counts["REGULAR"] - pools.regular, scenario="abc_cse_132",
             note="ABC College of Engineering uploaded 132 first-years against 120 approved "
             "CSE seats.",
         )  # fmt: skip
-        assert w.y1_count[(ABC_ID, "CSE")] == 132
+        w.seat_cases[(ABC_ID, "CSE")] = "REGULAR"
+        assert w.y1_count[(ABC_ID, "CSE")] == 132 and counts["NRI"] == pools.nri
 
         # 3. Ghost ring: 40 students across three WEST colleges sharing four mobiles.
         ring_ids = [ABC_ID, w.institutions[3]["aicte_permanent_id"],
@@ -193,6 +220,30 @@ class Planter:
         )
         self.plant_dual(src, scenario="legal_dual_abc")
 
+        # 7. Keep one ABC programme out of the seat cases: its update file refills it late.
+        self.reserve_refill_programme(ABC_ID)
+
+    def reserve_refill_programme(self, aicte_id: str) -> str | None:
+        """The programme whose first-year REGULAR pool the college's update file refills:
+        the one closest to full, so topping it up adds the fewest rows."""
+        w = self.w
+        best = None
+        for prog in w.inst_by_id[aicte_id]["programmes"]:
+            key = (aicte_id, prog["code"])
+            if key in self.used_programmes or key in w.seat_cases or prog["mode"] != "PHYSICAL":
+                continue
+            pools = w.cohort_pools(prog, 1)
+            if pools is None or not pools.regular:
+                continue
+            gap = pools.regular - w.pool_counts(aicte_id, prog["code"], 1)["REGULAR"]
+            if best is None or gap < best[0]:
+                best = (gap, prog["code"])
+        if best is None:
+            return None
+        self.used_programmes.add((aicte_id, best[1]))
+        w.refill_programmes[aicte_id] = best[1]
+        return best[1]
+
     # ------------------------------------------------------------- planters
 
     def plant_ring(
@@ -208,6 +259,9 @@ class Planter:
             def ok(r, inst_id=inst_id):
                 if r["_inst"] != inst_id or r["year_of_study"] != 1 or not clean_linked_physical(r):
                     return False
+                # Moving a counselled member to MANAGEMENT must keep it in the same pool.
+                if w.route_pool(r["admission_route"]) != "REGULAR":
+                    return False
                 return exclude_programme != (r["_inst"], r["programme_code"])
             picked = w.pick_rows(k, ok)
             members.extend(picked)
@@ -220,7 +274,7 @@ class Planter:
             row["address"] = addresses[i % len(addresses)]
             if self.rng.random() < 0.6:
                 row["email"] = emails[i % len(emails)]
-            if row["admission_route"] in {"COUNSELLING", "TFW", "LATERAL"}:
+            if row["admission_route"] == "COUNSELLING":
                 row["admission_route"] = "MANAGEMENT"
                 row["counselling_ref"] = ""
                 row["_roll_no"] = ""
@@ -233,14 +287,17 @@ class Planter:
             f"{len(mobiles)} mobile numbers and {len(addresses)} addresses.",
         )  # fmt: skip
 
-    def plant_dual(self, src: dict, scenario: str | None = None) -> None:
+    def plant_dual(self, src: dict, scenario: str | None = None) -> bool:
         w = self.w
         odl = [
             (inst, prog)
             for inst in w.institutions
             for prog in inst["programmes"]
             if prog["mode"] != "PHYSICAL" and inst["aicte_permanent_id"] != src["_inst"]
-        ]
+            and self.has_room(src, inst, prog)
+        ]  # fmt: skip
+        if not odl:
+            return False
         inst, prog = self.rng.choice(odl)
         twin = self.copy_row(src, inst, prog)
         self.record(
@@ -252,95 +309,91 @@ class Planter:
             note=f"Same student in {src['programme_code']} (physical) and {prog['code']} "
             f"({prog['mode']}); permitted under UGC 2022 dual-degree rules.",
         )  # fmt: skip
+        return True
 
     def plant_excess(self) -> None:
-        picked = self.pick_programme(
-            lambda i, p: approved_intake(p, self.cfg.academic_year) >= 60
-        )
+        """Fill the REGULAR pool, then admit `unseated` more: the REGULAR and NRI routes
+        (what EXCESS_ADMISSION counts) end up above the approved intake."""
+        w = self.w
+        picked = self.pick_programme(lambda i, p: approved_intake(p, self.cfg.academic_year) >= 60)
         if not picked:
             return
         inst, prog = picked
+        aid, code = inst["aicte_permanent_id"], prog["code"]
         intake = approved_intake(prog, self.cfg.academic_year)
-        inst_id = inst["aicte_permanent_id"]
+        pools = w.cohort_pools(prog, 1)
+        counts = w.pool_counts(aid, code, 1)
         extra = self.rng.randint(3, max(3, intake // 8))
-        needed = intake - self.w.y1_count.get((inst_id, prog["code"]), 0) + extra
-        rows = [self.extra_row(inst, prog) for _ in range(needed)]
+        fill = pools.regular - counts["REGULAR"]
+        overflow = intake + extra - counts["REGULAR"] - counts["NRI"] - fill
+        route = self.extra_route(inst)
+        for _ in range(fill):
+            w.new_student(inst, prog, 1, route)
+        rows = [w.new_student(inst, prog, 1, route) for _ in range(overflow)]
+        for row in rows:
+            row["_late"] = True
+        w.seat_cases[(aid, code)] = "REGULAR"
         self.record(
             "EXCESS_ADMISSION", rows,
-            expected_flag="EXCESS_ADMISSION", institution_ids=[inst_id],
-            programme_code=prog["code"], approved_intake=intake,
-            admitted=self.w.y1_count[(inst_id, prog["code"])],
-            note=f"{intake + extra} first-years uploaded against {intake} approved seats "
-            f"in {prog['code']}.",
+            expected_flag="EXCESS_ADMISSION", institution_ids=[aid], programme_code=code,
+            approved_intake=intake, admitted=intake + extra, unseated=overflow,
+            note=f"{intake + extra} first-years on REGULAR and NRI routes uploaded against "
+            f"{intake} approved seats in {code}; {overflow} find no REGULAR seat.",
         )  # fmt: skip
 
-    def plant_quota_nri(self) -> None:
-        picked = self.pick_programme(
-            lambda i, p: approved_intake(p, self.cfg.academic_year) >= 60
-            and i["type"] in {"PRIVATE_SELF_FINANCED", "DEEMED"}
-        )
+    def plant_quota(self, seat_type: str) -> None:
+        """Move first-years onto the NRI or INTERNATIONAL route until the pool is over its
+        capacity. The moved rows with the highest sequence are admitted last and stay
+        unseated; the REGULAR pool only shrinks, so no excess admission rides along."""
+        w = self.w
+
+        def fits(inst, prog):
+            if approved_intake(prog, self.cfg.academic_year) < 60:
+                return False
+            if inst["type"] not in {"PRIVATE_SELF_FINANCED", "DEEMED"}:
+                return False
+            return seat_type == "NRI" or w.cohort_pools(prog, 1).international > 0
+
+        picked = self.pick_programme(fits)
         if not picked:
             return
         inst, prog = picked
-        inst_id = inst["aicte_permanent_id"]
-        intake = approved_intake(prog, self.cfg.academic_year)
-        cap = self.w.pools(prog, intake).nri
-        rows = [
-            r for r in self.w.rows_by_inst[inst_id]
-            if r["programme_code"] == prog["code"] and r["year_of_study"] == 1
-        ]  # fmt: skip
-        current = [r for r in rows if r["admission_route"] == "NRI"]
-        target = cap + self.rng.randint(2, 5)
-        converts = [
-            r for r in rows
-            if not r["_tags"] and r["admission_route"] in {"MANAGEMENT", "SPOT"}
-        ]  # fmt: skip
-        self.rng.shuffle(converts)
-        converts = converts[: target - len(current)]
-        for r in converts:
-            r["admission_route"] = "NRI"
-            r["category"] = "GENERAL"
-        self.record(
-            "QUOTA_BREACH", current + converts,
-            expected_flag="QUOTA_BREACH", institution_ids=[inst_id], programme_code=prog["code"],
-            seat_type="NRI", capacity=cap, admitted=len(current) + len(converts),
-            note=f"{len(current) + len(converts)} NRI admissions against {cap} NRI seats "
-            f"(5% of {intake}) in {prog['code']}.",
-        )  # fmt: skip
-
-    def plant_quota_international(self) -> None:
-        picked = self.pick_programme(
-            lambda i, p: approved_intake(p, self.cfg.academic_year) >= 60
-            and i["type"] in {"PRIVATE_SELF_FINANCED", "DEEMED"}
-            and self.w.pools(p, approved_intake(p, self.cfg.academic_year)).international > 0
+        aid, code = inst["aicte_permanent_id"], prog["code"]
+        pools = w.cohort_pools(prog, 1)
+        capacity = pools.nri if seat_type == "NRI" else pools.international
+        usable = pools.usable()[seat_type]
+        current = [r for r in self.first_years(aid, code) if r["admission_route"] == seat_type]
+        target = capacity + (
+            self.rng.randint(2, 5) if seat_type == "NRI" else self.rng.randint(1, 3)
         )
-        if not picked:
-            return
-        inst, prog = picked
-        inst_id = inst["aicte_permanent_id"]
-        intake = approved_intake(prog, self.cfg.academic_year)
-        cap = self.w.pools(prog, intake).international
-        rows = [
-            r for r in self.w.rows_by_inst[inst_id]
-            if r["programme_code"] == prog["code"] and r["year_of_study"] == 1
-        ]  # fmt: skip
-        current = [r for r in rows if r["admission_route"] == "INTERNATIONAL"]
-        target = cap + self.rng.randint(1, 3)
-        converts = [
-            r for r in rows
+        unseated = target - usable
+        movable = [
+            r for r in self.first_years(aid, code)
             if not r["_tags"] and r["admission_route"] in {"MANAGEMENT", "SPOT", "COUNSELLING"}
         ]  # fmt: skip
-        self.rng.shuffle(converts)
-        converts = converts[: target - len(current)]
-        for r in converts:
-            self.w.make_international(r)
-            self.w.set_route(r, inst, "INTERNATIONAL")
+        movable.sort(key=lambda r: (r["admission_route"] == "COUNSELLING", r["_seq"]))
+        need = target - len(current)
+        if len(movable) < need:
+            return
+        movable = movable[:need]
+        movable.sort(key=lambda r: r["_seq"])
+        overflow = movable[len(movable) - unseated :]
+        for row in movable:
+            if seat_type == "INTERNATIONAL":
+                w.make_international(row)
+            w.set_route(row, inst, seat_type)
+        for row in overflow:
+            row["_late"] = True
+        w.seat_cases[(aid, code)] = seat_type
+        words = "NRI" if seat_type == "NRI" else "international"
         self.record(
-            "QUOTA_BREACH", current + converts,
-            expected_flag="QUOTA_BREACH", institution_ids=[inst_id], programme_code=prog["code"],
-            seat_type="INTERNATIONAL", capacity=cap, admitted=len(current) + len(converts),
-            note=f"{len(current) + len(converts)} international admissions against {cap} "
-            f"supernumerary international seats in {prog['code']}.",
+            "QUOTA_BREACH", overflow,
+            expected_flag="QUOTA_BREACH", severity=quota_severity(seat_type, unseated),
+            institution_ids=[aid], programme_code=code, seat_type=seat_type,
+            capacity=capacity, admitted=target, unseated=unseated,
+            approved_intake=pools.intake,
+            note=f"{target} {words} admissions against {capacity} {words} seats in {code}; "
+            f"{unseated} find no seat they may take.",
         )  # fmt: skip
 
     def plant_duplicate_within(self, variant: str) -> None:
@@ -351,21 +404,32 @@ class Planter:
                 return False
             if r["_inst"] == ABC_ID and r["programme_code"] == "CSE":
                 return False
-            if variant == "MOHD" and r["_group"] != "muslim":
+            if variant == "MOHD":
+                if r["_group"] != "muslim":
+                    return False
+                # Swapping one spelling of Mohammed for another keeps the first initial.
+                if not normalise_name(r["name"]).startswith("mohammed "):
+                    return False
+            elif r["_group"] == "muslim":
                 return False
-            if variant != "MOHD" and r["_group"] == "muslim":
-                return False
-            return w.headroom(r["_inst"], r["_prog"]) >= 1 or r["year_of_study"] > 1
+            return self.has_room(r, w.inst_by_id[r["_inst"]], r["_prog"])
 
-        src = w.pick_row(ok)
-        if src is None:
-            return
-        if variant == "INITIALS":
-            alt = names.with_initials(src["name"])
-        elif variant == "TRANSLITERATION":
-            alt = names.transliteration_variant(src["name"])
+        for _ in range(50):
+            src = w.pick_row(ok)
+            if src is None:
+                return
+            if variant == "INITIALS":
+                alt = names.with_initials(src["name"])
+            elif variant == "TRANSLITERATION":
+                alt = names.transliteration_variant(src["name"])
+            else:
+                alt = names.mohd_variant(src["name"], self.rng)
+            if alt != src["name"] and name_key(alt, src["dob"]) == name_key(
+                src["name"], src["dob"]
+            ):
+                break
         else:
-            alt = names.mohd_variant(src["name"], self.rng)
+            return
         inst = w.inst_by_id[src["_inst"]]
         dup = self.copy_row(
             src, inst, src["_prog"], name=alt, apaar_id="", consent_status="PENDING"
@@ -393,8 +457,7 @@ class Planter:
             if inst["aicte_permanent_id"] != src["_inst"]
             for prog in inst["programmes"]
             if prog["mode"] == "PHYSICAL" and prog["level"] == level
-            and (src["year_of_study"] > 1 or w.headroom(inst["aicte_permanent_id"], prog) >= 1)
-            and approved_intake(prog, "2025-26" if src["year_of_study"] == 2 else "2026-27")
+            and self.has_room(src, inst, prog)
         ]  # fmt: skip
         if not targets:
             return
@@ -416,20 +479,17 @@ class Planter:
             return
         if kind == "SHORT":
             row["apaar_id"] = w.new_apaar()[:11]
-            row["_registry"] = "absent"
         elif kind == "LONG":
             row["apaar_id"] = w.new_apaar() + self.rng.choice("0123456789")
-            row["_registry"] = "absent"
         elif kind == "LETTERS":
             row["apaar_id"] = w.new_apaar()[:10] + "AB"
-            row["_registry"] = "absent"
         else:  # UNKNOWN: well-formed but not in the registry
             row["apaar_id"] = w.new_apaar()
-            row["_registry"] = "absent"
+        row["_registry"] = "absent"
         self.record(
             "INVALID_APAAR", [row],
-            expected_flag="INVALID_APAAR", institution_ids=[row["_inst"]],
-            programme_code=row["programme_code"], kind=kind,
+            expected_flag="INVALID_APAAR", severity="HIGH" if kind == "UNKNOWN" else "MEDIUM",
+            institution_ids=[row["_inst"]], programme_code=row["programme_code"], kind=kind,
             note={
                 "SHORT": "APAAR has 11 digits.",
                 "LONG": "APAAR has 13 digits.",
@@ -507,9 +567,9 @@ class Planter:
         for _ in range(remaining("EXCESS_ADMISSION", "EXCESS_ADMISSION")):
             self.plant_excess()
         for _ in range(self.counts.get("QUOTA_BREACH_NRI", 0)):
-            self.plant_quota_nri()
+            self.plant_quota("NRI")
         for _ in range(self.counts.get("QUOTA_BREACH_INTERNATIONAL", 0)):
-            self.plant_quota_international()
+            self.plant_quota("INTERNATIONAL")
         variants = ["INITIALS", "TRANSLITERATION", "MOHD"]
         for i in range(remaining("DUPLICATE_WITHIN_UPLOAD", "DUPLICATE_WITHIN_UPLOAD")):
             self.plant_duplicate_within(variants[i % 3])

@@ -9,6 +9,7 @@ from indic_transliteration import sanscript
 from indic_transliteration.sanscript import transliterate
 
 from .config import load_data
+from .matching import HONORIFICS, registry_score
 
 GROUPS: tuple[str, ...] = (
     "hindi", "marathi", "tamil", "telugu", "kannada", "malayalam", "bengali",
@@ -82,11 +83,13 @@ class NameGenerator:
 
 
 def with_initials(name: str) -> str:
-    """'Ravi Kumar Sharma' -> 'R. K. Sharma'. Single-token names are returned as-is."""
+    """'Ravi Kumar Sharma' -> 'R. K. Sharma'. Single-token names are returned as-is, and a
+    title-like token the api drops ('Sri') stays as written so the initials still line up."""
     parts = name.split()
     if len(parts) < 2:
         return name
-    return " ".join(f"{p[0]}." for p in parts[:-1]) + " " + parts[-1]
+    given = [p if p.lower().strip(".") in HONORIFICS else f"{p[0]}." for p in parts[:-1]]
+    return " ".join(given) + " " + parts[-1]
 
 
 def devanagari(name: str) -> str:
@@ -99,41 +102,42 @@ def _strip_diacritics(text: str) -> str:
 
 
 def transliteration_variant(name: str) -> str:
-    """Round-trip the name through Devanagari and back (IAST, diacritics dropped).
+    """Round-trip the given names through Devanagari and back (IAST, diacritics dropped).
 
-    Produces the spelling drift seen between documents: Sharma/Sarma, Deepak/Dipak,
-    Rajesh/Rajes. Tokens that survive the round trip unchanged fall back to a common
-    Latin spelling variant so the result always differs from the input.
+    Produces the spelling drift seen between documents: Deepak/Dipak, Rajesh/Rajes. The
+    surname and every first letter stay as written, so the copy keeps the duplicate
+    rules' blocking key (date of birth, first initial, metaphone of the surname). Names
+    that survive the round trip unchanged fall back to a common Latin spelling variant,
+    so the result always differs from the input.
     """
-    out: list[str] = []
+    parts = name.split()
+    out = list(parts)
     changed = False
-    for token in name.split():
+    for i, token in enumerate(parts[:-1]):
         low = token.lower().strip(".")
         if len(low) <= 1:
-            out.append(token)
             continue
         dev = transliterate(low, sanscript.ITRANS, sanscript.DEVANAGARI)
         back = _strip_diacritics(transliterate(dev, sanscript.DEVANAGARI, sanscript.IAST))
         if back.endswith("a") and not low.endswith("a") and len(back) > 2:
             back = back[:-1]
-        if back and back != low:
+        if back and back != low and back[0] == low[0]:
             changed = True
-            out.append(back.capitalize())
-        else:
-            out.append(token)
+            out[i] = back.capitalize()
     if not changed:
         return spelling_variant(name)
     return " ".join(out)
 
 
 def spelling_variant(name: str) -> str:
-    """Swap the first token that has a known alternate Latin spelling."""
+    """Swap the first given name that has a known alternate Latin spelling with the same
+    first letter; the surname stays as written."""
     reverse = {v: k for k, v in _SPELLING_VARIANTS.items()}
     parts = name.split()
-    for i, token in enumerate(parts):
+    for i, token in enumerate(parts[:-1]):
         low = token.lower()
         alt = _SPELLING_VARIANTS.get(low) or reverse.get(low)
-        if alt:
+        if alt and alt[0] == low[0]:
             parts[i] = alt.capitalize()
             return " ".join(parts)
     # Last resort: double a vowel in the first token so the string still differs.
@@ -156,10 +160,17 @@ def mohd_variant(name: str, rng: random.Random) -> str:
     return rng.choice(["Mohd", "Md.", "Md"]) + " " + name
 
 
+MISMATCH_MAX_SCORE = 70
+
+
 def materially_different(name: str, generator: NameGenerator, group: str, gender: str) -> str:
-    """A name that shares at most the surname with the original (registry mismatch)."""
-    for _ in range(20):
+    """A registry name the APAAR check scores well below 75 against `name` (a planted
+    NAME_MISMATCH, MEDIUM), with a different first name."""
+    for _ in range(200):
         candidate = generator.indian_name(group, gender)
-        if candidate.split()[0] != name.split()[0]:
+        if (
+            candidate.split()[0] != name.split()[0]
+            and registry_score(name, candidate) < MISMATCH_MAX_SCORE
+        ):
             return candidate
     return "Unknown Applicant"
