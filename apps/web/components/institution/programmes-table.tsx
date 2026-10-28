@@ -15,7 +15,7 @@ const COLS = 8;
 /** "Regular 114 of 114", "TFW 4 of 6 (supernumerary)", "International 1 of 18 (6 reserved for CIWG)". */
 export function poolLine(pool: SeatPool): string {
   let line = t("pools.line", { type: tk(`seat_type.${pool.seat_type}`), assigned: formatCount(pool.assigned), capacity: formatCount(pool.capacity) });
-  if (pool.is_supernumerary) line += ` ${t("pools.supernumerary")}`;
+  if (pool.is_supernumerary && !pool.reserved_for?.includes("CIWG")) line += ` ${t("pools.supernumerary")}`;
   if (pool.reserved_for && pool.reserved_for.includes("CIWG")) line += ` ${t("pools.ciwg", { n: formatCount(Math.round(pool.capacity / 3)) })}`;
   return line;
 }
@@ -156,7 +156,7 @@ export function ProgrammesTable({
                   <tr id={panelId}>
                     <td colSpan={COLS} className="!h-auto !p-0 !whitespace-normal">
                       <div className="px-3 py-2">
-                        <p className="mb-1.5 text-xs text-ink-muted">{p.pools.map(poolLine).join(", ")}</p>
+                        <p className="mb-1.5 text-xs text-ink-muted">{p.pools.map(poolLine).join(" · ")}</p>
                         <PoolsPanel programme={p} />
                       </div>
                     </td>
