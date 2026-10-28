@@ -1,5 +1,9 @@
 from http.cookies import SimpleCookie
 
+import pytest
+from pydantic import ValidationError
+
+from app.core.config import Settings, get_settings
 from app.core.ratelimit import limiter
 from tests.conftest import PASSWORD, login_as
 
@@ -136,3 +140,28 @@ async def test_login_rate_limit_10_per_minute(seeded, client):
     finally:
         limiter.enabled = False
         limiter.reset()
+
+
+async def test_login_rate_limit_is_configurable(seeded, client, monkeypatch):
+    monkeypatch.delenv("LOGIN_RATE_LIMIT", raising=False)
+    assert Settings().login_rate_limit == "10/minute"
+    with pytest.raises(ValidationError):
+        Settings(login_rate_limit="lots")
+
+    monkeypatch.setenv("LOGIN_RATE_LIMIT", "3/minute")
+    get_settings.cache_clear()
+    limiter.enabled = True
+    limiter.reset()
+    try:
+        statuses = []
+        for _ in range(4):
+            r = await client.post(
+                "/auth/login", json={"email": "admin@aicte.demo", "password": "x"}
+            )
+            statuses.append(r.status_code)
+        assert statuses == [401, 401, 401, 429]
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+        monkeypatch.delenv("LOGIN_RATE_LIMIT")
+        get_settings.cache_clear()

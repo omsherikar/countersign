@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.core import audit
 from app.core.deps import CurrentUser, RequestId, SessionDep
 from app.core.errors import ApiError
-from app.core.ratelimit import LOGIN_LIMIT, limiter
+from app.core.ratelimit import limiter, login_limit
 from app.core.security import (
     COOKIE_NAME,
     clear_auth_cookie,
@@ -30,7 +30,7 @@ router = APIRouter(tags=["auth"])
 
 
 @router.post("/auth/login", response_model=UserEnvelope)
-@limiter.limit(LOGIN_LIMIT)
+@limiter.limit(login_limit)
 async def login(
     request: Request,
     response: Response,
