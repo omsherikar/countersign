@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { t, tk } from "@/lib/copy";
+import { admittedOf, fillPct } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { useInstitutions, useRegions, useStates } from "@/lib/queries";
 import { REGION_NAME } from "@/lib/roles";
@@ -30,7 +31,7 @@ interface Column {
   tip?: string;
 }
 
-function columnsFor(variant: InstitutionsVariant): Column[] {
+function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmitted: boolean): Column[] {
   const cols: Column[] = [
     { key: "name", label: t("col.name"), sort: "name" },
     { key: "permanent_id", label: t("col.permanent_id") },
@@ -40,13 +41,28 @@ function columnsFor(variant: InstitutionsVariant): Column[] {
   cols.push(
     { key: "type", label: t("col.type") },
     { key: "programmes", label: t("col.programmes"), num: true },
-    { key: "approved_seats", label: t("col.approved_seats"), num: true, sort: "approved_seats" },
-    { key: "enrolments", label: t("col.enrolments"), num: true, sort: "enrolments", tip: t("table.sort_tip") },
+    { key: "approved_seats", label: t("col.approved_seats"), num: true, sort: "approved_seats", tip: t("app.hint.intake", { academic_year: academicYear }) },
   );
+  if (withAdmitted) cols.push({ key: "admitted", label: t("col.admitted"), num: true, tip: t("col.admitted_tip", { academic_year: academicYear }) });
+  cols.push({ key: "enrolments", label: t("app.on_roll"), num: true, sort: "enrolments", tip: `${t("app.on_roll_tip")}. ${t("table.sort_tip")}` });
   if (variant !== "university") {
     cols.push({ key: "flags_open", label: t("col.flags_open"), num: true }, { key: "integrity", label: t("col.integrity"), num: true });
   }
   return cols;
+}
+
+/** Admitted, with the fill against approved seats on hover; over the intake reads in the caution ink. */
+function AdmittedCell({ admitted, approved }: { admitted: number | null; approved: number }) {
+  if (admitted === null) return <td className="num" />;
+  const fill = fillPct(admitted, approved);
+  return (
+    <td
+      className={cn("num font-medium", admitted > approved && "text-check-pending-ink")}
+      title={fill !== null ? t("app.hint.fill", { pct: fill }) : undefined}
+    >
+      {formatCount(admitted)}
+    </td>
+  );
 }
 
 /**
@@ -57,12 +73,15 @@ export function InstitutionsTable({
   variant,
   basePath,
   region,
+  academicYear = "2026-27",
   anchorId = "institutions",
 }: {
   variant: InstitutionsVariant;
   basePath: string;
   /** RO scope: limits the State filter to the region's states. */
   region?: Region | null;
+  /** The approval year the seats belong to, for the column tips. */
+  academicYear?: string;
   anchorId?: string;
 }) {
   const [params, set] = useUrlParams();
@@ -88,7 +107,9 @@ export function InstitutionsTable({
     order,
   };
   const list = useInstitutions(query);
-  const cols = columnsFor(variant);
+  // Admitted appears once the api sends it; until then the table shows seats and students on roll only.
+  const withAdmitted = !list.data || list.data.items.length === 0 || list.data.items.some((r) => admittedOf(r) !== null);
+  const cols = columnsFor(variant, academicYear, withAdmitted);
   const filtered = Boolean(q || state || regionFilter || type);
 
   const stateOptions = (states.data ?? [])
@@ -221,7 +242,8 @@ export function InstitutionsTable({
                 </td>
                 <td className="num">{formatCount(r.programmes)}</td>
                 <td className="num">{formatCount(r.approved_seats)}</td>
-                <td className="num font-medium">{formatCount(r.enrolments)}</td>
+                {withAdmitted && <AdmittedCell admitted={admittedOf(r)} approved={r.approved_seats} />}
+                <td className="num">{formatCount(r.enrolments)}</td>
                 {variant !== "university" && (
                   <>
                     <td className={cn("num", r.flags_open > 0 ? "font-medium text-check-fail-ink" : "text-ink-muted")}>
