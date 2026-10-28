@@ -4,6 +4,7 @@ import * as React from "react";
 import { Flag } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { t } from "@/lib/copy";
+import { fillPct, institutionAdmitted } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { useInstitution } from "@/lib/queries";
 import { REGION_NAME } from "@/lib/roles";
@@ -41,7 +42,40 @@ function useHashTab(allowed: readonly Tab[]): [Tab, (t: Tab) => void] {
   return [tab, setTab];
 }
 
-function DetailHeader({ d }: { d: Detail }) {
+/**
+ * Seats and admissions as one comparable pair (A2.18): approved seats and
+ * admitted are the same intake; students on roll covers every year and is
+ * labelled so nobody divides it by seats.
+ */
+function HeaderFigures({ d, academicYear }: { d: Detail; academicYear: string }) {
+  const admitted = institutionAdmitted(d);
+  const approved = d.programmes.reduce((a, p) => a + p.approval.approved_intake, 0) || d.approved_seats;
+  const fill = fillPct(admitted, approved);
+  const cells: { label: string; value: string; hint?: string; tone?: string }[] = [
+    { label: t("kpi.approved_seats"), value: formatCount(approved), hint: t("app.hint.intake", { academic_year: academicYear }) },
+    {
+      label: t("col.admitted"),
+      value: formatCount(admitted),
+      hint: fill !== null ? t("app.hint.fill", { pct: fill }) : undefined,
+      tone: admitted > approved ? "text-check-pending-ink" : undefined,
+    },
+    { label: t("app.on_roll"), value: formatCount(d.enrolments), hint: t("app.hint.all_years") },
+    { label: t("kpi.flags_open"), value: formatCount(d.flags_open), tone: d.flags_open > 0 ? "text-check-fail-ink" : "text-ink-muted" },
+  ];
+  return (
+    <dl className="mt-4 grid grid-cols-2 border-y border-rule bg-paper-raised sm:grid-cols-4" style={{ fontVariantNumeric: "lining-nums proportional-nums" }}>
+      {cells.map((c, i) => (
+        <div key={c.label} className={`flex min-w-0 flex-col gap-0.5 px-3 py-2 ${i > 0 ? "sm:border-l sm:border-rule" : ""} ${i % 2 === 1 ? "border-l border-rule" : ""} ${i >= 2 ? "border-t border-rule sm:border-t-0" : ""}`}>
+          <dt className="truncate text-xs font-medium text-ink-muted">{c.label}</dt>
+          <dd className={`font-display text-xl leading-tight font-semibold ${c.tone ?? ""}`}>{c.value}</dd>
+          {c.hint && <dd className="truncate text-xs text-ink-muted">{c.hint}</dd>}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function DetailHeader({ d, academicYear }: { d: Detail; academicYear: string }) {
   const place = [d.address_city, d.state_code].filter(Boolean).join(", ");
   const second = [
     t("app.detail.region", { region_name: REGION_NAME[d.region] }),
@@ -58,6 +92,7 @@ function DetailHeader({ d }: { d: Detail }) {
           {place && <span>{place}</span>}
         </p>
         <p className="mt-1 text-sm text-ink-muted">{second.join(", ")}</p>
+        <HeaderFigures d={d} academicYear={academicYear} />
       </div>
       <dl className="flex min-w-44 flex-col gap-1 border-l-2 border-rule-margin pl-4">
         <dt className="text-xs font-medium text-ink-muted">{t("index.label")}</dt>
@@ -118,7 +153,7 @@ export function InstitutionDetail({
   return (
     <>
       <Crumbs items={[crumbRoot, { label: d?.name ?? "…" }]} />
-      {d ? <DetailHeader d={d} /> : <HeaderSkeleton />}
+      {d ? <DetailHeader d={d} academicYear={academicYear} /> : <HeaderSkeleton />}
       {detail.isLoading && <SlowHint className="-mt-4 mb-4" />}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
