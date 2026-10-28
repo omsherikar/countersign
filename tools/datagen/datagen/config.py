@@ -63,11 +63,21 @@ class SizeConfig:
 
 
 @dataclass(frozen=True)
+class UpdateConfig:
+    colleges: int
+    withdrawals: tuple[int, int]
+    transfers: tuple[int, int]
+    refills: tuple[int, int]
+    status_dates: tuple[str, str]
+
+
+@dataclass(frozen=True)
 class Config:
     size: SizeConfig
     academic_year: str
     anomalies: dict[str, int]
     ghost_ring: dict[str, tuple[int, int]]
+    updates: UpdateConfig
     rules: dict[str, Any]
     scenarios: bool
 
@@ -97,11 +107,20 @@ class Config:
             for name, spec in raw["anomalies"].items()
         }
         ring = {k: tuple(v) for k, v in raw["ghost_ring"].items()}
+        u = raw["updates"]
+        updates = UpdateConfig(
+            colleges=int(u["colleges"][size]),
+            withdrawals=tuple(u["withdrawals"]),
+            transfers=tuple(u["transfers"]),
+            refills=tuple(u["refills"]),
+            status_dates=tuple(u["status_dates"]),
+        )
         return cls(
             size=size_cfg,
             academic_year=raw["academic_year"],
             anomalies=anomalies,
             ghost_ring=ring,
+            updates=updates,
             rules=load_rules(rules_yaml),
             scenarios=scenarios,
         )

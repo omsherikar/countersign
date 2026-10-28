@@ -14,6 +14,7 @@ from .config import Config
 def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: bool | None = None):
     from .anomalies import Planter
     from .students import World
+    from .updates import UpdatePlanner
     from .writers import write_all
 
     started = time.perf_counter()
@@ -24,8 +25,15 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     world.build_students()
     world.timings["generate_rows"] = time.perf_counter() - t
     t = time.perf_counter()
-    Planter(world).plant_all()
+    planter = Planter(world)
+    planter.plant_all()
     world.timings["plant_anomalies"] = time.perf_counter() - t
+    t = time.perf_counter()
+    UpdatePlanner(world, planter).plan()
+    world.timings["plan_updates"] = time.perf_counter() - t
+    t = time.perf_counter()
+    world.finalise()
+    world.timings["finalise_rows"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
     summary = write_all(world, out, xlsx=want_xlsx)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)

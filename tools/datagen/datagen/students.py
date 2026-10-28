@@ -1,6 +1,6 @@
 """Student rows (what a college uploads) and the generation world they live in.
 
-Every row is a dict with the sixteen upload columns plus internal keys prefixed `_`
+Every row is a dict with the nineteen upload columns plus internal keys prefixed `_`
 that drive registry emission and anomaly bookkeeping. Internal keys never reach a file.
 """
 
@@ -9,6 +9,9 @@ from __future__ import annotations
 import datetime as dt
 import math
 import random
+import re
+from collections import Counter
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from faker import Faker
@@ -16,12 +19,13 @@ from faker import Faker
 from . import geo
 from .config import Config
 from .institutions import InstitutionBuilder, approved_intake
+from .matching import name_key
 from .names import NameGenerator
 
 UPLOAD_COLUMNS = [
     "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
     "passport_no", "programme_code", "academic_year", "year_of_study", "admission_route",
-    "counselling_ref", "category", "consent_status",
+    "counselling_ref", "category", "consent_status", "status", "status_date", "admission_date",
 ]  # fmt: skip
 
 DEMO_APAAR = "123456784417"
@@ -33,9 +37,18 @@ DEMO_ROLL = "MHCET-2026-004512"
 DEMO_ALLOTMENT = "MHCET-2026-R1-004512"
 
 COUNSELLED_ROUTES = {"COUNSELLING", "TFW", "LATERAL"}
+APAAR_DIGITS = re.compile(r"[0-9]{12}")
 EMAIL_DOMAINS = ["example.com", "example.net", "example.org", "mail.example"]
 CATEGORIES = (["GENERAL", "OBC", "SC", "ST", "EWS", "OTHER"], [40, 30, 12, 5, 10, 3])
 YEAR3_SHARE = 0.35
+# Admissions inside the window are dated up to LATE_DAYS before its last day; the final
+# LATE_DAYS are kept for the planted overflow rows, so they are always the last admitted.
+LATE_DAYS = 10
+
+
+def has_usable_apaar(row: dict) -> bool:
+    """True when the api keys the student on the APAAR (12 digits, consent LINKED)."""
+    return row["consent_status"] == "LINKED" and bool(APAAR_DIGITS.fullmatch(row["apaar_id"]))
 
 
 def round_half_up(x: float) -> int:
@@ -50,15 +63,28 @@ def academic_year_start(label: str) -> int:
     return int(label[:4])
 
 
+def admission_window(rules: dict, cohort_start: int) -> tuple[dt.date, dt.date]:
+    """1 July of the cohort's start year up to its cutoff in rules.yaml, else 30 September."""
+    cutoff = rules.get("cutoff_dates", {}).get(academic_year_label(cohort_start))
+    end = dt.date.fromisoformat(cutoff) if cutoff else dt.date(cohort_start, 9, 30)
+    return dt.date(cohort_start, 7, 1), end
+
+
+def share_of(value: int, share: float) -> int:
+    """Whole seats for a share, rounded half up exactly as the api's seatpools module does."""
+    seats = Decimal(str(value)) * Decimal(str(share))
+    return max(0, int(seats.quantize(Decimal("1"), rounding=ROUND_HALF_UP)))
+
+
 class Pools:
     """Seat-pool capacities for one approval, computed from rules.yaml."""
 
     def __init__(self, rules: dict, programme: dict, intake: int):
         sp = rules["seat_pools"]
         self.intake = intake
-        self.nri = round_half_up(intake * sp["NRI"]["share"])
-        self.tfw = round_half_up(intake * sp["TFW"]["share"])
-        self.lateral = round_half_up(intake * sp["LATERAL"]["share"])
+        self.nri = share_of(intake, sp["NRI"]["share"])
+        self.tfw = share_of(intake, sp["TFW"]["share"])
+        self.lateral = share_of(intake, sp["LATERAL"]["share"])
         self.regular = intake - self.nri
         share = 0.0
         for slab in sp["INTERNATIONAL"]["slabs"]:
@@ -67,7 +93,20 @@ class Pools:
             if programme["discipline"] in groups and programme["level"] in slab["match"]["level"]:
                 share = slab["share"]
                 break
-        self.international = round_half_up(intake * share)
+        self.international = share_of(intake, share)
+        # One third of the international seats are reserved for CIWG students (Indian
+        # nationals), so a foreign national can take only the rest.
+        self.ciwg = share_of(self.international, sp["INTERNATIONAL"]["ciwg_reserved_fraction"])
+
+    def usable(self) -> dict[str, int]:
+        """Seats a student who is not CIWG can take, per pool."""
+        return {
+            "REGULAR": self.regular,
+            "NRI": self.nri,
+            "TFW": self.tfw,
+            "LATERAL": self.lateral,
+            "INTERNATIONAL": self.international - self.ciwg,
+        }
 
 
 class World:
@@ -94,6 +133,17 @@ class World:
         self.counselling_seq: dict[str, int] = {}
         self.seq = 0
         self.y1_count: dict[tuple[str, str], int] = {}
+        # Rows that exist only in update files (late refills); they take part in the
+        # identity checks below and in the APAAR registry.
+        self.update_only_rows: list[dict] = []
+        # (aicte_id, programme_code) -> seat type of a planted EXCESS_ADMISSION or
+        # QUOTA_BREACH in the first-year cohort; nothing else may be added to that cohort.
+        self.seat_cases: dict[tuple[str, str], str] = {}
+        # aicte_id -> the programme whose first-year REGULAR pool its update file refills.
+        self.refill_programmes: dict[str, str] = {}
+        # aicte_id -> rows of its update file, in file order (see updates.py).
+        self.update_files: dict[str, list[dict]] = {}
+        self._name_keys: dict[tuple[str, str], str] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]
         self.scale = 1.0
@@ -201,9 +251,15 @@ class World:
             "counselling_ref": "",
             "category": "",
             "consent_status": "",
+            "status": "",
+            "status_date": "",
+            "admission_date": "",
             "_inst": inst["aicte_permanent_id"],
             "_prog": prog,
             "_adm_year": admission_year,
+            "_cohort_start": academic_year_start(self.cfg.academic_year) - (year_of_study - 1),
+            "_late": False,
+            "_dob_group": None,
             "_group": group,
             "_roll_no": "",
             "_round": 0,
@@ -233,7 +289,9 @@ class World:
         if route in COUNSELLED_ROUTES:
             exam = geo.exam_for_state(inst["state_code"])
             rnd = self.rng.choices([1, 2, 3], weights=[60, 30, 10], k=1)[0]
-            roll, allotment = self.next_counselling(exam, row["_adm_year"], rnd)
+            # The api looks allotments up by the cohort's start year (2025 for a year-2
+            # lateral entrant of 2026-27), so the allotment is filed under that year.
+            roll, allotment = self.next_counselling(exam, row["_cohort_start"], rnd)
             row["_roll_no"] = roll
             row["_round"] = rnd
             row["counselling_ref"] = allotment
@@ -261,9 +319,10 @@ class World:
             self.y1_count[key] = self.y1_count.get(key, 0) + 1
         return row
 
-    def new_student(
+    def make_student(
         self, inst: dict, prog: dict, year_of_study: int, route: str, lateral: bool = False
     ) -> dict:
+        """A new student's row, not yet placed in any file."""
         start = academic_year_start(self.cfg.academic_year)
         admission_year = start - (year_of_study - 1) if not lateral else start
         row = self.base_row(inst, prog, year_of_study, admission_year)
@@ -273,7 +332,13 @@ class World:
         else:
             self.give_consent(row)
         self.set_route(row, inst, route)
-        return self.add_row(row)
+        return row
+
+    def new_student(
+        self, inst: dict, prog: dict, year_of_study: int, route: str, lateral: bool = False
+    ) -> dict:
+        """A new student on the college's initial file."""
+        return self.add_row(self.make_student(inst, prog, year_of_study, route, lateral))
 
     # --------------------------------------------------------------- cohorts
 
@@ -295,13 +360,17 @@ class World:
         if regular < 0:
             regular = 0
         routes += ["NRI"] * nri + ["TFW"] * tfw + ["INTERNATIONAL"] * intl
-        if govt:
+        routes += self.regular_routes(inst, regular)
+        return routes
+
+    def regular_routes(self, inst: dict, n: int) -> list[str]:
+        """Routes into the REGULAR pool, mixed as the college's type admits them."""
+        if inst["type"] in {"GOVERNMENT", "GOVERNMENT_AIDED", "UNIVERSITY_DEPARTMENT"}:
             weights = {"COUNSELLING": 94, "MANAGEMENT": 0, "SPOT": 6}
         else:
             weights = {"COUNSELLING": 70, "MANAGEMENT": 24, "SPOT": 6}
         keys = list(weights)
-        routes += self.rng.choices(keys, weights=[weights[k] for k in keys], k=regular)
-        return routes
+        return self.rng.choices(keys, weights=[weights[k] for k in keys], k=n)
 
     def estimate_rows(self) -> float:
         """Expected row count at scale 1, used to size cohorts toward target_students."""
@@ -404,6 +473,95 @@ class World:
                 for _ in range(8):
                     self.new_student(inst, prog, 2, "LATERAL", lateral=True)
 
+    # ---------------------------------------------------------------- dates
+
+    def random_date(self, lo: dt.date, hi: dt.date) -> dt.date:
+        return lo + dt.timedelta(days=self.rng.randint(0, (hi - lo).days))
+
+    def assign_admission_dates(self) -> None:
+        """Every initial row gets a date in its cohort's admission window. Planted overflow
+        rows (`_late`) take the window's last days so the ledger seats everyone else first."""
+        rules = self.cfg.rules
+        for row in self.all_rows:
+            start, end = admission_window(rules, row["_cohort_start"])
+            last_normal = end - dt.timedelta(days=LATE_DAYS)
+            if row["_late"]:
+                day = self.random_date(last_normal + dt.timedelta(days=1), end)
+            else:
+                day = self.random_date(start, last_normal)
+            row["admission_date"] = day.isoformat()
+
+    # -------------------------------------------------------------- identity
+
+    @staticmethod
+    def unit_of(row: dict) -> int:
+        """Rows planted to describe one student (or a renamed copy) share a DOB group."""
+        return row["_dob_group"] or row["_seq"]
+
+    def identity_conflicts(self) -> list[list[int]]:
+        """Groups of units whose dates of birth make a lookup or a duplicate rule misfire.
+
+        - Duplicate rule A compares a student without a usable APAAR with every other
+          student of the college sharing its name_key (DOB, first initial, metaphone of
+          the surname). Outside planted pairs no such neighbour may exist.
+        - mockgov finds a counselling allotment by name and DOB within state, year,
+          programme and college; one allotment per DOB there keeps the lookup exact.
+        """
+        blocks: dict[tuple, dict[int, bool]] = {}
+        allotments: dict[tuple, set[int]] = {}
+        keys = self._name_keys
+        for row in self.all_rows + self.update_only_rows:
+            unit = self.unit_of(row)
+            pair = (row["name"], row["dob"])
+            if pair not in keys:
+                keys[pair] = name_key(*pair)
+            key = (row["_inst"], keys[pair])
+            units = blocks.setdefault(key, {})
+            units[unit] = units.get(unit, False) or not has_usable_apaar(row)
+            if row["_roll_no"]:
+                akey = (row["_inst"], row["programme_code"], row["_cohort_start"], row["dob"])
+                allotments.setdefault(akey, set()).add(unit)
+        out = [sorted(u) for u in blocks.values() if len(u) > 1 and any(u.values())]
+        out += [sorted(u) for u in allotments.values() if len(u) > 1]
+        return out
+
+    def resolve_identity_conflicts(self, max_passes: int = 20) -> int:
+        """Re-draw the DOB of every unit but one in each conflict until none is left. The
+        demo student's group never moves; planted groups move together."""
+        members: dict[int, list[dict]] = {}
+        for row in self.all_rows + self.update_only_rows:
+            members.setdefault(self.unit_of(row), []).append(row)
+
+        def rank(unit: int) -> tuple:
+            rows = members[unit]
+            fixed = any("DEMO_STUDENT" in r["_tags"] for r in rows)
+            return (not fixed, rows[0]["_dob_group"] is None, unit)
+
+        moved = 0
+        for _ in range(max_passes):
+            conflicts = self.identity_conflicts()
+            if not conflicts:
+                return moved
+            done: set[int] = set()
+            for group in conflicts:
+                keep, *rest = sorted(group, key=rank)
+                for unit in rest:
+                    if unit in done or rank(unit)[0] is False:
+                        continue
+                    done.add(unit)
+                    moved += 1
+                    old = dt.date.fromisoformat(members[unit][0]["dob"])
+                    new = old
+                    while new == old:
+                        new = dt.date(old.year, self.rng.randint(1, 12), self.rng.randint(1, 28))
+                    for row in members[unit]:
+                        row["dob"] = new.isoformat()
+        raise RuntimeError("could not separate look-alike students; try another seed")
+
+    def finalise(self) -> None:
+        self.resolve_identity_conflicts()
+        self.assign_admission_dates()
+
     # --------------------------------------------------------------- driver
 
     def build_institutions(self) -> None:
@@ -433,9 +591,41 @@ class World:
         inst = self.inst_by_id[aicte_id]
         return next(p for p in inst["programmes"] if p["code"] == code)
 
-    def headroom(self, aicte_id: str, prog: dict) -> int:
-        intake = approved_intake(prog, self.cfg.academic_year) or 0
-        return intake - self.y1_count.get((aicte_id, prog["code"]), 0)
+    # ---------------------------------------------------------------- seats
+
+    def route_pool(self, route: str) -> str:
+        return self.cfg.rules["admission_routes"][route]["pool"]
+
+    def cohort_pools(self, prog: dict, year_of_study: int) -> Pools | None:
+        """Pools of the approval a year-of-study cohort was admitted against, if any."""
+        start = academic_year_start(self.cfg.academic_year) - (year_of_study - 1)
+        intake = approved_intake(prog, academic_year_label(start))
+        return None if intake is None else self.pools(prog, intake)
+
+    def cohort_rows(self, aicte_id: str, code: str, year_of_study: int) -> list[dict]:
+        return [
+            r for r in self.rows_by_inst[aicte_id]
+            if r["programme_code"] == code and r["year_of_study"] == year_of_study
+        ]  # fmt: skip
+
+    def pool_counts(self, aicte_id: str, code: str, year_of_study: int) -> Counter:
+        return Counter(
+            self.route_pool(r["admission_route"])
+            for r in self.cohort_rows(aicte_id, code, year_of_study)
+        )
+
+    def room(self, aicte_id: str, prog: dict, year_of_study: int, route: str) -> int:
+        """Free seats a new non-CIWG admission by `route` would find in its cohort pool.
+        A first-year cohort holding a planted seat case has none to give."""
+        if year_of_study > prog["duration_years"]:
+            return 0
+        if year_of_study == 1 and (aicte_id, prog["code"]) in self.seat_cases:
+            return 0
+        pools = self.cohort_pools(prog, year_of_study)
+        if pools is None:
+            return 0
+        pool = self.route_pool(route)
+        return pools.usable()[pool] - self.pool_counts(aicte_id, prog["code"], year_of_study)[pool]
 
     def pick_row(self, predicate, attempts: int = 20000) -> dict | None:
         n = len(self.all_rows)
@@ -466,7 +656,7 @@ class World:
     def registry_records(self) -> list[dict[str, Any]]:
         seen: set[str] = set()
         out = []
-        for row in self.all_rows:
+        for row in self.all_rows + self.update_only_rows:
             apaar = row["apaar_id"]
             if not apaar or row["_registry"] == "absent" or apaar in seen:
                 continue
@@ -486,7 +676,7 @@ class World:
             out.append(
                 {
                     "state": inst["state_code"],
-                    "year": row["_adm_year"],
+                    "year": row["_cohort_start"],
                     "name": row["name"],
                     "dob": row["dob"],
                     "roll_no": row["_roll_no"],
