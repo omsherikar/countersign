@@ -374,7 +374,9 @@ async def test_enrolment_list_rows_and_filters(ids, as_role) -> None:
     ).json()
     assert seat_fail["total"] == len(ids.unseated)
     assert (await admin.get(url, params={"check_type": "SEAT"})).json()["total"] == 21
-    pending = await admin.get(url, params={"check_status": "PENDING", "check_type": "IDENTITY"})
+    pending = await admin.get(
+        url, params={"check_status": "SOURCE_UNAVAILABLE", "check_type": "IDENTITY"}
+    )
     assert [r["id"] for r in pending.json()["items"]] == [str(ids.asha)]
     flagged = (await admin.get(url, params={"flagged": "true", "page_size": 50})).json()
     assert flagged["total"] == 4  # the 2 unseated (one is R. K.), Ravi and the twin
@@ -449,13 +451,17 @@ async def test_enrolment_recheck_after_the_source_is_back(ids, as_role) -> None:
         registrar = await as_role("registrar@abc.edu.demo")
         gov.apaar.down = True
         still = (await registrar.post(f"/enrolments/{ids.asha}/recheck", json={})).json()
-        assert still["results"] == [{"type": "IDENTITY", "before": "PENDING", "after": "PENDING"}]
+        assert still["results"] == [
+            {"type": "IDENTITY", "before": "SOURCE_UNAVAILABLE", "after": "SOURCE_UNAVAILABLE"}
+        ]
 
         gov.apaar.down = False
         body = (await registrar.post(f"/enrolments/{ids.asha}/recheck", json={})).json()
         assert body["enrolment_id"] == str(ids.asha)
         assert body["rechecked"] == 1
-        assert body["results"] == [{"type": "IDENTITY", "before": "PENDING", "after": "CONFIRMED"}]
+        assert body["results"] == [
+            {"type": "IDENTITY", "before": "SOURCE_UNAVAILABLE", "after": "CONFIRMED"}
+        ]
         assert body["flags_raised"] == 0
         assert body["countersign"]["checks"][0] == {"type": "IDENTITY", "status": "CONFIRMED"}
         detail = (await registrar.get(f"/enrolments/{ids.asha}")).json()

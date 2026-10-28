@@ -75,7 +75,7 @@ async def test_five_checks_written_once(world, session, gov) -> None:
         "IDENTITY": {"CONFIRMED": 1},
         "ADMISSION": {"CONFIRMED": 1},
         "SEAT": {"CONFIRMED": 1},
-        "STUDYING": {"NOT_APPLICABLE": 1},
+        "STUDYING": {"NOT_YET_DUE": 1},
         "STUDENT": {"PENDING": 1},
     }
     checks = await _checks(session, enrolment.id)
@@ -83,7 +83,7 @@ async def test_five_checks_written_once(world, session, gov) -> None:
         CheckType.IDENTITY: CheckStatus.CONFIRMED,
         CheckType.ADMISSION: CheckStatus.CONFIRMED,
         CheckType.SEAT: CheckStatus.CONFIRMED,
-        CheckType.STUDYING: CheckStatus.NOT_APPLICABLE,
+        CheckType.STUDYING: CheckStatus.NOT_YET_DUE,
         CheckType.STUDENT: CheckStatus.PENDING,
     }
     assert countersign(checks.values())["score"] == {"passes": 3, "applicable": 4}
@@ -103,7 +103,7 @@ async def test_five_checks_written_once(world, session, gov) -> None:
                 "IDENTITY": "CONFIRMED",
                 "ADMISSION": "CONFIRMED",
                 "SEAT": "CONFIRMED",
-                "STUDYING": "NOT_APPLICABLE",
+                "STUDYING": "NOT_YET_DUE",
                 "STUDENT": "PENDING",
             }
         }
@@ -159,13 +159,15 @@ async def test_second_year_with_zero_credits_fails_studying(world, session, gov)
     assert result.flags.created == 1
 
 
-async def test_apaar_down_leaves_identity_pending_and_recheck_passes(world, session, gov) -> None:
+async def test_apaar_down_leaves_identity_unavailable_and_recheck_confirms(
+    world, session, gov
+) -> None:
     _, _, enrolment = await _ravi(world, gov)
     gov.apaar.down = True
     result = await run_checks(session, [enrolment.id], gov)
     assert result.unavailable == {"APAAR": 1}
     identity = (await _checks(session, enrolment.id))[CheckType.IDENTITY]
-    assert identity.status is CheckStatus.PENDING
+    assert identity.status is CheckStatus.SOURCE_UNAVAILABLE
     assert identity.detail["source_unavailable"] is True
     assert identity.attempts == 1
     assert await session.scalar(select(func.count()).select_from(Flag)) == 0

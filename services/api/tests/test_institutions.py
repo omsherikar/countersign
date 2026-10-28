@@ -245,7 +245,7 @@ async def test_enrolments(admin, registrar_abc, registrar_xyz, student):
         "CONFIRMED",
         "CONFIRMED",
         "CONFIRMED",
-        "NOT_APPLICABLE",
+        "NOT_YET_DUE",
         "PENDING",
     ]
     assert ravi["flags"] == []

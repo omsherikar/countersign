@@ -20,7 +20,7 @@ async def test_students_me(student, admin, registrar_abc):
             {"type": "IDENTITY", "status": "CONFIRMED"},
             {"type": "ADMISSION", "status": "CONFIRMED"},
             {"type": "SEAT", "status": "CONFIRMED"},
-            {"type": "STUDYING", "status": "NOT_APPLICABLE"},
+            {"type": "STUDYING", "status": "NOT_YET_DUE"},
             {"type": "STUDENT", "status": "PENDING"},
         ],
     }

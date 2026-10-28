@@ -13,7 +13,7 @@ from app.engine.checks.base import (
     SourceDown,
     call_source,
     flag_intent,
-    pending_unavailable,
+    unavailable_outcome,
 )
 from app.engine.contracts import CheckOutcome
 from app.models.enums import AdmissionRoute, CheckStatus, CheckType, FlagType, Severity
@@ -97,10 +97,11 @@ def decide(
 async def evaluate(
     subject: CheckSubject, adapters: AdapterSet, gate: asyncio.Semaphore
 ) -> CheckOutcome:
+    # no semester result exists yet, so credits are not due (R4)
     if subject.year_of_study <= 1:
         return CheckOutcome(
             type=CHECK,
-            status=CheckStatus.NOT_APPLICABLE,
+            status=CheckStatus.NOT_YET_DUE,
             source=SOURCE,
             detail=ev.studying_first_year(),
         )
@@ -108,7 +109,7 @@ async def evaluate(
     if not years:  # a year-2 lateral entrant
         return CheckOutcome(
             type=CHECK,
-            status=CheckStatus.NOT_APPLICABLE,
+            status=CheckStatus.NOT_YET_DUE,
             source=SOURCE,
             detail=ev.studying_lateral_entry(),
         )
@@ -126,6 +127,6 @@ async def evaluate(
             gate, SOURCE, lambda label=label: adapters.abc.credits(apaar_id, label)
         )
         if isinstance(result, SourceDown):
-            return pending_unavailable(CHECK, result, calls=len(results) + 1)
+            return unavailable_outcome(CHECK, result, calls=len(results) + 1)
         results.append(result)
     return decide(subject, years, results)

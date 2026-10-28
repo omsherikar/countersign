@@ -204,7 +204,7 @@ async def test_source_errors_give_pending_never_fail(error, keys) -> None:
     gov = adapters()
     gov.apaar = Broken()
     outcome = await identity.evaluate(subject(), gov, GATE)
-    assert outcome.status is CheckStatus.PENDING
+    assert outcome.status is CheckStatus.SOURCE_UNAVAILABLE
     assert outcome.detail["source_unavailable"] is True
     assert outcome.detail["summary"] == (
         "APAAR registry did not respond. "
@@ -249,7 +249,7 @@ async def test_counselling_list() -> None:
     )
     gov.counselling.down = True
     down = await admission.evaluate(subject(), gov, GATE)
-    assert down.status is CheckStatus.PENDING and down.unavailable == ("COUNSELLING",)
+    assert down.status is CheckStatus.SOURCE_UNAVAILABLE and down.unavailable == ("COUNSELLING",)
 
 
 async def test_lateral_and_tfw_use_the_counselling_list() -> None:
@@ -312,7 +312,8 @@ async def test_study_in_india() -> None:
     other = await admission.evaluate(subject(**{**intl, "programme_code": "IT"}), gov, GATE)
     assert other.status is CheckStatus.CONTRADICTED
     gov.sii.down = True
-    assert (await admission.evaluate(subject(**intl), gov, GATE)).status is CheckStatus.PENDING
+    unavailable = await admission.evaluate(subject(**intl), gov, GATE)
+    assert unavailable.status is CheckStatus.SOURCE_UNAVAILABLE
 
 
 # -------------------------------------------------------------------------- SEAT
@@ -348,7 +349,7 @@ def _abc(gov, apaar="123456784417", **years) -> None:
 async def test_studying_first_year_and_no_apaar() -> None:
     gov = adapters()
     first = await studying.evaluate(subject(), gov, GATE)
-    assert first.status is CheckStatus.NOT_APPLICABLE and first.calls == ()
+    assert first.status is CheckStatus.NOT_YET_DUE and first.calls == ()
     assert first.detail == {"summary": "First year, no result yet."}
     second = subject(year_of_study=2, cohort_year="2025-26", apaar_id=None)
     no_apaar = await studying.evaluate(second, gov, GATE)
@@ -388,7 +389,7 @@ async def test_studying_counts_semesters_since_admission() -> None:
     assert waiting.flags == ()
     gov.abc.down = True
     down = await studying.evaluate(third, gov, GATE)
-    assert down.status is CheckStatus.PENDING and down.unavailable == ("ABC",)
+    assert down.status is CheckStatus.SOURCE_UNAVAILABLE and down.unavailable == ("ABC",)
 
 
 async def test_studying_lateral_entrant_counts_from_year_two() -> None:
@@ -396,12 +397,12 @@ async def test_studying_lateral_entrant_counts_from_year_two() -> None:
     _abc(gov, **{"2025_26": [(1, 22), (2, 24)]})
     second = subject(year_of_study=2, cohort_year="2025-26", admission_route=AdmissionRoute.LATERAL)
     joined = await studying.evaluate(second, gov, GATE)
-    assert joined.status is CheckStatus.NOT_APPLICABLE and joined.calls == ()
+    assert joined.status is CheckStatus.NOT_YET_DUE and joined.calls == ()
     assert joined.detail == {
         "summary": "Joined in year 2 as a lateral entrant; no completed year to check yet."
     }
     no_apaar = await studying.evaluate(dataclasses.replace(second, apaar_id=None), gov, GATE)
-    assert no_apaar.status is CheckStatus.NOT_APPLICABLE and no_apaar.detail == joined.detail
+    assert no_apaar.status is CheckStatus.NOT_YET_DUE and no_apaar.detail == joined.detail
 
     # year 3: only year 2 (2025-26, semesters 3 and 4) is asked for; year 1 was elsewhere
     third = subject(year_of_study=3, cohort_year="2024-25", admission_route=AdmissionRoute.LATERAL)

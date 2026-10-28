@@ -98,7 +98,7 @@ class SourceDown:
 async def call_source[T](
     gate: asyncio.Semaphore, source: str, call: Callable[[], Awaitable[T]]
 ) -> T | SourceDown:
-    """Run one adapter call inside the semaphore; outages become SourceDown, never FAIL."""
+    """Run one adapter call inside the semaphore; outages become SourceDown, never CONTRADICTED."""
     try:
         async with gate:
             return await call()
@@ -113,10 +113,11 @@ async def call_source[T](
         return SourceDown(source, evidence.source_unavailable(source, f"HTTP {exc.status_code}"))
 
 
-def pending_unavailable(check: CheckType, down: SourceDown, calls: int = 1) -> CheckOutcome:
+def unavailable_outcome(check: CheckType, down: SourceDown, calls: int = 1) -> CheckOutcome:
+    """SOURCE_UNAVAILABLE: the source did not answer, so the row never contradicts (R4)."""
     return CheckOutcome(
         type=check,
-        status=CheckStatus.PENDING,
+        status=CheckStatus.SOURCE_UNAVAILABLE,
         source=down.source,
         detail=down.detail,
         calls=(down.source,) * calls,

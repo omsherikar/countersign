@@ -13,7 +13,7 @@ from app.engine.checks.base import (
     call_source,
     flag_intent,
     masked_problem_value,
-    pending_unavailable,
+    unavailable_outcome,
 )
 from app.engine.contracts import CheckOutcome
 from app.models.enums import (
@@ -120,5 +120,5 @@ async def evaluate(
         gate, SOURCE, lambda: adapters.apaar.verify(apaar_id, subject.name_normalised, subject.dob)
     )
     if isinstance(result, SourceDown):
-        return pending_unavailable(CHECK, result)
+        return unavailable_outcome(CHECK, result)
     return decide(subject, result)
