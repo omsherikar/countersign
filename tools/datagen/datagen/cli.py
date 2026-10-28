@@ -16,6 +16,7 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     from .anomalies import Planter
     from .eligibility import EligibilityPlanner
     from .graduates import GraduateBuilder
+    from .joining import JoiningPlanner
     from .signals import SignalPlanner
     from .students import World
     from .updates import UpdatePlanner
@@ -52,6 +53,9 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     eligibility.mark()
     eligibility.plant(avoid=signals.colleges)
     world.timings["eligibility_signals"] = time.perf_counter() - t
+    t = time.perf_counter()
+    JoiningPlanner(world, planter, avoid=signals.colleges).plan()
+    world.timings["joining_records"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
     summary = write_all(world, out, xlsx=want_xlsx)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)

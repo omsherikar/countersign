@@ -153,6 +153,10 @@ class World:
         self.graduates: list[dict] = []
         # history.json (signals.py): last year's first-year admissions per college.
         self.history: dict = {}
+        # joining.py: students with a joining record whom their college did not upload, and
+        # mockgov/joining_records.jsonl.
+        self.omitted_rows: list[dict] = []
+        self.joining_records: list[dict] = []
         self._name_keys: dict[tuple[str, str], str] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]
@@ -702,7 +706,7 @@ class World:
     def registry_records(self) -> list[dict[str, Any]]:
         seen: set[str] = set()
         out = []
-        for row in self.all_rows + self.update_only_rows:
+        for row in self.all_rows + self.update_only_rows + self.omitted_rows:
             apaar = row["apaar_id"]
             if not apaar or row["_registry"] == "absent" or apaar in seen:
                 continue
@@ -715,7 +719,7 @@ class World:
 
     def counselling_records(self) -> list[dict[str, Any]]:
         out = []
-        for row in self.all_rows:
+        for row in self.all_rows + self.omitted_rows:
             if not row["_roll_no"]:
                 continue
             inst = self.inst_by_id[row["_inst"]]

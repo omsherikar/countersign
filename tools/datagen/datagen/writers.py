@@ -186,6 +186,28 @@ def finalize_ground_truth(world: World) -> list[dict]:
     return out
 
 
+def deck_sample(ground_truth: list[dict], replies: list[dict]) -> dict | None:
+    rec = next((r for r in ground_truth if r.get("scenario") == "deck_sample"), None)
+    if rec is None:
+        return None
+    row = rec["rows"][0]
+    reply = next(r for r in replies if (r["file"], r["row_no"]) == (row["file"], row["row_no"]))
+    return {
+        "file": row["file"],
+        "row_no": row["row_no"],
+        "name": row["name"],
+        "apaar_id": row["apaar_id"],
+        "institution_aicte_id": row["institution_aicte_id"],
+        "programme_code": row["programme_code"],
+        "year_of_study": row["year_of_study"],
+        "reply": reply["reply"],
+        "channel": reply["channel"],
+        "comment": reply["comment"],
+        "expected_rows": rec["expected_rows"],
+        "expected_record_status": rec["expected_record_status"],
+    }
+
+
 def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     import time
 
@@ -245,6 +267,7 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     dump_jsonl(out / "mockgov" / "counselling.jsonl", counselling)
     dump_jsonl(out / "mockgov" / "abc_credits.jsonl", abc)
     dump_jsonl(out / "mockgov" / "sii.jsonl", sii)
+    dump_jsonl(out / "mockgov" / "joining_records.jsonl", world.joining_records)
     world.timings["write_mockgov"] = time.perf_counter() - t
 
     t = time.perf_counter()
@@ -277,6 +300,12 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "counselling": len(counselling),
         "abc_credits": len(abc),
         "sii": len(sii),
+        "joining_records": len(world.joining_records),
+        "joining_records_late": sum(
+            r["joined_on"] > world.cfg.reporting_deadline(r["academic_year"])
+            for r in world.joining_records
+        ),
+        "missing_from_upload": len(world.omitted_rows),
         "graduates": len(world.graduates),
         "notice_replies": len(replies),
         "notice_replies_yes": sum(r["reply"] == "YES" for r in replies),
@@ -298,6 +327,8 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "counts": counts,
         # Notices the live demo answers by hand; notice_replies.jsonl leaves them unanswered.
         "demo_unanswered_notices": planner.unanswered,
+        # The deck's sample record (ABC College CSE), or null without the named scenarios.
+        "deck_sample": deck_sample(ground_truth, replies),
     }
     dump_json(out / "manifest.json", manifest)
     summary = dict(manifest)
