@@ -1,5 +1,5 @@
 async def test_unknown_route_uses_envelope(client):
-    response = await client.get("/uploads")
+    response = await client.get("/notices")
     assert response.status_code == 404
     assert response.json() == {
         "error": {"code": "NOT_FOUND", "message": "Not found.", "details": {}}
