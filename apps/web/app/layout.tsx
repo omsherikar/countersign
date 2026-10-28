@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, IBM_Plex_Sans, Source_Serif_4 } from "next/font/google";
+import { RootProvider } from "@/components/providers/root-provider";
 import "./globals.css";
 
 const serif = Source_Serif_4({
@@ -32,7 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${serif.variable} ${sans.variable} ${mono.variable}`}
       suppressHydrationWarning
     >
-      <body>{children}</body>
+      <body>
+        <RootProvider>{children}</RootProvider>
+      </body>
     </html>
   );
 }
