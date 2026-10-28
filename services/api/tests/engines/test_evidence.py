@@ -383,3 +383,61 @@ def test_match_words() -> None:
     assert ev.match_words(same_apaar=False, same_passport=False, name_score=None, mobile=True) == (
         "Date of birth and mobile"
     )
+
+
+def test_every_flag_evidence_passes_the_schema_check() -> None:
+    from app.engine.flags import validate_evidence
+
+    S = ev.SemesterCredits
+    on = date(2026, 10, 28)
+    own = _side("Ravi", "ABC College", "Maharashtra")
+    other = _side("Ravi", "XYZ Institute", "Tamil Nadu", mode=ProgrammeMode.ONLINE)
+    samples = [
+        ev.excess_admission(
+            programme_code="CSE",
+            cohort_year="2026-27",
+            approved=120,
+            admitted=132,
+            seated=120,
+            peak_unseated=12,
+            rule_source="r",
+            related=[E1],
+        ),
+        ev.quota_breach(
+            seat_type=SeatType.INTERNATIONAL,
+            programme_code="CSE",
+            cohort_year="2026-27",
+            capacity=18,
+            admitted=20,
+            seated=18,
+            unseated=2,
+            peak_unseated=2,
+            routes=[AdmissionRoute.INTERNATIONAL],
+            share=0.15,
+            approved=120,
+            rule_source="r",
+            related=[E1],
+        ),
+        ev.late_refill(
+            seat_code="CSE-R-001",
+            released_on=None,
+            assigned_on=on,
+            cutoff=date(2026, 9, 15),
+            cohort_year="2026-27",
+            filename=None,
+            row_no=None,
+            related=[E1],
+        ),
+        ev.invalid_apaar_not_found("4417", on, [E1]),
+        ev.invalid_apaar_malformed("has 11 digits, expected 12", "<11 characters>", on, [E1]),
+        ev.name_mismatch(name="R", name_score=60, dob_match=True, checked_on=on, related=[E1]),
+        ev.no_academic_activity(
+            year_of_study=2, semesters=[S("2025-26", 1, 0)], last_entry=None, related=[E1]
+        ),
+        ev.duplicate_within_upload(original=own, copy=other, words="Date of birth and mobile"),
+        ev.duplicate_cross_institution(own=own, other=other, words="Same APAAR", academic_year="x"),
+        ev.dual_enrolment_allowed(own=own, other=other),
+    ]
+    for evidence in samples:
+        validate_evidence(evidence)
+        assert "rules.yaml" not in str(evidence)

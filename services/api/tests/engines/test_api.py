@@ -485,3 +485,25 @@ async def test_institution_recheck(ids, as_role) -> None:
         assert (await west.post(url)).status_code == 200  # the body is optional
     finally:
         app.state.adapters = previous
+
+
+async def test_institution_recheck_is_rate_limited_per_user(ids, as_role) -> None:
+    from app.core.ratelimit import limiter
+
+    previous = getattr(app.state, "adapters", None)
+    app.state.adapters = adapters()
+    limiter.reset()
+    limiter.enabled = True
+    try:
+        url = f"/institutions/{ids.abc}/recheck"
+        west = await as_role("ro.west@aicte.demo")
+        statuses = [(await west.post(url, json={})).status_code for _ in range(7)]
+        assert statuses == [200] * 6 + [429]
+        limited = await west.post(url, json={})
+        assert limited.json()["error"]["details"]["retry_after"] == 60
+        admin = await as_role("admin@aicte.demo")  # another user has their own allowance
+        assert (await admin.post(url, json={})).status_code == 200
+    finally:
+        limiter.enabled = False
+        limiter.reset()
+        app.state.adapters = previous
