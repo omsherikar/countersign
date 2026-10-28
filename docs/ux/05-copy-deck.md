@@ -336,6 +336,13 @@ In `strip.score_pending`, `{pending}` counts pending checks other than Student; 
 | data_request_status.OPEN | Open |
 | data_request_status.DONE | Done |
 | data_request_status.REJECTED | Declined |
+| audit_action.CREATE | Created |
+| audit_action.UPDATE | Updated |
+| audit_action.DELETE | Deleted |
+| audit_action.READ | Viewed |
+| audit_action.LOGIN | Signed in |
+| audit_action.LOGOUT | Signed out |
+| audit_action.SEED | Seeded |
 | provisional.label | Provisional id |
 | gender.M | Male |
 | gender.F | Female |
@@ -1159,12 +1166,40 @@ Print view text under the QR: `degree.print.proof_id` and `degree.scan_line`, wi
 | admin.reset_done | Demo data reset. Audit chain starts fresh. |
 | admin.reset_cli | Reset is not available from the browser yet. Run make demo-reset. |
 | audit.heading | Audit |
-| audit.col.seq | Seq |
+| audit.lead | Every change, and every view of student records, in order. Each entry carries the hash of the one before, so a changed entry shows up when the chain is verified. |
+| audit.col.seq | Entry |
 | audit.col.at | Time |
 | audit.col.actor | Actor |
 | audit.col.action | Action |
 | audit.col.entity | Entity |
+| audit.col.entity_id | Entity id |
 | audit.col.hash | Hash |
+| audit.filter.entity_type | Entity |
+| audit.filter.action | Action |
+| audit.filter.actor | Actor |
+| audit.filter.entity_id | Entity id |
+| audit.filter.seq_from | From entry |
+| audit.filter.all | All |
+| audit.count | {total} entries |
+| audit.actor_system | System |
+| audit.via.notice_link | Public, notice link |
+| audit.via.verifier | Public, verifier |
+| audit.via.demo_seed | Demo seed |
+| audit.hash_tip | Full hash {hash} |
+| audit.verify | Verify chain |
+| audit.verifying | Verifying |
+| audit.chain_ok | Chain intact, {n} entries |
+| audit.chain_broken | Chain broken at entry {seq} |
+| audit.chain_broken_detail | Entry {seq} no longer matches its recorded hash, so it was changed after it was written. Entries before it are intact. |
+| audit.chain_checked | Checked {time} |
+| audit.show_entry | Show entry {seq} |
+| audit.break_marker | Chain breaks here |
+| audit.read_note | Views of student records are logged as Viewed entries. |
+
+`/admin/audit` (D29) reads `GET /admin/audit` with `entity_type`, `action`, `actor_id`, `entity_id`, `seq_from` and `page`, and `GET /admin/audit/verify`. Actor prints `actor_email`; a null actor prints `audit.actor_system`, or the `audit.via.*` words when the entry records how a public page reached it. Action prints `audit_action.*`. Entity id and Hash print their first 8 characters in monospace, the full value on focus and hover (`audit.hash_tip`). `{n}` in `audit.chain_ok` is `length` in `en-IN` grouping ("Chain intact, 1,842 entries"); `{seq}` in `audit.chain_broken` is `first_broken_seq`. `admin.chain_ok` and `admin.chain_broken` stay on `/admin/system`.
+
+| id | text |
+|---|---|
 | score.heading | Integrity Index |
 | score.value | {index} of 100 |
 | score.rank | Rank {rank} of {of} nationally · computed {computed_date} |
@@ -1286,6 +1321,7 @@ The queue lists Correction and Erasure requests (an Access request is fulfilled 
 | empty.enrolments_student | No college has reported an enrolment for you. |
 | empty.affiliates | No institutions are affiliated to your university in this academic year. |
 | empty.audit | No audit entries. |
+| empty.audit_filtered | No entries match these filters. |
 | empty.graduates | No graduates found for your affiliated institutions. |
 | empty.graduates_search | No graduate matches "{q}". Search by name or the last four digits of APAAR. |
 
