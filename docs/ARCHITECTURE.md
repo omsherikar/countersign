@@ -43,6 +43,7 @@ countersign/
     ARCHITECTURE.md             contract (this file)        } changes only by agreement
     API_CONTRACT.md             contract                    } of both sides
     DATA_MODEL.md               contract                    }
+    ENGINES.md                  contract between the two api branches (Week 2)
     DECISIONS.md                progress agent
     PROGRESS.md                 progress agent
     DESIGN.md                   UI agent
@@ -77,11 +78,14 @@ services/api/
   app/db/{base,session}.py    SQLAlchemy 2 async
   app/models/*.py             one module per domain
   app/schemas/*.py            Pydantic v2 response/request models
-  app/routers/*.py            auth, me, dashboard, institutions, students, admin, healthz
+  app/routers/*.py            auth, me, dashboard, institutions, students, admin, healthz;
+                              Week 2: uploads, enrolments, flags
   app/adapters/               base.py protocols; inmemory/, mockgov/, real/; factory.py
-  app/engine/                 Week 2+ (upload, validation, matching, ledger, countersign, duplicates)
+  app/engine/                 seatpools.py (Week 1); Week 2: contracts.py, pipeline.py, upload/ (parse,
+                              validate, upsert), matching.py, ledger.py, checks/, duplicates.py, flags.py,
+                              evidence.py, score.py (interfaces in ENGINES.md)
   app/seed/                   importer for datagen output; cli.py
-  app/worker.py               celery app
+  app/worker.py               celery app; Week 2 task countersign.run_batch (worker concurrency 1)
   alembic/                    migrations, 0001 = whole schema
   tests/
 ```
@@ -116,7 +120,7 @@ apps/web/
 - `GET /me` returns the current user and scope. 401 when the cookie is missing, expired or invalid.
 - The web never stores the token; the browser only ever talks to `/api/*` on its own origin. The Next.js route handler `app/api/[...path]/route.ts` forwards method, path, query, JSON body, `Cookie` header and returns the upstream status, body and `Set-Cookie` unchanged.
 - Server components call the api with `API_INTERNAL_URL` directly and pass the incoming `cs_access` cookie through.
-- CSRF: `SameSite=Lax` cookie plus JSON-only request bodies (`Content-Type: application/json` required on every mutating route; form posts are rejected with 415). No CSRF token in Week 1.
+- CSRF: `SameSite=Lax` cookie plus JSON-only request bodies (`Content-Type: application/json` required on every mutating route; form posts are rejected with 415). No CSRF token in Week 1. One exception from Week 2: `POST /uploads` takes `multipart/form-data` (the file); the proxy streams that body through with its own `Content-Type`, and passes CSV and XLSX downloads back with `Content-Type` and `Content-Disposition` unchanged (API_CONTRACT §A2.1).
 - Public endpoints (no cookie): `GET /healthz`, Week 3 `/verify/*`. Public endpoints are rate-limited (60/min per IP); 429 uses the error envelope with code `RATE_LIMITED`.
 
 ### 401 shape
@@ -166,7 +170,7 @@ Unknown or mismatched role on a route group (a student opening `/aicte`) is redi
 { "error": { "code": "SNAKE_CASE", "message": "Human readable.", "details": {} } }
 ```
 
-Codes used in Week 1: `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_CREDENTIALS`, `VALIDATION_ERROR` (422, `details.fields` = `[{field, message}]`), `RATE_LIMITED`, `SOURCE_UNAVAILABLE`, `INTERNAL`.
+Codes used in Week 1: `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_CREDENTIALS`, `VALIDATION_ERROR` (422, `details.fields` = `[{field, message}]`), `RATE_LIMITED`, `SOURCE_UNAVAILABLE`, `INTERNAL`. Added in Week 2: `FILE_TOO_LARGE`, `TOO_MANY_ROWS` (413), `UNSUPPORTED_FILE_TYPE` (415), `UPLOAD_HEADER_INVALID`, `UPLOAD_EMPTY` (422), `UPLOAD_IN_PROGRESS` (409).
 
 - JSON only. `snake_case` keys on the wire. No nulls for lists (empty list instead); nulls allowed for scalar "not yet known".
 - Money: none anywhere.
@@ -229,7 +233,7 @@ Countersign score: `passes / applicable` where `applicable = checks with status 
 { "score": { "passes": 4, "applicable": 5 }, "checks": [ { "type": "IDENTITY", "status": "PASS", "source": "APAAR", "checked_at": "2026-07-14T09:30:00Z", "detail": {} } ] }
 ```
 
-Displayed as **"4 of 5"**. In Week 1 `score` is `null` and `checks` is `[]`.
+Displayed as **"4 of 5"**. In Week 1 `score` is `null` and `checks` is `[]`. From Week 2 the lists (enrolment rows, `/students/me`) carry each check as `{type, status}` only, all five in display order; the full rows above (source, time, detail) come from `GET /enrolments/{id}` (API_CONTRACT §A2.10, §A2.11).
 
 Flag types: `EXCESS_ADMISSION`, `QUOTA_BREACH`, `LATE_REFILL`, `INVALID_APAAR`, `NAME_MISMATCH`, `DUPLICATE_CROSS_INSTITUTION`, `DUPLICATE_WITHIN_UPLOAD`, `DUAL_ENROLMENT_ALLOWED`, `NO_ACADEMIC_ACTIVITY`, `STUDENT_DENIED`, `GHOST_RING`, `ANOMALY`.
 
@@ -243,7 +247,17 @@ Admission route: `COUNSELLING`, `MANAGEMENT`, `NRI`, `SPOT`, `LATERAL`, `INTERNA
 
 Seat type: `REGULAR`, `NRI`, `TFW`, `LATERAL`, `INTERNATIONAL`. Seat status: `FREE`, `ASSIGNED`, `RELEASED`. Seat code format `<PROGRAMME_CODE>-<R|N|T|L|I>-<NNN>`, e.g. `CSE-R-087`.
 
-Enrolment status: `ACTIVE`, `WITHDRAWN`, `TRANSFERRED`, `GRADUATED`.
+Enrolment status: `ACTIVE`, `WITHDRAWN`, `TRANSFERRED`, `GRADUATED`. Uploads set only the first three (D14).
+
+Added in Week 2 (API_CONTRACT Addendum 2):
+
+- Programme mode: `PHYSICAL`, `ODL`, `ONLINE` (drives DUAL_ENROLMENT_ALLOWED, D19).
+- Upload status: `QUEUED`, `VALIDATING`, `PROCESSING`, `DONE`, `FAILED` (`PROCESSING` replaces `CHECKING`). Upload stage: `PARSE`, `VALIDATE`, `FILE_DUPLICATES`, `UPSERT`, `LEDGER`, `CHECKS`, `DUPLICATES`, `FLAGS`, `DONE`. Upload source: `FILE`, `API`, `SEED`. Row error level: `ERROR` (row rejected), `WARNING` (row accepted with a note).
+- Check source: `APAAR`, `COUNSELLING`, `SEAT_LEDGER`, `ABC`, `SII`, `STUDENT_NOTICE`.
+- Cohort year: the approval year a row belongs to, `academic_year` minus (`year_of_study` - 1), from `app/core/cohort.py`; stored on `enrolments.cohort_year`.
+- Admitted versus enrolments: `admitted` is ACTIVE enrolments whose cohort year is the academic year shown (the intake set against that year's approved seats); `enrolments` is every student on roll in that year. Fill and over-admission are always `admitted / approved_seats`.
+- CIWG student: an INTERNATIONAL-route row with nationality `IN`; only CIWG students take the CIWG-reserved international seats (D16).
+- Unresolved flag: status `OPEN`, `DOCS_REQUESTED` or `ESCALATED`; `flags_open` counts these.
 
 ## 10. Endpoint availability by week
 
