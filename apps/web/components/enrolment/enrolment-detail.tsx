@@ -132,10 +132,8 @@ function ChecksTable({ checks }: { checks: Check[] }) {
         </thead>
         <tbody>
           {ordered(checks).map((c) => (
-            <tr key={c.type} className="align-top">
-              <th scope="row" className="text-left font-medium">
-                {tk(`check.${c.type}`)}
-              </th>
+            <tr key={c.type}>
+              <td className="font-medium">{tk(`check.${c.type}`)}</td>
               <td>
                 <CheckBadge status={c.status} word={statusWord(c)} />
               </td>
