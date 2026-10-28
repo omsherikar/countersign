@@ -255,22 +255,116 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 
 ## 5. Flag names and evidence templates
 
-`flag.<TYPE>.name` is the human name shown in tables. `flag.<TYPE>.summary` is the evidence sentence the api should produce in `evidence.summary` (the web renders `summary` verbatim and never rebuilds it). `facts` lists the label and value pairs expected in `evidence.facts`. `rule` is the expected `rule_source`.
+`flag.<TYPE>.name` is the human name shown in tables, filters, chips and the dashboard. Everything else in this section is a reference copy of API_CONTRACT §A2.17: the engines write `summary`, `facts` and `rule_source` into the flag and the web prints them verbatim, in the order sent. The web never rebuilds a summary from these templates.
 
-| type | name | summary template | facts | rule |
-|---|---|---|---|---|
-| EXCESS_ADMISSION | Excess admission | {admitted} admitted against {approved} approved seats in {programme_code} ({academic_year}). | Approved intake; Admitted (active); Seated; Unseated | APH 2024-27 cl. 2.8(b) |
-| QUOTA_BREACH | Quota breach | {assigned} {seat_type} admissions against {capacity} {seat_type} seats in {programme_code} ({academic_year}). | Pool; Capacity; Admitted via route; Rule percentage | APH 2024-27 cl. {clause} |
-| LATE_REFILL | Late refill | Seat {seat_code} assigned on {assigned_date}, after the last admission date {cutoff_date}. | Seat; Released on; Assigned on; Last admission date | APH 2024-27 cl. 6.13(f) |
-| INVALID_APAAR | APAAR not found | APAAR ending {apaar_last4} is not in the APAAR registry. | APAAR (masked); Registry reply; Checked at | APAAR verification |
-| NAME_MISMATCH | Name mismatch | Name on upload differs from the APAAR registry (similarity {name_score} of 100). | Name on upload; Similarity; Date of birth match; Checked at | APAAR verification |
-| DUPLICATE_CROSS_INSTITUTION | Duplicate across institutions | The same student appears as active at {institution_a} and {institution_b} ({academic_year}). | Match on; Institution A programme; Institution B programme; Uploaded on | One active full-time enrolment per student |
-| DUPLICATE_WITHIN_UPLOAD | Duplicate in upload | Rows {row_a} and {row_b} of {filename} describe the same student. | Match on; Row A; Row B; Names as uploaded | Upload validation |
-| DUAL_ENROLMENT_ALLOWED | Dual enrolment (allowed) | The student holds two enrolments; one is distance or online, which is permitted. | Enrolment A mode; Enrolment B mode; UGC notification | UGC dual-degree guidelines 2022 |
-| NO_ACADEMIC_ACTIVITY | No academic activity | No credits recorded in ABC for {semesters} semesters while enrolled in year {year_of_study}. | Semesters checked; Credits found; Last ABC entry | ABC credit record |
-| STUDENT_DENIED | Student denied | Student replied "not me" to the notice sent on {sent_date}. | Notice sent; Replied on; Student comment | Student reply |
-| GHOST_RING | Shared contact ring | {students} students across {institutions} institutions share {contacts} contact details. | Shared mobiles; Shared emails; Shared addresses; Institutions | Contact graph analysis |
-| ANOMALY | Unusual pattern | {metric} for {programme_code} is {value}, outside the usual range ({low} to {high}) for similar programmes. | Metric; Value; Usual range; Compared with | Anomaly model, Week 4 |
+Placeholders are the contract's. `{cohort_year}` is the approval year (`2026-27`); `{academic_year}` is the roll year, used only by flags that are not about seats. Dates inside sentences and fact values read `5 Oct 2026`.
+
+Names, in dashboard order (ARCHITECTURE §9)
+
+| id | text |
+|---|---|
+| flag.EXCESS_ADMISSION.name | Excess admission |
+| flag.QUOTA_BREACH.name | Quota breach |
+| flag.LATE_REFILL.name | Late refill |
+| flag.INVALID_APAAR.name | APAAR not verified |
+| flag.NAME_MISMATCH.name | Name or date of birth mismatch |
+| flag.DUPLICATE_CROSS_INSTITUTION.name | Duplicate across institutions |
+| flag.DUPLICATE_WITHIN_UPLOAD.name | Duplicate within institution |
+| flag.DUAL_ENROLMENT_ALLOWED.name | Dual enrolment (allowed) |
+| flag.NO_ACADEMIC_ACTIVITY.name | No academic activity |
+| flag.STUDENT_DENIED.name | Student denied |
+| flag.GHOST_RING.name | Shared contact ring |
+| flag.ANOMALY.name | Unusual pattern |
+
+Summaries (`evidence.summary`, one sentence, never a student name or a full id)
+
+| id | severity | when | text |
+|---|---|---|---|
+| flag.EXCESS_ADMISSION.summary | High | admissions on Regular and NRI routes exceed the seats inside the intake | {admitted} admitted against {approved} approved seats in {programme_code} ({cohort_year}); {unseated} without a seat. |
+| flag.QUOTA_BREACH.summary | Medium; High when the NRI or International pool is more than 2 over | any other pool has admissions without a seat | {admitted} {seat_type_word} admissions against {capacity} {seat_type_word} seats in {programme_code} ({cohort_year}). |
+| flag.LATE_REFILL.summary | Medium | a released seat goes to an admission dated after the last admission date | Seat {seat_code} assigned on {assigned_date}, after the last admission date {cutoff_date}. |
+| flag.INVALID_APAAR.summary | High | a well-formed APAAR is not in the registry | APAAR ending {apaar_last4} is not in the APAAR registry. |
+| flag.INVALID_APAAR.summary_malformed | Medium | the APAAR as uploaded is not 12 digits | APAAR as uploaded {problem}, so it could not be checked. |
+| flag.NAME_MISMATCH.summary | Medium below 75; Low from 75 to 89 | the name differs from the registry | Name on upload differs from the APAAR registry (similarity {name_score} of 100). |
+| flag.NAME_MISMATCH.summary_dob | Medium | the date of birth differs from the registry | Date of birth on upload differs from the APAAR registry. |
+| flag.DUPLICATE_CROSS_INSTITUTION.summary | High with a shared APAAR or passport; Medium by name, date of birth and mobile | officers | The same student appears as active at {institution_a} and {institution_b} ({academic_year}). |
+| flag.DUPLICATE_CROSS_INSTITUTION.summary_institution | as above | the registrar (`summary_for_institution`) | The same student appears as active here and at another institution in {state_b} ({academic_year}). |
+| flag.DUPLICATE_WITHIN_UPLOAD.summary | Medium | both rows in one file | Rows {row_a} and {row_b} of {filename} describe the same student. |
+| flag.DUPLICATE_WITHIN_UPLOAD.summary_two_files | Medium | the rows are in two files | Row {row_b} of {filename_b} describes the same student as row {row_a} of {filename_a}. |
+| flag.DUAL_ENROLMENT_ALLOWED.summary | Low | one physical programme plus one open and distance learning or online programme | The student holds two enrolments; one is distance or online, which is permitted. |
+| flag.NO_ACADEMIC_ACTIVITY.summary | Medium | two or more expected semesters have no credits | No credits recorded in ABC for {missing} semesters while enrolled in year {year_of_study}. |
+| flag.STUDENT_DENIED.summary | not raised before Week 3 | | Student replied "not me" to the notice sent on {sent_date}. |
+| flag.GHOST_RING.summary | not raised before Week 3 | | {students} students across {institutions} institutions share {contacts} contact details. |
+| flag.ANOMALY.summary | not raised before Week 4 | | {metric} for {programme_code} is {value}, outside the usual range ({low} to {high}) for similar programmes. |
+
+Facts (`evidence.facts`, label: value, source, in this order)
+
+| type | label | value | source |
+|---|---|---|---|
+| EXCESS_ADMISSION | Approved intake | {approved} | AICTE approval {cohort_year} |
+| | Admitted (active) | {admitted} | College uploads, Regular and NRI routes |
+| | Seated | {seated} | Seat ledger |
+| | Unseated | {unseated} | Seat ledger |
+| | Most unseated at once (only when higher than Unseated) | {peak_unseated} | Seat ledger |
+| QUOTA_BREACH | Pool | {seat_type_word} | Seat ledger |
+| | Capacity | {capacity} | rules.yaml |
+| | Admitted via route | {admitted} ({route_words}) | College uploads |
+| | Unseated | {unseated} | Seat ledger |
+| | Rule percentage | {share}% of approved intake {approved} | rules.yaml |
+| LATE_REFILL | Seat | {seat_code} | Seat ledger |
+| | Released on | {released_date} | Seat ledger |
+| | Assigned on | {assigned_date} | College upload {filename}, row {row_no} |
+| | Last admission date | {cutoff_date} | rules.yaml cutoff_dates |
+| INVALID_APAAR, not in registry | APAAR (masked) | XXXX XXXX {apaar_last4} | College upload |
+| | Registry reply | Not found | APAAR registry |
+| | Checked at | {checked_date} | APAAR registry |
+| INVALID_APAAR, malformed | APAAR (masked) | <{n} characters> | College upload |
+| | Registry reply | Not checked | APAAR registry |
+| | Checked at | {checked_date} | Countersign |
+| NAME_MISMATCH | Name on upload | {name} | College upload |
+| | Similarity | {name_score} of 100 | APAAR registry |
+| | Date of birth match | Yes (name variant) or No (date of birth variant) | APAAR registry |
+| | Checked at | {checked_date} | APAAR registry |
+| DUPLICATE_WITHIN_UPLOAD | Match on | {match_words} | Duplicate detection |
+| | Row A | {filename_a}, row {row_a} | College upload |
+| | Row B | {filename_b}, row {row_b} | College upload |
+| | Names as uploaded | {name_a} / {name_b} | College upload |
+| DUPLICATE_CROSS_INSTITUTION | Match on | {match_words} | Duplicate detection |
+| | Institution A programme | {institution_a}: {programme_a} | College upload {uploaded_a} |
+| | Institution B programme (officers) | {institution_b}: {programme_b} | College upload {uploaded_b} |
+| | Institution B programme (registrar) | Another institution in {state_b}: {programme_b} | |
+| | Uploaded on | {uploaded_a} and {uploaded_b} | College uploads |
+| DUAL_ENROLMENT_ALLOWED | Enrolment A mode | {institution_a}: {programme_a}, {mode_a_word} | College upload |
+| | Enrolment B mode (officers) | {institution_b}: {programme_b}, {mode_b_word} | College upload |
+| | Enrolment B mode (registrar) | Another institution in {state_b}: {programme_b}, {mode_b_word} | College upload |
+| | UGC notification | Pursuing two academic programmes simultaneously, 2022 | UGC |
+| NO_ACADEMIC_ACTIVITY | Semesters checked | {expected} ({first_academic_year} to {last_academic_year}) | ABC |
+| | Credits found | Sem 1: 0, Sem 2: 0 (one entry per semester) | ABC |
+| | Last ABC entry | {last_entry_date}, or None | ABC |
+| STUDENT_DENIED | Notice sent; Replied on; Student comment | | Student reply |
+| GHOST_RING | Shared mobiles; Shared emails; Shared addresses; Institutions | | Contact graph analysis |
+| ANOMALY | Metric; Value; Usual range; Compared with | | Anomaly model |
+
+Words: `{match_words}` is "Same APAAR", "Same passport" or "Name ({name_score} of 100), date of birth and mobile", joined with "and" when more than one matched. `{mode_a_word}` and `{mode_b_word}` are "physical", "open and distance learning" or "online". `{route_words}` lists the routes that map to the pool (NRI; TFW; Lateral; International). Institution A is always the flag's own institution and B the other one. The registrar never sees B's name: the api drops the officer facts and keeps the registrar ones.
+
+Rule sources (`evidence.rule_source`, shown after "Rule:")
+
+| id | text |
+|---|---|
+| flag.EXCESS_ADMISSION.rule | {rule_source}, the Regular pool's, e.g. "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))" |
+| flag.QUOTA_BREACH.rule | {rule_source}, the breached pool's, e.g. "APH 2024-27 cl. 2.8(b)" for NRI |
+| flag.LATE_REFILL.rule | Last admission date for {cohort_year} (rules.yaml cutoff_dates) |
+| flag.INVALID_APAAR.rule | APAAR verification |
+| flag.NAME_MISMATCH.rule | APAAR verification |
+| flag.DUPLICATE_CROSS_INSTITUTION.rule | One active full-time enrolment per student |
+| flag.DUPLICATE_WITHIN_UPLOAD.rule | Upload validation |
+| flag.DUAL_ENROLMENT_ALLOWED.rule | UGC dual-degree guidelines 2022 |
+| flag.NO_ACADEMIC_ACTIVITY.rule | ABC credit record |
+| flag.STUDENT_DENIED.rule | Student reply |
+| flag.GHOST_RING.rule | Contact graph analysis |
+| flag.ANOMALY.rule | Anomaly model, Week 4 |
+
+QUOTA_BREACH counts `{admitted}` (enrolments by route), because assigned seats can never exceed a pool's capacity. LATE_REFILL cites the last admission date in `rules.yaml` `cutoff_dates`, not APH cl. 6.13(f), which is the lateral-entry vacancy clause.
 
 Rules for every template: no verdict words (never "fraud", "fake", "illegal"); claimed figure first, source figure second; the period in brackets; one sentence.
 
