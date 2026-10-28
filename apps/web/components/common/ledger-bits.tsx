@@ -46,16 +46,9 @@ export function UnseatedCount({ n }: { n: number }) {
   );
 }
 
-/** The amber "Unseated" marker for an enrolment row with no seat code. */
+/** "Unseated" in muted text for an enrolment row with no seat code; the amber chip stays on programme counts. */
 export function UnseatedChip() {
-  return (
-    <span
-      title={t("ledger.unseated_tip")}
-      className="inline-flex h-5 items-center rounded-chip border border-dashed border-check-pending/50 bg-check-pending-soft px-1.5 font-sans text-xs font-medium text-check-pending-ink"
-    >
-      {t("seat.unseated")}
-    </span>
-  );
+  return <span className="font-sans text-xs text-ink-muted">{t("seat.unseated")}</span>;
 }
 
 /** Institution type in words, as a quiet outlined chip. */
