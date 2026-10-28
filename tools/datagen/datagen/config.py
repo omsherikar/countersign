@@ -72,12 +72,26 @@ class UpdateConfig:
 
 
 @dataclass(frozen=True)
+class GraduateConfig:
+    academic_year: str
+    year_of_award: int
+    count: int
+    abc: int
+    university: str
+    university_share: float
+    other_universities: int
+    provisional: tuple[int, int]
+    status_dates: tuple[str, str]
+
+
+@dataclass(frozen=True)
 class Config:
     size: SizeConfig
     academic_year: str
     anomalies: dict[str, int]
     ghost_ring: dict[str, tuple[int, int]]
     updates: UpdateConfig
+    graduates: GraduateConfig
     rules: dict[str, Any]
     scenarios: bool
 
@@ -115,12 +129,25 @@ class Config:
             refills=tuple(u["refills"]),
             status_dates=tuple(u["status_dates"]),
         )
+        g = raw["graduates"]
+        graduates = GraduateConfig(
+            academic_year=g["academic_year"],
+            year_of_award=int(g["year_of_award"]),
+            count=int(g["count"][size]),
+            abc=int(g["abc"][size]),
+            university=g["university"],
+            university_share=float(g["university_share"]),
+            other_universities=int(g["other_universities"]),
+            provisional=tuple(g["provisional"]),
+            status_dates=tuple(g["status_dates"]),
+        )
         return cls(
             size=size_cfg,
             academic_year=raw["academic_year"],
             anomalies=anomalies,
             ghost_ring=ring,
             updates=updates,
+            graduates=graduates,
             rules=load_rules(rules_yaml),
             scenarios=scenarios,
         )

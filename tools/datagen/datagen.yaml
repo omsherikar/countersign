@@ -50,3 +50,19 @@ ghost_ring:
   size: [6, 12]
   colleges: [2, 3]
   shared_mobiles: [2, 3]
+
+# graduates.jsonl: final-year students of the year before the roll, who have finished, for
+# the university degree proof. New people, never on the roll. Most go to colleges affiliated
+# to `university` (the coe@univ.demo login), at least `abc` of them at ABC College of
+# Engineering; the rest to the `other_universities` universities with the most affiliated
+# colleges. `provisional` of them have no APAAR, only a provisional id.
+graduates:
+  academic_year: "2025-26"
+  year_of_award: 2026
+  count:               {small: 40, full: 400}
+  abc:                 {small: 12, full: 60}
+  university:          "MSTU"
+  university_share:    0.6
+  other_universities:  3
+  provisional:         [3, 5]
+  status_dates:        ["2026-06-15", "2026-07-31"]

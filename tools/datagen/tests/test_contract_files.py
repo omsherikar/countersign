@@ -170,7 +170,7 @@ def test_mockgov_jsonl_shapes(small):
 
 def test_manifest_and_summary(small):
     manifest = small.json("manifest.json")
-    assert set(manifest) == {"size", "seed", "generated_at", "counts"}
+    assert set(manifest) == {"size", "seed", "generated_at", "counts", "demo_unanswered_notices"}
     assert manifest["size"] == "small" and manifest["seed"] == 42
     counts = manifest["counts"]
     assert counts["institutions"] == 50

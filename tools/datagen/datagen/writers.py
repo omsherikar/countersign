@@ -14,7 +14,10 @@ from typing import Any
 from openpyxl import Workbook
 
 from . import geo
+from .graduates import records as graduate_records
+from .graduates import registry_records as graduate_registry_records
 from .institutions import ABC_ID, XYZ_ID, public_institution
+from .notices import ReplyPlanner
 from .students import DEMO_APAAR, DEMO_NAME, UPLOAD_COLUMNS, World
 
 PASSWORD = "Countersign!2026"
@@ -234,7 +237,7 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         world.xlsx_written = True
 
     t = time.perf_counter()
-    registry = world.registry_records()
+    registry = world.registry_records() + graduate_registry_records(world.graduates)
     counselling = world.counselling_records()
     abc = world.abc_records()
     sii = world.sii_records()
@@ -243,6 +246,13 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     dump_jsonl(out / "mockgov" / "abc_credits.jsonl", abc)
     dump_jsonl(out / "mockgov" / "sii.jsonl", sii)
     world.timings["write_mockgov"] = time.perf_counter() - t
+
+    t = time.perf_counter()
+    dump_jsonl(out / "graduates.jsonl", graduate_records(world.graduates))
+    planner = ReplyPlanner(world, files, {r["apaar_id"] for r in registry})
+    replies = planner.plan()
+    dump_jsonl(out / "notice_replies.jsonl", replies)
+    world.timings["write_graduates_replies"] = time.perf_counter() - t
 
     ground_truth = finalize_ground_truth(world)
     dump_json(out / "ground_truth.json", ground_truth)
@@ -266,6 +276,11 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "counselling": len(counselling),
         "abc_credits": len(abc),
         "sii": len(sii),
+        "graduates": len(world.graduates),
+        "notice_replies": len(replies),
+        "notice_replies_yes": sum(r["reply"] == "YES" for r in replies),
+        "notice_replies_no": sum(r["reply"] == "NO" for r in replies),
+        "notice_replies_none": sum(r["reply"] == "NONE" for r in replies),
         "ground_truth": len(ground_truth),
         "ground_truth_by_type": dict(sorted(by_type.items())),
     }
@@ -279,6 +294,8 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "seed": world.seed,
         "generated_at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "counts": counts,
+        # Notices the live demo answers by hand; notice_replies.jsonl leaves them unanswered.
+        "demo_unanswered_notices": planner.unanswered,
     }
     dump_json(out / "manifest.json", manifest)
     summary = dict(manifest)

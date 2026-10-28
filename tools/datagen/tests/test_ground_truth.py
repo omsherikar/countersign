@@ -96,7 +96,8 @@ def test_every_reference_resolves_to_an_upload_row(small):
 
 def test_abc_cse_132_against_120(small):
     cse = next(
-        p for p in small.json("institutions.json")["institutions"][0]["programmes"]
+        p
+        for p in small.json("institutions.json")["institutions"][0]["programmes"]
         if p["code"] == "CSE"
     )
     assert {"academic_year": "2026-27", "approved_intake": 120} in cse["approvals"]

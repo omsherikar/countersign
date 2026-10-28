@@ -14,7 +14,7 @@ from app.chaos import ChaosState
 from app.config import Settings, get_settings
 from app.db import Database
 from app.errors import install_error_handlers
-from app.routers import abc, admin, apaar, counselling, digilocker, healthz, sii
+from app.routers import abc, admin, apaar, counselling, digilocker, digilocker_ui, healthz, sii
 
 
 async def startup(app: FastAPI) -> None:
@@ -53,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         counselling.router,
         abc.router,
         digilocker.router,
+        digilocker_ui.router,
         sii.router,
         admin.router,
     ):

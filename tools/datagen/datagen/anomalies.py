@@ -185,15 +185,22 @@ class Planter:
         # 3. Ghost ring: 40 students across three WEST colleges sharing four mobiles.
         ring_ids = [ABC_ID, w.institutions[3]["aicte_permanent_id"],
                     w.institutions[4]["aicte_permanent_id"]]  # fmt: skip
-        self.plant_ring(ring_ids, size=40, shared_mobiles=4, scenario="ghost_ring_40",
-                        exclude_programme=(ABC_ID, "CSE"))
+        self.plant_ring(
+            ring_ids,
+            size=40,
+            shared_mobiles=4,
+            scenario="ghost_ring_40",
+            exclude_programme=(ABC_ID, "CSE"),
+        )
 
         # 4. A second-year at XYZ with zero credits for two semesters.
         victim = w.pick_row(
-            lambda r: r["_inst"] == XYZ_ID
-            and r["year_of_study"] == 2
-            and r["admission_route"] != "LATERAL"
-            and is_linked(r)
+            lambda r: (
+                r["_inst"] == XYZ_ID
+                and r["year_of_study"] == 2
+                and r["admission_route"] != "LATERAL"
+                and is_linked(r)
+            )
         )
         victim["_credits"] = "zero"
         self.record(
@@ -206,8 +213,13 @@ class Planter:
 
         # 5. One demo student who will answer "No" to the enrolment notice.
         denier = w.pick_row(
-            lambda r: r["_inst"] == ABC_ID and r["programme_code"] == "CSE"
-            and r["year_of_study"] == 1 and is_linked(r) and r["admission_route"] == "COUNSELLING"
+            lambda r: (
+                r["_inst"] == ABC_ID
+                and r["programme_code"] == "CSE"
+                and r["year_of_study"] == 1
+                and is_linked(r)
+                and r["admission_route"] == "COUNSELLING"
+            )
         )
         self.record(
             "STUDENT_DENIED", [denier],
@@ -218,8 +230,13 @@ class Planter:
 
         # 6. A legal dual enrolment: ABC B.Tech plus an ODL BCA elsewhere.
         src = w.pick_row(
-            lambda r: r["_inst"] == ABC_ID and r["programme_code"] != "CSE"
-            and r["_prog"]["level"] == "UG" and r["year_of_study"] == 1 and is_linked(r)
+            lambda r: (
+                r["_inst"] == ABC_ID
+                and r["programme_code"] != "CSE"
+                and r["_prog"]["level"] == "UG"
+                and r["year_of_study"] == 1
+                and is_linked(r)
+            )
         )
         self.plant_dual(src, scenario="legal_dual_abc")
 
@@ -250,7 +267,11 @@ class Planter:
     # ------------------------------------------------------------- planters
 
     def plant_ring(
-        self, inst_ids: list[str], size: int, shared_mobiles: int, scenario: str | None = None,
+        self,
+        inst_ids: list[str],
+        size: int,
+        shared_mobiles: int,
+        scenario: str | None = None,
         exclude_programme: tuple[str, str] | None = None,
     ) -> None:
         w = self.w
@@ -259,6 +280,7 @@ class Planter:
             per_college[i] += 1
         members: list[dict] = []
         for inst_id, k in zip(inst_ids, per_college, strict=True):
+
             def ok(r, inst_id=inst_id):
                 if r["_inst"] != inst_id or r["year_of_study"] != 1 or not clean_linked_physical(r):
                     return False
@@ -266,6 +288,7 @@ class Planter:
                 if w.route_pool(r["admission_route"]) != "REGULAR":
                     return False
                 return exclude_programme != (r["_inst"], r["programme_code"])
+
             picked = w.pick_rows(k, ok)
             members.extend(picked)
         mobiles = [w.new_mobile() for _ in range(shared_mobiles)]
@@ -520,9 +543,11 @@ class Planter:
         # A year-2 lateral entrant joined this year: the api treats STUDYING as NA for them,
         # so planting "no activity" there would be a false ground truth.
         row = self.w.pick_row(
-            lambda r: clean_linked_physical(r)
-            and r["year_of_study"] >= 2
-            and not (r["admission_route"] == "LATERAL" and r["year_of_study"] == 2)
+            lambda r: (
+                clean_linked_physical(r)
+                and r["year_of_study"] >= 2
+                and not (r["admission_route"] == "LATERAL" and r["year_of_study"] == 2)
+            )
         )
         if row is None:
             return
@@ -600,9 +625,7 @@ class Planter:
         for _ in range(self.counts.get("DUPLICATE_CROSS_INSTITUTION", 0)):
             self.plant_duplicate_cross()
         for _ in range(remaining("DUAL_ENROLMENT_ALLOWED", "DUAL_ENROLMENT_ALLOWED")):
-            src = self.w.pick_row(
-                lambda r: clean_linked_physical(r) and r["year_of_study"] == 1
-            )
+            src = self.w.pick_row(lambda r: clean_linked_physical(r) and r["year_of_study"] == 1)
             if src:
                 self.plant_dual(src)
         lo_size, hi_size = self.cfg.ghost_ring["size"]
@@ -612,7 +635,8 @@ class Planter:
         for _ in range(remaining("GHOST_RING", "GHOST_RING")):
             colleges = self.rng.sample(ids, self.rng.randint(lo_c, hi_c))
             self.plant_ring(
-                colleges, size=self.rng.randint(lo_size, hi_size),
+                colleges,
+                size=self.rng.randint(lo_size, hi_size),
                 shared_mobiles=self.rng.randint(lo_m, hi_m),
             )
         kinds = ["UNKNOWN", "SHORT", "UNKNOWN", "LONG", "UNKNOWN", "LETTERS"]

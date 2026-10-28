@@ -13,6 +13,7 @@ from .config import Config
 
 def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: bool | None = None):
     from .anomalies import Planter
+    from .graduates import GraduateBuilder
     from .students import World
     from .updates import UpdatePlanner
     from .writers import write_all
@@ -34,6 +35,9 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     t = time.perf_counter()
     world.finalise()
     world.timings["finalise_rows"] = time.perf_counter() - t
+    t = time.perf_counter()
+    GraduateBuilder(world).build()
+    world.timings["graduates"] = time.perf_counter() - t
     want_xlsx = cfg.size.xlsx if xlsx is None else xlsx
     summary = write_all(world, out, xlsx=want_xlsx)
     summary["timings_seconds"]["total"] = round(time.perf_counter() - started, 3)
@@ -72,11 +76,17 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("--seed", type=int, default=42)
     gen.add_argument("--out", type=Path, required=True)
     gen.add_argument(
-        "--scenarios", dest="scenarios", action=argparse.BooleanOptionalAction, default=True,
+        "--scenarios",
+        dest="scenarios",
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="plant the named demo scenarios (default on)",
     )
     gen.add_argument(
-        "--xlsx", dest="xlsx", action=argparse.BooleanOptionalAction, default=None,
+        "--xlsx",
+        dest="xlsx",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="also write .xlsx uploads (default from datagen.yaml per size)",
     )
 
