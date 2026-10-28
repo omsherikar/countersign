@@ -55,3 +55,10 @@ def test_muhammad_spellings_fold_to_one_token():
     assert {normalize_name(n) for n in ("Muhammad Irfan", "Mohamed Irfan", "Md. Irfan")} == {
         normalize_name("Mohammed Irfan")
     }
+
+
+def test_km_and_sri_are_dropped_as_honorifics():
+    from app.names import normalize_name
+
+    assert normalize_name("Km. Priya Patil") == normalize_name("Priya Patil")
+    assert normalize_name("Sri Ramesh Rao") == normalize_name("Ramesh Rao")

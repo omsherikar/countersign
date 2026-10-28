@@ -409,7 +409,7 @@ def verdict(score: int) -> NameVerdict: ...             # thresholds from rules.
 2. Unicode NFKD, combining marks dropped, lower case.
 3. Anything other than `a-z`, `0-9` and spaces becomes a space.
 4. Honorific tokens dropped: `mr ms mrs dr shri smt kumari km sri`.
-5. `mohd md mohammad muhammad mohammed` become `mohammed`.
+5. `mohd md mohammad muhammad mohamed muhammed mohammed` become `mohammed` (the same seven spellings mockgov folds).
 6. Spaces collapsed, ends trimmed.
 
 The output of `normalise_name` is what is sent to the APAAR registry and the counselling list and stored in `students.name_normalized`. It must not add other spelling folds: the mock registry normalises its own names with steps 2 to 6 (`services/mockgov/app/names.py`), and extra folds on one side only would lower genuine scores. Spelling folds (`aa` to `a`, `ee` and `ii` to `i`, `oo` and `uu` to `u`, and any others the engines branch adds) apply only inside `match_names` when two names are compared.
@@ -697,4 +697,4 @@ Tests each branch owes (the demo scenarios plus the edges of this contract):
 - Student fields of an APAAR student are last-writer-wins across institutions.
 - Flags are not resolved automatically when the cause goes away; officers clear them from Week 3.
 - A programme code offered in both shifts resolves to the FIRST shift.
-- mockgov folds `mohd`, `md`, `mohammad` and `mohammed` but not `muhammad`; until it does, a registry name spelt "Muhammad" scores below 100 against our `mohammed`.
+- mockgov folds the same seven Mohammed spellings and drops the same honorifics (including `km` and `sri`) since 2026-10-28, so registry scores and our matcher agree on these.
