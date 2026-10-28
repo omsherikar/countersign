@@ -1,6 +1,6 @@
 # Data model (api database `countersign`)
 
-All tables carry `id UUID PK default gen_random_uuid()`, `created_at timestamptz default now()`, `updated_at timestamptz` (trigger or ORM onupdate) unless marked append-only (then only `id`/`seq` and `at`). Enums are Postgres `ENUM` types named `<table>_<column>` with the UPPER_SNAKE values from `ARCHITECTURE.md` §9. FKs are `ON DELETE RESTRICT` except where noted. Migration `0001_initial` creates everything below.
+All tables carry `id UUID PK default gen_random_uuid()`, `created_at timestamptz default now()`, `updated_at timestamptz` (trigger or ORM onupdate) unless marked append-only (then only `id`/`seq` and `at`). Enums are Postgres `ENUM` types named `<table>_<column>` with the UPPER_SNAKE values from `ARCHITECTURE.md` §9. FKs are `ON DELETE RESTRICT` except where noted. Migration `0001_initial` creates everything below. Migration `0002` (Week 2) changes the columns listed under "Migration 0002" near the end of this file; where the two disagree, 0002 wins.
 
 ## Geography and institutions
 
@@ -302,6 +302,97 @@ Writes happen in the same transaction as the change. `verify_chain()` walks seq 
 | last_login_at | timestamptz nullable | |
 
 Check constraint: exactly the scope column matching the role is non-null (admin: none).
+
+## Migration 0002 (Week 2)
+
+Owner: **backend-pipeline**, as one Alembic revision `0002` (`down_revision = "0001"`, file `alembic/versions/0002_week2_engine_columns.py`) plus the matching edits to `app/models/*.py` and `app/models/enums.py`. One migration, one owner: backend-engines never edits models or migrations. This revision lands on `main` before any other Week 2 api code (ENGINES.md §2). `downgrade()` reverses every step.
+
+Demo data is always rebuilt by `make demo-reset`, but the migration still backfills existing rows so `alembic upgrade head` works on a seeded database.
+
+### New enum types
+
+| Postgres type | Python enum (`app/models/enums.py`) | values |
+|---|---|---|
+| `programmes_mode` | `ProgrammeMode` | `PHYSICAL`, `ODL`, `ONLINE` |
+| `upload_batches_stage` | `UploadStage` | `PARSE`, `VALIDATE`, `FILE_DUPLICATES`, `UPSERT`, `LEDGER`, `CHECKS`, `DUPLICATES`, `FLAGS`, `DONE` |
+| `upload_batches_source` | `UploadSource` | `FILE`, `API`, `SEED` |
+| `upload_row_errors_level` | `RowErrorLevel` | `ERROR` (row rejected), `WARNING` (row accepted, note for the registrar) |
+
+Changed enum: `upload_batches_status` value `CHECKING` is renamed to `PROCESSING` (`ALTER TYPE upload_batches_status RENAME VALUE 'CHECKING' TO 'PROCESSING'`); `UploadStatus.CHECKING` becomes `UploadStatus.PROCESSING`. Final values: `QUEUED`, `VALIDATING`, `PROCESSING`, `DONE`, `FAILED`.
+
+### `programmes`
+| column | change | notes |
+|---|---|---|
+| mode | add, `programmes_mode` NOT NULL DEFAULT `'PHYSICAL'` | the seed imports datagen's `mode`; drives DUAL_ENROLMENT_ALLOWED (D19) |
+
+### `upload_batches`
+| column | change | notes |
+|---|---|---|
+| academic_year | none | already in 0001; one batch is one institution and one academic year (D14) |
+| rows_total | rename to `total_rows` | data rows in the file (header excluded) |
+| processed_rows | add, int NOT NULL DEFAULT 0 | work items finished in the current `stage`; reset to 0 when the stage changes |
+| stage | add, `upload_batches_stage` NULL | null while QUEUED; on FAILED it keeps the stage that failed |
+| source | add, `upload_batches_source` NOT NULL DEFAULT `'FILE'` | FILE (multipart), API (`POST /uploads/rows`), SEED (`make seed`) |
+| counts | add, jsonb NOT NULL DEFAULT `'{}'` | keys below |
+| error | add, text NULL | why the batch FAILED, one plain sentence, never PII |
+| ignored_columns | add, text[] NOT NULL DEFAULT `'{}'` | header columns the parser did not recognise |
+| file_sha256 | add, text NULL | hex sha256 of the uploaded bytes (of the canonical JSON for API rows); lets the page say "same file as the upload on ..." |
+| declared_at | add, timestamptz NULL | when the registrar ticked the declaration; null for SEED |
+| declaration_text | add, text NULL | the exact declaration text shown (copy deck `upload.declaration`); null for SEED |
+| rows_ok, rows_error, progress_pct | drop | replaced by `counts` and the api-computed `progress_pct` |
+| kind | none | now derived server side: INITIAL when the institution has no earlier DONE batch for that year, else UPDATE |
+
+Index: `(institution_id, academic_year, created_at)`.
+
+`counts` keys (all integers unless noted; every key present once the batch is DONE, zeros included): `rows`, `accepted`, `errors`, `warnings`, `created`, `updated`, `unchanged`, `withdrawn`, `transferred`, `seated`, `released`, `unseated`, `flags_raised`, `flags_updated`, plus `sources` (object: `{"APAAR": {"calls": n, "unavailable": n}, ...}` keyed by check source) and `timings_ms` (object keyed by stage name). Meanings are in API_CONTRACT Addendum 2 §A2.7.
+
+### `upload_row_errors`
+| column | change | notes |
+|---|---|---|
+| level | add, `upload_row_errors_level` NOT NULL DEFAULT `'ERROR'` | |
+| value_masked | add, text NULL | the offending value, masked per API_CONTRACT §A2.3 |
+| raw | none | masked row as in Week 1 (no contact details, no full ids) |
+
+Index: `(batch_id, row_no)`. `row_no` is the spreadsheet row number: the header is row 1, the first data row is row 2. For `POST /uploads/rows` it is the 1-based position in `rows`. `enrolments.source_row_no` uses the same convention.
+
+### `students`
+| column | change | notes |
+|---|---|---|
+| name_normalized | none (meaning changes) | now `matching.normalise_name(name)` (D17), including transliteration |
+| name_key | add, text NULL | blocking key `matching.name_key(name, dob)` = `"<dob ISO>|<first initial>|<metaphone of surname>"`, e.g. `2007-03-21|r|XRM`; written for every row from Week 2 on, nullable only so the migration needs no Python |
+| passport_encrypted | add, bytea NULL | Fernet(passport_no), so Study in India can be asked again on recheck; never returned |
+
+Index: `(name_key)`, `(passport_hmac)` (not unique).
+
+### `enrolments`
+| column | change | notes |
+|---|---|---|
+| cohort_year | add, text NOT NULL | `cohort.cohort_year(academic_year, year_of_study)`, written on every insert and update; backfilled in SQL with the same arithmetic as `cohort_year_sql` |
+| admission_date | add, date NOT NULL | from the upload, default the upload date; backfilled from `uploaded_at::date`; used for LATE_REFILL |
+| status_date | add, date NOT NULL | date of the current status, default the upload date; backfilled from `uploaded_at::date` |
+| apaar_problem | add, text NULL | why the uploaded APAAR was unusable, e.g. "has 11 digits, expected 12"; never the digits. Set means IDENTITY fails with INVALID_APAAR |
+
+Indexes: `(programme_id, cohort_year, status)`; unique partial `uq_enrolments_seat_id` on `(seat_id) WHERE seat_id IS NOT NULL` (one holder per seat).
+
+### `seat_events`
+| column | change | notes |
+|---|---|---|
+| effective_date | add, date NULL | the business date: `admission_date` on ASSIGN, `status_date` on RELEASE. `at` stays the server time |
+
+### `seats`
+No column change. From Week 2 a released seat goes straight back to `FREE`; the `RELEASED` status value stays in the enum but is not written. "This seat was released before" means it has a `RELEASE` seat event.
+
+### `checks`
+Index: `(type, status)` for the enrolment list filters. No column change. `source` values: `APAAR`, `COUNSELLING`, `SEAT_LEDGER`, `ABC`, `SII`, `STUDENT_NOTICE`.
+
+### `flags`
+| column | change | notes |
+|---|---|---|
+| academic_year | add, text NULL | the roll year of the enrolments that raised it (the upload's academic year); every Week 2 write sets it; the dashboard counts flags of its `academic_year` |
+
+Indexes: `(academic_year, status)`; GIN on `related_enrolment_ids`. `created_at` is when the flag was opened (same instant as `opened_at`); `updated_at` moves whenever an engine changes the evidence or severity.
+
+Evidence stored in `flags.evidence` (D20, API_CONTRACT §A2.17): `{summary, summary_for_institution?, facts: [{label, value, source, officer_only?}], related_enrolment_ids: [uuid], rule_source, data?}`. `flags.related_enrolment_ids` always equals `evidence.related_enrolment_ids`. `summary` never contains a student name or a full id.
 
 ## mockgov database (`mockgov`, separate service)
 
