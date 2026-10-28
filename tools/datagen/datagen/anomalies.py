@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from . import names
 from .institutions import ABC_ID, XYZ_ID, approved_intake
-from .matching import name_key, normalise_name
+from .matching import match_names, name_key, normalise_name
 from .students import World
 
 SEVERITY = {
@@ -424,8 +424,16 @@ class Planter:
                 alt = names.transliteration_variant(src["name"])
             else:
                 alt = names.mohd_variant(src["name"], self.rng)
-            if alt != src["name"] and name_key(alt, src["dob"]) == name_key(
-                src["name"], src["dob"]
+            # Rule A blocks on name_key and then compares with match_names; the copy must
+            # pass both even without the shared mobile. A Devanagari spelling, recorded
+            # for the demo, must read back to the same key.
+            key = name_key(src["name"], src["dob"])
+            spellings = [alt]
+            if variant == "TRANSLITERATION":
+                spellings.append(names.devanagari(src["name"]))
+            if alt != src["name"] and all(
+                name_key(s, src["dob"]) == key and match_names(s, src["name"]).score >= 90
+                for s in spellings
             ):
                 break
         else:

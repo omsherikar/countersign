@@ -5,7 +5,7 @@ from collections import Counter
 
 from seat_math import ROUTE_POOL, RULES, cohort_rows, intake, pool_counts, usable_capacity
 
-from datagen.matching import name_key, normalise_name, registry_score
+from datagen.matching import match_names, name_key, normalise_name, registry_score
 from datagen.students import Pools
 
 APAAR = re.compile(r"[0-9]{12}")
@@ -82,6 +82,10 @@ def test_renamed_duplicates_block_together_and_share_a_mobile(small):
         assert a["name"] != b["name"]
         assert a["dob"] == b["dob"] and a["mobile"] == b["mobile"]
         assert name_key(a["name"], a["dob"]) == name_key(b["name"], b["dob"])
+        assert match_names(a["name"], b["name"]).score >= 90
+        if "devanagari" in rec:
+            assert name_key(rec["devanagari"], a["dob"]) == name_key(a["name"], a["dob"])
+            assert match_names(rec["devanagari"], a["name"]).score >= 90
         assert [usable_apaar(a), usable_apaar(b)] == [True, False]
         assert b["consent_status"] == "PENDING"
         if rec["variant"] == "MOHD":
