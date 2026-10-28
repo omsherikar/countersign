@@ -47,3 +47,11 @@ def test_initials_score_below_the_counselling_threshold() -> None:
 def test_empty_name_scores_zero() -> None:
     assert name_score("", "ravi kumar sharma") == 0
     assert name_score("ravi", "") == 0
+
+
+def test_muhammad_spellings_fold_to_one_token():
+    from app.names import normalize_name
+
+    assert {normalize_name(n) for n in ("Muhammad Irfan", "Mohamed Irfan", "Md. Irfan")} == {
+        normalize_name("Mohammed Irfan")
+    }

@@ -10,7 +10,9 @@ import unicodedata
 from rapidfuzz import fuzz
 
 HONORIFICS = frozenset({"mr", "ms", "mrs", "dr", "shri", "smt", "kumari"})
-MOHAMMED_VARIANTS = frozenset({"mohd", "mohammed", "md", "mohammad"})
+MOHAMMED_VARIANTS = frozenset(
+    {"mohd", "mohammed", "md", "mohammad", "muhammad", "mohamed", "muhammed"}
+)
 
 _NON_ALNUM = re.compile(r"[^a-z0-9\s]+")
 
