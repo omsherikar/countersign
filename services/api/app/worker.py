@@ -1,4 +1,7 @@
-"""Celery app and the upload task. The worker runs with --concurrency=1 so batches never overlap."""
+"""Celery app, the upload task and the notices task that follows it.
+
+The worker runs with --concurrency=1 so batches never overlap.
+"""
 
 from __future__ import annotations
 
@@ -101,9 +104,13 @@ async def _unfinished_batch_ids() -> list[uuid.UUID]:
 
 @celery_app.task(name="countersign.run_batch", acks_late=True)
 def run_batch_task(batch_id: str) -> str:
-    """Process one upload batch; returns its final status (DONE or FAILED)."""
+    """Process one upload batch; returns its final status (DONE or FAILED).
+
+    A DONE batch then queues its student notices as a separate task, so sending them
+    never holds up DONE.
+    """
     try:
-        return asyncio.run(_run(uuid.UUID(batch_id)))
+        status = asyncio.run(_run(uuid.UUID(batch_id)))
     except Exception:
         # run_batch fails a batch itself for anything inside a stage; this covers a
         # crash before or around it, which would otherwise leave the batch QUEUED and
@@ -111,6 +118,37 @@ def run_batch_task(batch_id: str) -> str:
         log.exception("upload task crashed", extra={"data": {"batch_id": batch_id}})
         asyncio.run(_mark_failed(uuid.UUID(batch_id)))
         raise
+    if status == UploadStatus.DONE.value:
+        enqueue_notices(batch_id)
+    return status
+
+
+async def _send_notices(batch_id: uuid.UUID) -> int:
+    from app.notices.dispatch import send_notices_for_batch
+
+    engine = create_async_engine(get_settings().database_url(), pool_pre_ping=True)
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        return await send_notices_for_batch(batch_id, factory=factory)
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(name="countersign.send_notices", acks_late=True)
+def send_notices_task(batch_id: str) -> int:
+    """Send the student notices of one DONE batch; returns how many were created."""
+    return asyncio.run(_send_notices(uuid.UUID(batch_id)))
+
+
+def enqueue_notices(batch_id: uuid.UUID | str) -> None:
+    """Queue the notices of a DONE batch. A queue failure is logged, not raised: the batch
+    is already DONE and its notices can be sent again later."""
+    try:
+        send_notices_task.delay(str(batch_id))
+    except Exception:
+        log.exception(
+            "could not queue student notices", extra={"data": {"batch_id": str(batch_id)}}
+        )
 
 
 def enqueue_batch(batch_id: uuid.UUID) -> None:
