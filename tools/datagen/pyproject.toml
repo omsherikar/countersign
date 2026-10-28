@@ -1,0 +1,37 @@
+[project]
+name = "datagen"
+version = "0.1.0"
+description = "Synthetic AICTE enrolment data with ground-truth labels for Countersign"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "faker>=30",
+  "openpyxl>=3.1",
+  "pyyaml>=6",
+  "indic-transliteration>=2.3",
+]
+
+[project.scripts]
+datagen = "datagen.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["datagen"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

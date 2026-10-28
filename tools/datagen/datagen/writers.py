@@ -1,0 +1,262 @@
+"""File writers for the section E contract: JSON, CSV, XLSX, JSONL, manifest and summary."""
+
+from __future__ import annotations
+
+import csv
+import datetime as dt
+import json
+import os
+import re
+import zipfile
+from pathlib import Path
+from typing import Any
+
+from openpyxl import Workbook
+
+from . import geo
+from .institutions import ABC_ID, XYZ_ID, public_institution
+from .students import DEMO_APAAR, DEMO_NAME, UPLOAD_COLUMNS, World
+
+PASSWORD = "Countersign!2026"
+FIXED_XLSX_TIME = dt.datetime(2026, 7, 1, 0, 0, 0)
+
+
+def upload_filename(aicte_id: str, academic_year: str, ext: str = "csv") -> str:
+    return f"uploads/{aicte_id}_{academic_year}.{ext}"
+
+
+def row_sort_key(inst: dict):
+    order = {p["code"]: i for i, p in enumerate(inst["programmes"])}
+
+    def key(row: dict):
+        return (order[row["programme_code"]], row["year_of_study"], row["_seq"])
+
+    return key
+
+
+def student_ref(row: dict, file: str) -> str:
+    return row["apaar_id"] if row["apaar_id"] else f"{file}#{row['row_no']}"
+
+
+def dump_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(payload, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+
+
+def dump_jsonl(path: Path, records: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        for rec in records:
+            fh.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")))
+            fh.write("\n")
+
+
+_MODIFIED_RE = re.compile(rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)")
+_CREATED_RE = re.compile(rb"(<dcterms:created[^>]*>)[^<]*(</dcterms:created>)")
+
+
+def normalize_zip(path: Path) -> None:
+    """Rewrite a zip with fixed entry and document timestamps so the same data gives the
+    same bytes. openpyxl stamps `dcterms:modified` with the wall clock on every save."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    stamp = FIXED_XLSX_TIME.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
+    with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as dst:
+        for info in src.infolist():
+            data = src.read(info.filename)
+            if info.filename == "docProps/core.xml":
+                data = _MODIFIED_RE.sub(rb"\g<1>" + stamp + rb"\g<2>", data)
+                data = _CREATED_RE.sub(rb"\g<1>" + stamp + rb"\g<2>", data)
+            fixed = zipfile.ZipInfo(info.filename, date_time=(1980, 1, 1, 0, 0, 0))
+            fixed.compress_type = zipfile.ZIP_DEFLATED
+            fixed.external_attr = info.external_attr
+            dst.writestr(fixed, data)
+    os.replace(tmp, path)
+
+
+def write_xlsx(path: Path, rows: list[dict]) -> None:
+    wb = Workbook(write_only=True)
+    wb.properties.created = FIXED_XLSX_TIME
+    wb.properties.modified = FIXED_XLSX_TIME
+    wb.properties.creator = "datagen"
+    wb.properties.lastModifiedBy = "datagen"
+    ws = wb.create_sheet("students")
+    ws.append(UPLOAD_COLUMNS)
+    for row in rows:
+        ws.append([row[c] for c in UPLOAD_COLUMNS])
+    wb.save(path)
+    normalize_zip(path)
+
+
+def write_csv(path: Path, rows: list[dict]) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow(UPLOAD_COLUMNS)
+        for row in rows:
+            writer.writerow([row[c] for c in UPLOAD_COLUMNS])
+
+
+def users_payload(world: World) -> list[dict]:
+    abc = world.inst_by_id[ABC_ID]
+    xyz = world.inst_by_id[XYZ_ID]
+    users = [
+        {"email": "admin@aicte.demo", "password": PASSWORD, "role": "AICTE_ADMIN",
+         "name": "AICTE Administrator"},
+        {"email": "ro.west@aicte.demo", "password": PASSWORD, "role": "RO_OFFICER",
+         "name": "Regional Officer, Western Region", "region": "WEST"},
+        {"email": "ro.south@aicte.demo", "password": PASSWORD, "role": "RO_OFFICER",
+         "name": "Regional Officer, Southern Region", "region": "SOUTH"},
+        {"email": "registrar@abc.edu.demo", "password": PASSWORD, "role": "INSTITUTION",
+         "name": f"Registrar, {abc['name']}", "institution_aicte_id": ABC_ID},
+        {"email": "registrar@xyz.edu.demo", "password": PASSWORD, "role": "INSTITUTION",
+         "name": f"Registrar, {xyz['name']}", "institution_aicte_id": XYZ_ID},
+        {"email": "student@demo", "password": PASSWORD, "role": "STUDENT",
+         "name": DEMO_NAME, "student_ref": DEMO_APAAR},
+        {"email": "coe@univ.demo", "password": PASSWORD, "role": "UNIVERSITY",
+         "name": "Controller of Examinations, Maharashtra State Technical University",
+         "university_code": "MSTU"},
+    ]  # fmt: skip
+    for inst in world.institutions:
+        if inst["aicte_permanent_id"] in {ABC_ID, XYZ_ID}:
+            continue
+        users.append(
+            {
+                "email": f"registrar@{inst['_slug']}.edu.demo",
+                "password": PASSWORD,
+                "role": "INSTITUTION",
+                "name": f"Registrar, {inst['name']}",
+                "institution_aicte_id": inst["aicte_permanent_id"],
+            }
+        )
+    return users
+
+
+def finalize_ground_truth(world: World) -> list[dict]:
+    year = world.cfg.academic_year
+    out = []
+    for rec in world.ground_truth:
+        rows = rec.pop("_rows")
+        refs = []
+        details = []
+        for row in rows:
+            file = upload_filename(row["_inst"], year)
+            refs.append(student_ref(row, file))
+            details.append(
+                {
+                    "file": file,
+                    "row_no": row["row_no"],
+                    "institution_aicte_id": row["_inst"],
+                    "apaar_id": row["apaar_id"] or None,
+                    "name": row["name"],
+                    "programme_code": row["programme_code"],
+                    "year_of_study": row["year_of_study"],
+                }
+            )
+        rec["student_refs"] = refs
+        rec["rows"] = details
+        out.append(rec)
+    return out
+
+
+def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
+    import time
+
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "uploads").mkdir(exist_ok=True)
+    (out / "mockgov").mkdir(exist_ok=True)
+    year = world.cfg.academic_year
+
+    t = time.perf_counter()
+    dump_json(
+        out / "institutions.json",
+        {
+            "regions": geo.REGIONS,
+            "states": geo.STATES,
+            "universities": world.universities,
+            "institutions": [public_institution(i) for i in world.institutions],
+        },
+    )
+    dump_json(out / "users.json", users_payload(world))
+    world.timings["write_institutions_users"] = time.perf_counter() - t
+
+    t = time.perf_counter()
+    for inst in world.institutions:
+        rows = world.rows_by_inst[inst["aicte_permanent_id"]]
+        rows.sort(key=row_sort_key(inst))
+        for i, row in enumerate(rows, start=1):
+            row["row_no"] = i
+        write_csv(out / upload_filename(inst["aicte_permanent_id"], year), rows)
+    world.timings["write_csv"] = time.perf_counter() - t
+
+    world.xlsx_written = False
+    if xlsx:
+        t = time.perf_counter()
+        for inst in world.institutions:
+            rows = world.rows_by_inst[inst["aicte_permanent_id"]]
+            write_xlsx(out / upload_filename(inst["aicte_permanent_id"], year, "xlsx"), rows)
+        world.timings["write_xlsx"] = time.perf_counter() - t
+        world.xlsx_written = True
+
+    t = time.perf_counter()
+    registry = world.registry_records()
+    counselling = world.counselling_records()
+    abc = world.abc_records()
+    sii = world.sii_records()
+    dump_jsonl(out / "mockgov" / "apaar_registry.jsonl", registry)
+    dump_jsonl(out / "mockgov" / "counselling.jsonl", counselling)
+    dump_jsonl(out / "mockgov" / "abc_credits.jsonl", abc)
+    dump_jsonl(out / "mockgov" / "sii.jsonl", sii)
+    world.timings["write_mockgov"] = time.perf_counter() - t
+
+    ground_truth = finalize_ground_truth(world)
+    dump_json(out / "ground_truth.json", ground_truth)
+
+    by_type: dict[str, int] = {}
+    for rec in ground_truth:
+        by_type[rec["anomaly_type"]] = by_type.get(rec["anomaly_type"], 0) + 1
+    counts = {
+        "regions": len(geo.REGIONS),
+        "states": len(geo.STATES),
+        "universities": len(world.universities),
+        "institutions": len(world.institutions),
+        "programmes": sum(len(i["programmes"]) for i in world.institutions),
+        "approvals": sum(len(p["approvals"]) for i in world.institutions for p in i["programmes"]),
+        "users": 7 + len(world.institutions) - 2,
+        "upload_files": len(world.institutions),
+        "students": len(world.all_rows),
+        "apaar_registry": len(registry),
+        "counselling": len(counselling),
+        "abc_credits": len(abc),
+        "sii": len(sii),
+        "ground_truth": len(ground_truth),
+        "ground_truth_by_type": dict(sorted(by_type.items())),
+    }
+    generated_at = os.environ.get("SOURCE_DATE_EPOCH")
+    if generated_at:
+        stamp = dt.datetime.fromtimestamp(int(generated_at), tz=dt.UTC)
+    else:
+        stamp = dt.datetime.now(tz=dt.UTC)
+    manifest = {
+        "size": world.cfg.size.name,
+        "seed": world.seed,
+        "generated_at": stamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "counts": counts,
+    }
+    dump_json(out / "manifest.json", manifest)
+    summary = dict(manifest)
+    summary.update(
+        {
+            "academic_year": year,
+            "scenarios": world.cfg.scenarios,
+            "xlsx_written": world.xlsx_written,
+            "xlsx_note": None
+            if world.xlsx_written
+            else "XLSX uploads skipped for this run; CSV files carry the same rows.",
+            "upload_columns": UPLOAD_COLUMNS,
+            "row_numbering": "row_no counts data rows from 1; the CSV header is not a row.",
+            "timings_seconds": {k: round(v, 3) for k, v in world.timings.items()},
+        }
+    )
+    dump_json(out / "summary.json", summary)
+    return summary
