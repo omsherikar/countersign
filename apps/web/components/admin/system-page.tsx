@@ -56,7 +56,7 @@ function SourcesSection() {
       {ping.isError && !data && <ErrorBlock error={ping.error} onRetry={() => ping.refetch()} />}
       {ping.isError && data && <ErrorBlock error={ping.error} onRetry={() => ping.refetch()} compact className="mb-3" />}
       {(data || ping.isLoading) && (
-        <div className="overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+        <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
           <table className="ledger-table ledger-table--dense">
             <caption className="sr-only">{t("admin.sources")}</caption>
             <thead>

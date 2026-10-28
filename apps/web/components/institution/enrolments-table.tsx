@@ -89,7 +89,7 @@ export function EnrolmentsTable({
         <SearchInput label={t("app.search_enrolments")} value={q} onChange={onSearch} className="w-full sm:w-64" />
       </div>
 
-      <div className="overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+      <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
         <table className="ledger-table" aria-busy={list.isFetching}>
           <caption className="sr-only">{t("tab.enrolments")}</caption>
           <thead>

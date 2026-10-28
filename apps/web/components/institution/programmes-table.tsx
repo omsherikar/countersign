@@ -95,7 +95,7 @@ export function ProgrammesTable({
   if (programmes.length === 0) return <EmptyState title={emptyText} />;
 
   return (
-    <div className="overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+    <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
       <table className="ledger-table">
         <caption className="sr-only">{t("section.programmes")}</caption>
         <thead>

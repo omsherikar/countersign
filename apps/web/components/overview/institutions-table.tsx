@@ -160,7 +160,7 @@ export function InstitutionsTable({
         )}
       </div>
 
-      <div className="overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+      <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
         <table className="ledger-table" aria-busy={list.isFetching}>
           <caption className="sr-only">{t("section.institutions_ranked")}</caption>
           <thead>

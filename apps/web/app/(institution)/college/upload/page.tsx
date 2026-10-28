@@ -31,7 +31,7 @@ export default function CollegeUploadPage() {
       <PageHeader title={t("upload.heading")} description={t("app.upload.lead")} />
       <p className="mb-3 text-sm text-ink-muted">{`CSV or XLSX. ${t("upload.max")}.`}</p>
       <h2 className="mb-3 text-xl">{t("upload.columns")}</h2>
-      <div className="overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+      <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
         <table className="ledger-table">
           <caption className="sr-only">{t("upload.columns")}</caption>
           <thead>
