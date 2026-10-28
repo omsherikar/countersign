@@ -393,3 +393,308 @@ Rules the engines rely on:
 8. `kind` is INITIAL when the institution has no earlier DONE batch for the academic year, else UPDATE. The declaration is stored on the batch (`declared_at`, `declaration_text`).
 9. The spool file is the upload Fernet-encrypted with `PII_FERNET_KEY` at `<upload_spool_dir>/<batch_id>.<csv|xlsx|json>.enc`, written by the api before the batch is committed as QUEUED and deleted when the batch is DONE or FAILED.
 
+## 6. `app/engine/matching.py` (engines, pure functions, D17)
+
+```python
+def transliterate(raw: str) -> str: ...                 # Devanagari runs to Latin; anything else unchanged
+def normalise_name(raw: str) -> str: ...                # idempotent
+def match_names(a: str, b: str) -> NameMatch: ...       # raw or normalised inputs
+def name_key(name: str, dob: date) -> str: ...          # raw or normalised name
+def verdict(score: int) -> NameVerdict: ...             # thresholds from rules.yaml name_matching
+```
+
+`normalise_name`, in this order:
+
+1. Devanagari (U+0900 to U+097F) runs go through `indic_transliteration.sanscript.transliterate(run, DEVANAGARI, ITRANS)`, then word-final schwa deletion (a word that ends in a bare consonant loses the trailing inherent "a": कुमार gives `kumar`, शर्मा gives `sharma`).
+2. Unicode NFKD, combining marks dropped, lower case.
+3. Anything other than `a-z`, `0-9` and spaces becomes a space.
+4. Honorific tokens dropped: `mr ms mrs dr shri smt kumari km sri`.
+5. `mohd md mohammad muhammad mohammed` become `mohammed`.
+6. Spaces collapsed, ends trimmed.
+
+The output of `normalise_name` is what is sent to the APAAR registry and the counselling list and stored in `students.name_normalized`. It must not add other spelling folds: the mock registry normalises its own names with steps 2 to 6 (`services/mockgov/app/names.py`), and extra folds on one side only would lower genuine scores. Spelling folds (`aa` to `a`, `ee` and `ii` to `i`, `oo` and `uu` to `u`, and any others the engines branch adds) apply only inside `match_names` when two names are compared.
+
+`match_names(a, b)`: normalise both; equal gives 100 and `EXACT`. Otherwise apply the spelling folds. If either side has a single-letter token, try the initials path: the last tokens (surnames) must score at least 90 with `rapidfuzz.fuzz.ratio`, and every other token of the shorter name must align, in order, with a token of the longer one (an initial matches a token starting with that letter; a full token matches a token scoring at least 90). When every token aligns the score is between 90 and 99 (never 100), method `INITIALS`. Otherwise the score is `round(rapidfuzz.fuzz.token_set_ratio(a, b))`, method `FUZZY`. `verdict`: `MATCH` at `pass_threshold` (90) and above, `REVIEW` from `review_threshold` (75) up to 89, `NO_MATCH` below 75.
+
+`name_key(name, dob)`: tokens of `normalise_name(name)`; first initial = first letter of the first token (`?` when there is none); surname = the last token; `f"{dob.isoformat()}|{initial}|{jellyfish.metaphone(surname)}"` (jellyfish returns upper case; empty surname gives an empty last part).
+
+Must pass (unit tests, in `tests/engines/test_matching.py`):
+
+| call | expected |
+|---|---|
+| `normalise_name("Shri. R. K. Sharma")` | `"r k sharma"` |
+| `normalise_name("Mohd. Irfan Khan")`, `("Md Irfan Khan")`, `("Muhammad Irfan Khan")` | `"mohammed irfan khan"` |
+| `normalise_name("रवि कुमार शर्मा")` | `"ravi kumar sharma"` |
+| `normalise_name(normalise_name(x)) == normalise_name(x)` | true for every name in the test set |
+| `match_names("R. K. Sharma", "Ravi Kumar Sharma")` | score 90 to 99, `INITIALS`, `MATCH` |
+| `match_names("Ravi Kumar Sharma", "Ravi Kumar Sharma")` | 100, `EXACT` |
+| `match_names("Mohd Irfan Khan", "Mohammed Irfan Khan")` | 100, `EXACT` |
+| `match_names("Ravi Sharma", "Ravi Kumar Sharma")` | at least 90 |
+| `match_names("रवि कुमार शर्मा", "Ravi Kumar Sharma")` | at least 90 |
+| `match_names("S. K. Sharma", "Ravi Kumar Sharma")` | below 90 |
+| `match_names("R. K. Sharma", "Rohit Kumar Verma")` | below 75 |
+| `name_key("R. K. Sharma", date(2007, 3, 21))` and `name_key("Ravi Kumar Sharma", date(2007, 3, 21))` | both `"2007-03-21\|r\|XRM"` |
+
+## 7. `app/engine/ledger.py` (engines, D16)
+
+```python
+async def assign_seats(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], *, actor_id: uuid.UUID | None
+) -> LedgerResult: ...
+```
+
+Target pool of an ACTIVE enrolment: the approval for `(programme_id, cohort_year)` and the seat type `rules.admission_routes[admission_route].pool`. An enrolment is correctly seated when it holds an ASSIGNED seat in exactly that pool.
+
+1. Load the enrolments for the ids (unknown ids are ignored).
+2. **Releases first.** An enrolment that is not ACTIVE and holds a seat, or is ACTIVE and holds a seat that is not its target pool (route or year of study changed), releases it: seat `status = FREE`, `seat.enrolment_id = NULL`, `enrolment.seat_id = NULL`, a `RELEASE` seat event with `effective_date = enrolment.status_date` and `reason` `withdrawal`, `transfer` or `route or year changed`.
+3. **Assignments per touched pool.** For every target pool of an input enrolment, the queue is every ACTIVE enrolment of that pool that is unseated, including earlier ones not in the input (the backlog), ordered by `(admission_date, uploaded_at, source_row_no, id)`. Free seats are taken with `SELECT id FROM seats WHERE pool_id = :pool AND status = 'FREE' AND <reserved filter> ORDER BY seat_code LIMIT :n FOR UPDATE SKIP LOCKED` (n = 1, or the queue length as a bulk form with the same semantics). Reserved filter: in the INTERNATIONAL pool a CIWG student (INTERNATIONAL route, nationality `IN`) takes `reserved_for = 'CIWG'` seats first, then unreserved ones; everyone else takes only `reserved_for IS NULL`. Other pools have no filter.
+4. Each assignment sets the seat `ASSIGNED` with `enrolment_id`, sets `enrolment.seat_id`, and appends an `ASSIGN` seat event with `effective_date = enrolment.admission_date`.
+5. **LATE_REFILL**: when the seat already has a `RELEASE` event, the approval has a `cutoff_date`, and `admission_date > cutoff_date`, raise LATE_REFILL (MEDIUM) through `flags.raise_flag` and add the enrolment to `late_refills`.
+6. The ledger does not raise EXCESS_ADMISSION or QUOTA_BREACH; it reports `touched_pools` and the FLAGS stage calls `refresh_seat_flags` once with the final numbers.
+
+Why the backlog: an earlier unseated admission gets a seat that frees up before a newer one, so per pool `seated = min(admitted, capacity)` always holds and the excess evidence adds up ("132 admitted, 120 seated, 12 without a seat"). A backlog admission dated before the cutoff never raises LATE_REFILL.
+
+## 8. `app/engine/checks/` (engines, D18)
+
+```python
+# app/engine/checks/__init__.py
+async def run_checks(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], adapters: AdapterSet, *,
+    concurrency: int = DEFAULT_CHECK_CONCURRENCY, actor_id: uuid.UUID | None = None,
+) -> ChecksResult: ...
+
+async def recheck_pending(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], adapters: AdapterSet, *,
+    concurrency: int = DEFAULT_CHECK_CONCURRENCY, actor_id: uuid.UUID | None = None,
+) -> RecheckResult: ...
+
+# app/engine/checks/<identity|admission|seat|studying|student>.py
+async def evaluate(subject: CheckSubject, adapters: AdapterSet, gate: asyncio.Semaphore) -> CheckOutcome: ...
+```
+
+`CheckSubject` (frozen dataclass in `checks/base.py`, engines-internal) carries everything an evaluator needs so evaluators never touch the session: enrolment, student, institution (`aicte_permanent_id`, name, state code and name), programme (`code`, `mode`), `academic_year`, `cohort_year`, `year_of_study`, `admission_route`, `counselling_ref`, `status`, the held seat (`seat_code`, `seat_type`, whether its pool belongs to the cohort approval), the target seat type and that pool's capacity (None when there is no cohort approval), `name`, `name_normalised`, `dob`, `nationality`, `consent_status`, `apaar_last4`, `apaar_problem`, and the decrypted `apaar_id` and `passport_no` (in memory only; never logged, never put in `detail`).
+
+`run_checks`:
+
+1. Load subjects for the ids that are ACTIVE (others are skipped and not counted), one query per chunk.
+2. Evaluate the five checks for every subject with `asyncio.gather`. `gate = asyncio.Semaphore(concurrency)` wraps every adapter call and nothing else (`async with gate: result = await adapters.apaar.verify(...)`). The session is never used inside the gather.
+3. Write sequentially: upsert `checks` on `(enrolment_id, type)` with `status`, `source`, `detail`; `checked_at = now()` when the row is new or its status or detail changed; `attempts += 1` when the evaluation met an unavailable source. Raise every `FlagIntent` through `flags.raise_flag`. One audit entry per enrolment whose statuses changed (§12).
+
+`recheck_pending` does the same for check types whose current status is PENDING, except STUDENT (which only the Week 3 student loop changes), and reports transitions in `RecheckResult`.
+
+Source errors never give FAIL:
+
+| exception | status | detail keys |
+|---|---|---|
+| `SourceUnavailable` | PENDING | `source_unavailable: true`, `source_error` (its `detail`, e.g. "HTTP 503") |
+| `RealAdapterDisabled` | PENDING | `source_unavailable: true`, `source_disabled: true` |
+| `AdapterRequestError` (4xx, our bug) | PENDING | `source_unavailable: true`, `source_error`; logged at ERROR |
+
+Every `detail` carries `summary` (one sentence from API_CONTRACT §A2.14). No detail ever holds a full APAAR, passport or mobile.
+
+### IDENTITY (source `APAAR`)
+
+Call: `adapters.apaar.verify(apaar_id, subject.name_normalised, dob)`; thresholds from `rules.yaml`.
+
+| condition, first match wins | status | flag |
+|---|---|---|
+| route INTERNATIONAL or consent INTERNATIONAL | NA | |
+| `apaar_problem` set | FAIL | INVALID_APAAR, MEDIUM |
+| no APAAR (consent REFUSED or PENDING) | NA | |
+| `exists` false | FAIL | INVALID_APAAR, HIGH |
+| `dob_match` false | FAIL | NAME_MISMATCH, MEDIUM |
+| `name_score` at least 90 | PASS | |
+| `name_score` 75 to 89 | PENDING, `needs_review: true` | NAME_MISMATCH, LOW |
+| `name_score` below 75 | FAIL | NAME_MISMATCH, MEDIUM |
+
+Detail keys: `summary`, `name_score`, `dob_match`, `needs_review`, `apaar_last4`.
+
+### ADMISSION
+
+| route | source | how | PASS | FAIL |
+|---|---|---|---|---|
+| COUNSELLING, TFW, LATERAL | `COUNSELLING` | `adapters.counselling.verify(state=<institution state code>, year=start_year(cohort_year), name=name_normalised, dob=dob, programme=programme_code, institution_aicte_id=<aicte id>)`, **without** `roll_no` | `found` | not found |
+| MANAGEMENT, SPOT, NRI | `SEAT_LEDGER` | no call | the route's pool has capacity above 0 in the cohort approval and the enrolment holds a seat in it | otherwise |
+| INTERNATIONAL | `SII` | `adapters.sii.verify(passport_no, name_normalised, nationality)` | `admitted` and `institution_aicte_id`, `programme` and `academic_year` equal ours (academic year compared with `cohort_year`) | otherwise |
+
+The upload's `counselling_ref` is the allotment reference (`MHCET-2026-R1-004512`), not the roll number mockgov matches exactly, so it is not sent as `roll_no`. After a match the returned `allotment_ref` is compared with `counselling_ref`: equal or blank gives PASS; different still gives PASS with `ref_mismatch: true` and the summary says so. ADMISSION raises no flags in Week 2. Detail keys: `summary`, `round`, `allotment_ref`, `ref_mismatch`, `seat_type`.
+
+### SEAT (source `SEAT_LEDGER`, no call)
+
+PASS when the enrolment holds exactly one ASSIGNED seat in a pool of its cohort approval. FAIL otherwise, with `flag_type` (`EXCESS_ADMISSION` when the target pool is REGULAR, else `QUOTA_BREACH`), `seat_type` and `flag_dedupe_key` in `detail`, so the page can point at the flag; the flag itself comes from the FLAGS stage. Detail keys: `summary`, `seat_code`, `seat_type`, `flag_type`, `flag_dedupe_key`.
+
+### STUDYING (source `ABC`)
+
+- `year_of_study` 1: NA ("First year, no result yet.").
+- No APAAR: NA.
+- Completed years k = 1 to `year_of_study - 1`; year k's label is `year_label(start_year(academic_year) - (year_of_study - k))`; its expected semesters are `2k - 1` and `2k`. One `adapters.abc.credits(apaar_id, label)` call per year.
+- Every call says `apaar_id_known` false: NA ("ABC has no record of this APAAR; see the Identity check."), so an unknown APAAR is not flagged twice.
+- missing = expected semesters with no entry or with 0 credits. 0 missing: PASS. 1 missing: PENDING with `awaiting_semester`. 2 or more: FAIL and NO_ACADEMIC_ACTIVITY (MEDIUM).
+
+Detail keys: `summary`, `expected`, `missing`, `semesters` (`[{academic_year, sem, credits}]`), `awaiting_semester`.
+
+### STUDENT (source `STUDENT_NOTICE`, no call)
+
+PENDING for every ACTIVE enrolment in Week 2, summary "Notice not sent yet.". The Week 3 student loop sets it.
+
+## 9. `app/engine/duplicates.py` (engines, D19)
+
+```python
+async def detect_duplicates(
+    session: AsyncSession, institution_id: uuid.UUID, academic_year: str,
+    enrolment_ids: Sequence[uuid.UUID], *, actor_id: uuid.UUID | None = None,
+) -> DuplicatesResult: ...
+```
+
+Only ACTIVE enrolments in `academic_year` take part. The repeated APAAR inside one file is not here: it is the DUPLICATE_IN_FILE row error from the pipeline's FILE_DUPLICATES stage.
+
+| rule | candidates (blocked on `students.name_key`, which includes the date of birth) | pair qualifies when | flag |
+|---|---|---|---|
+| A, within the institution | same institution, different student, at least one of the two students without an APAAR | `match_names(...).score >= 90`, or both `mobile_hmac` present and equal | DUPLICATE_WITHIN_UPLOAD, MEDIUM, one flag |
+| B, same student at two institutions | another ACTIVE enrolment of the same `student_id` at a different institution (same APAAR, or same passport) | always | modes allowed by `rules.yaml` `dual_enrolment.allowed_modes` (unordered): DUAL_ENROLMENT_ALLOWED, LOW; otherwise DUPLICATE_CROSS_INSTITUTION, HIGH. One flag per institution |
+| C, no APAAR across institutions | different institution, at least one student without an APAAR | score at least 90 and both `mobile_hmac` present and equal | the same mode rule: DUAL_ENROLMENT_ALLOWED, LOW; otherwise DUPLICATE_CROSS_INSTITUTION, MEDIUM. One flag per institution |
+
+Flag shape:
+
+- Rule A: `institution_id` the institution; `programme_id` the shared programme or null; `enrolment_id` the suspected copy (the one whose student has no APAAR; when both lack one, the later by `(uploaded_at, source_row_no, id)`); `related_enrolment_ids` both.
+- Rules B and C: two flags, one per side, so each institution's flags tab and each regional officer sees it. Each side's flag has that side's `institution_id`, `programme_id` and `enrolment_id`; `related_enrolment_ids` both. The evidence `summary` names both institutions; `summary_for_institution` names only "another institution in {state_name}"; facts about the other side carry `officer_only: true`.
+
+## 10. `app/engine/flags.py` and `app/engine/evidence.py` (engines, D20)
+
+```python
+async def raise_flag(
+    session: AsyncSession, *, type: FlagType, severity: Severity, institution_id: uuid.UUID,
+    programme_id: uuid.UUID | None, enrolment_id: uuid.UUID | None, academic_year: str,
+    dedupe_key: str, evidence: dict[str, Any], actor_id: uuid.UUID | None,
+    replace_related: bool = False,
+) -> RaisedFlag: ...
+
+async def refresh_seat_flags(
+    session: AsyncSession, pools: Sequence[PoolRef], *, actor_id: uuid.UUID | None = None
+) -> FlagTally: ...
+
+def dedupe_key(type: FlagType, *parts: object) -> str: ...   # ":".join([type.value, *map(str, parts)])
+```
+
+`raise_flag` is an upsert by `dedupe_key` (`INSERT ... ON CONFLICT (dedupe_key) DO NOTHING`, then `SELECT ... FOR UPDATE`):
+
+- New: status OPEN, `opened_at = now()`, `flags.related_enrolment_ids = evidence["related_enrolment_ids"]`. Audit CREATE.
+- Existing: `summary`, `summary_for_institution`, `facts`, `rule_source` and `data` are replaced by the new evidence; `related_enrolment_ids` becomes the union (old order, then new ids) unless `replace_related=True`, in which case it is the new list; severity becomes the higher of old and new (never lowered automatically); `status`, `assignee_id`, `opened_at` never change; `programme_id` and `enrolment_id` are filled only if they were null. `changed` is true when anything differs, and only then does `updated_at` move and an UPDATE audit entry get written.
+- Raises `ValueError` when `evidence` lacks a non-empty `summary`, `facts` is not a list of `{label, value, source}` or `related_enrolment_ids` is not a list.
+- Never deletes a flag and never resolves one. A flag whose cause has gone (a re-seated backlog, a corrected APAAR) stays OPEN with refreshed evidence until an officer acts in Week 3.
+
+`refresh_seat_flags(pools)`: for each pool's approval, compute the REGULAR (EXCESS_ADMISSION) view and the touched pool's own view, and raise or update a flag when that pool has ACTIVE enrolments without a seat, or update the existing flag when one is already there (`replace_related=True`).
+
+- EXCESS_ADMISSION (REGULAR pool): `approved` = `approved_intake`; `admitted` = ACTIVE enrolments with this programme and `cohort_year` whose route maps to REGULAR or NRI (the pools inside the intake); `seated` = ASSIGNED seats in the approval's REGULAR and NRI pools; `unseated = admitted - seated`; related = those unseated enrolments. Severity HIGH.
+- QUOTA_BREACH (any other pool T): `capacity` = T's capacity; `admitted` = ACTIVE cohort enrolments whose route maps to T; `unseated` = those without a seat. Severity MEDIUM, HIGH when T is INTERNATIONAL or NRI and `unseated > 2`.
+- `evidence.data = {approved | capacity, admitted, seated, unseated, peak_unseated}` with `peak_unseated` the highest value ever written; `academic_year` = the roll year of the pool's ACTIVE enrolments.
+
+Severity table (D16 to D19): EXCESS_ADMISSION HIGH; QUOTA_BREACH MEDIUM or HIGH as above; LATE_REFILL MEDIUM; INVALID_APAAR HIGH when the registry says the id does not exist, MEDIUM when the uploaded id was malformed; NAME_MISMATCH MEDIUM below 75 or on a date-of-birth mismatch, LOW from 75 to 89; DUPLICATE_WITHIN_UPLOAD MEDIUM; DUPLICATE_CROSS_INSTITUTION HIGH with a shared APAAR or passport, MEDIUM without; DUAL_ENROLMENT_ALLOWED LOW; NO_ACADEMIC_ACTIVITY MEDIUM.
+
+`dedupe_key` per flag type (UUIDs in canonical lower case; `low` and `high` are the two enrolment ids in string order):
+
+| type | `dedupe_key` | raised by |
+|---|---|---|
+| EXCESS_ADMISSION | `EXCESS_ADMISSION:{programme_id}:{cohort_year}:REGULAR` | `refresh_seat_flags` |
+| QUOTA_BREACH | `QUOTA_BREACH:{programme_id}:{cohort_year}:{seat_type}` | `refresh_seat_flags` |
+| LATE_REFILL | `LATE_REFILL:{seat_id}:{enrolment_id}` | ledger |
+| INVALID_APAAR | `INVALID_APAAR:{enrolment_id}` | IDENTITY check |
+| NAME_MISMATCH | `NAME_MISMATCH:{enrolment_id}` | IDENTITY check |
+| NO_ACADEMIC_ACTIVITY | `NO_ACADEMIC_ACTIVITY:{enrolment_id}` | STUDYING check |
+| DUPLICATE_WITHIN_UPLOAD | `DUPLICATE_WITHIN_UPLOAD:{low}:{high}` | duplicates rule A |
+| DUPLICATE_CROSS_INSTITUTION | `DUPLICATE_CROSS_INSTITUTION:{low}:{high}:{institution_id}` | duplicates rules B and C |
+| DUAL_ENROLMENT_ALLOWED | `DUAL_ENROLMENT_ALLOWED:{low}:{high}:{institution_id}` | duplicates rules B and C |
+
+Example: `EXCESS_ADMISSION:0b6f...e1:2026-27:REGULAR`. STUDENT_DENIED, GHOST_RING and ANOMALY are not raised in Week 2.
+
+`app/engine/evidence.py` holds one builder per flag type and per check outcome. Each returns the dict described in API_CONTRACT §A2.17 (flags) or the `detail` of §A2.14 (checks), with the sentences exactly as written there. Officers and the web read these sentences verbatim; the web never rebuilds them.
+
+## 11. `app/engine/score.py` (engines)
+
+```python
+def score(statuses: Iterable[CheckStatus | str]) -> tuple[int, int] | None: ...   # (passes, applicable); None when there are no checks
+def countersign(checks: Iterable[Check]) -> dict[str, Any]: ...   # {"score": {"passes", "applicable"} | None, "checks": [{"type", "status"}]} in CHECK_ORDER
+def is_countersigned(statuses: Iterable[CheckStatus | str]) -> bool: ...   # applicable >= 1 and passes == applicable
+def is_clear(statuses: Iterable[CheckStatus | str]) -> bool: ...           # at least one check and none FAIL
+def countersign_state_sq(...): ...  # SQL per enrolment: countersigned (bool), clear (bool), for the dashboard
+```
+
+applicable = checks whose status is not NA; passes = PASS. PENDING is applicable and not a pass (D18). An enrolment with no check rows has `score` None and is left out of both percentages (API_CONTRACT §A2.18).
+
+## 12. Audit chain calls
+
+Every write goes through `app.core.audit.record_many` in the caller's transaction, once per engine call or chunk (one advisory-lock acquisition), never per row. No payload carries a name, a full id, a mobile, an email or an address.
+
+| writer | `entity_type` | `action` | `entity_id` | `before` / `after` |
+|---|---|---|---|---|
+| uploads router (POST) | `upload_batch` | CREATE | batch | after `{institution_id, academic_year, source, filename, file_sha256}` |
+| pipeline, DONE or FAILED | `upload_batch` | UPDATE | batch | after `{status, stage, counts without sources}` |
+| pipeline, UPSERT | `student` | CREATE or UPDATE | student | after `{apaar_last4, provisional_id, consent_status, changed: [field names]}` |
+| pipeline, UPSERT | `enrolment` | CREATE or UPDATE | enrolment | after `{student_id, programme_id, academic_year, year_of_study, admission_route, status, batch_id, row_no}` |
+| ledger | `seat` | UPDATE | seat | before `{status, enrolment_id}`, after `{status, enrolment_id, event: "ASSIGN" or "RELEASE", reason, effective_date}` |
+| checks | `enrolment` | UPDATE | enrolment | before and after `{"checks": {"IDENTITY": "PASS", ...}}`, only when a status changed |
+| flags | `flag` | CREATE or UPDATE | flag | after `{type, severity, status, dedupe_key, summary}`; UPDATE also before `{severity, summary}` |
+| seed | as above with `actor_id` null, plus one `SEED` entry per file with counts | | | |
+| GET endpoints returning student rows (enrolment detail, flag detail related rows) | `student` | READ | student | via `record_read` |
+
+## 13. Idempotency
+
+- Re-uploading a file: every row is `unchanged`, so no student, enrolment or audit write; the ledger sees correctly seated enrolments and does nothing; only enrolments with a PENDING check (other than STUDENT) or with no checks are re-checked; duplicates and flags hit their dedupe keys. Counts: `created 0, updated 0, seated 0, flags_raised 0`.
+- `assign_seats` on a correctly seated enrolment is a no-op; releases and assignments happen only on real change, so seat events and audit entries are never duplicated.
+- `run_checks` twice gives the same rows; `checked_at` moves only on change.
+- `raise_flag` with the same key and the same evidence returns `changed=False` and writes nothing.
+- A FAILED batch leaves committed chunks; re-uploading completes the rest (§4.4 includes enrolments with no checks).
+
+## 14. Building in parallel: fakes and the tests that prove the decisions
+
+backend-pipeline codes against `EngineSuite` with a fake in `tests/pipeline/fakes.py`, for example:
+
+```python
+class FakeEngines:
+    def normalise_name(self, raw: str) -> str:
+        return crypto.normalise_name(raw)            # Week 1 helper is good enough for tests
+
+    def name_key(self, name: str, dob: date) -> str:
+        tokens = crypto.normalise_name(name).split() or ["?"]
+        return f"{dob.isoformat()}|{tokens[0][0]}|{tokens[-1].upper()}"
+
+    async def assign_seats(self, session, enrolment_ids, *, actor_id):
+        return LedgerResult()
+
+    async def run_checks(self, session, enrolment_ids, adapters, *, concurrency=32, actor_id=None):
+        return ChecksResult(enrolments=len(enrolment_ids))
+
+    async def detect_duplicates(self, session, institution_id, academic_year, enrolment_ids, *, actor_id=None):
+        return DuplicatesResult()
+
+    async def refresh_seat_flags(self, session, pools, *, actor_id=None):
+        return FlagTally()
+```
+
+backend-engines builds its database fixtures directly with the ORM (institution, programme with `mode`, approval with pools from `engine.seatpools.build_for_approval`, students with `name_key`, enrolments with `cohort_year`) and the `InMemory*` adapters (`GOV_ADAPTER=inmemory`), using their `down` switch for outages.
+
+Tests each branch owes (they mirror the Week 2 verification list):
+
+| branch | test |
+|---|---|
+| engines | ABC CSE shape: approval 120 (pools 114, 6, 6, 12, 18), 132 first-years (126 REGULAR routes, 6 NRI): 120 seated, 12 unseated, one EXCESS_ADMISSION whose summary starts "132 admitted against 120 approved seats in CSE (2026-27)" |
+| engines | "R. K. Sharma" without APAAR and "Ravi Kumar Sharma" with APAAR, same date of birth and mobile, same institution: one DUPLICATE_WITHIN_UPLOAD linking both |
+| engines | same APAAR ACTIVE in a PHYSICAL and an ODL programme at two institutions: two DUAL_ENROLMENT_ALLOWED (LOW); two PHYSICAL: two DUPLICATE_CROSS_INSTITUTION (HIGH) |
+| engines | second-year with 0 credits in both semesters of 2025-26: STUDYING FAIL and NO_ACADEMIC_ACTIVITY |
+| engines | APAAR adapter down: IDENTITY PENDING with `source_unavailable`; adapter up and `recheck_pending`: PASS |
+| engines | withdrawal releases the seat (seat FREE, RELEASE event); a refill with `admission_date` after `cutoff_date` raises LATE_REFILL; a backlog admission dated before the cutoff does not |
+| engines | every flag type's evidence passes the schema check in `raise_flag`; every summary matches its template |
+| pipeline | each row error code in API_CONTRACT §A2.3, with level and message |
+| pipeline | re-upload of the same file: all rows unchanged, no new audit entries for students or enrolments |
+| pipeline | progress is committed per chunk of 500 and `progress_pct` never goes backwards |
+| pipeline | a stage exception marks the batch FAILED with a PII-free `error` and keeps earlier chunks |
+| pipeline | seed through `run_batch` with the mini fixture, initial files before update files |
+
+## 15. Known limits in Week 2
+
+- One roll year (2026-27). A seat is held by an enrolment row, so carrying a student into a second roll year (a second enrolment row for the same cohort) is not handled yet.
+- The TFW "filled at least 50% last year" condition and the lateral pool's "plus first-year vacancies" are not applied; both pools are built as in Week 1.
+- Student fields of an APAAR student are last-writer-wins across institutions.
+- Flags are not resolved automatically when the cause goes away; officers clear them from Week 3.
+- A programme code offered in both shifts resolves to the FIRST shift.
+- mockgov folds `mohd`, `md`, `mohammad` and `mohammed` but not `muhammad`; until it does, a registry name spelt "Muhammad" scores below 100 against our `mohammed`.

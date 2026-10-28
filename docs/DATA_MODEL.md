@@ -360,7 +360,7 @@ Index: `(batch_id, row_no)`. `row_no` is the spreadsheet row number: the header 
 | column | change | notes |
 |---|---|---|
 | name_normalized | none (meaning changes) | now `matching.normalise_name(name)` (D17), including transliteration |
-| name_key | add, text NULL | blocking key `matching.name_key(name, dob)` = `"<dob ISO>|<first initial>|<metaphone of surname>"`, e.g. `2007-03-21|r|XRM`; written for every row from Week 2 on, nullable only so the migration needs no Python |
+| name_key | add, text NULL | blocking key `matching.name_key(name, dob)` = `"<dob ISO>\|<first initial>\|<metaphone of surname>"`, e.g. `2007-03-21\|r\|XRM`; written for every row from Week 2 on, nullable only so the migration needs no Python |
 | passport_encrypted | add, bytea NULL | Fernet(passport_no), so Study in India can be asked again on recheck; never returned |
 
 Index: `(name_key)`, `(passport_hmac)` (not unique).
