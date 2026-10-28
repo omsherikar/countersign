@@ -256,7 +256,7 @@ export function BatchPage({ id }: { id: string }) {
         <StepLine batch={b} />
         <Progress batch={b} />
         {pastValidation && (
-          <p className="num text-sm">
+          <p className="text-sm tabular-nums">
             {t("upload.rows", { rows: formatCount(b.counts.rows), accepted: formatCount(b.counts.accepted), errors: formatCount(b.counts.errors), warnings: formatCount(b.counts.warnings) })}
           </p>
         )}
