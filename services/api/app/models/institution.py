@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, Timestamps, UUIDPk
 from app.models._types import pg_enum
-from app.models.enums import Discipline, InstitutionType, ProgrammeLevel, Shift
+from app.models.enums import Discipline, InstitutionType, ProgrammeLevel, ProgrammeMode, Shift
 from app.models.geo import Region, State, University
 
 
@@ -57,6 +57,13 @@ class Programme(UUIDPk, Timestamps, Base):
     )
     shift: Mapped[Shift] = mapped_column(pg_enum(Shift, "programmes_shift"), nullable=False)
     duration_years: Mapped[int] = mapped_column(Integer, nullable=False)
+    # PHYSICAL, ODL or ONLINE; one physical plus one distance programme is a lawful dual enrolment
+    mode: Mapped[ProgrammeMode] = mapped_column(
+        pg_enum(ProgrammeMode, "programmes_mode"),
+        nullable=False,
+        default=ProgrammeMode.PHYSICAL,
+        server_default=ProgrammeMode.PHYSICAL.value,
+    )
 
     institution: Mapped[Institution] = relationship(back_populates="programmes")
     approvals: Mapped[list[Approval]] = relationship(back_populates="programme")

@@ -26,7 +26,10 @@ from app.models.enums import (
 
 class Check(UUIDPk, Timestamps, Base):
     __tablename__ = "checks"
-    __table_args__ = (UniqueConstraint("enrolment_id", "type"),)
+    __table_args__ = (
+        UniqueConstraint("enrolment_id", "type"),
+        Index("ix_checks_type_status", "type", "status"),
+    )
 
     enrolment_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("enrolments.id", ondelete="CASCADE"), nullable=False
@@ -47,6 +50,12 @@ class Flag(UUIDPk, Timestamps, Base):
         Index("ix_flags_institution_id_status", "institution_id", "status"),
         Index("ix_flags_type_status", "type", "status"),
         Index("ix_flags_enrolment_id", "enrolment_id"),
+        Index("ix_flags_academic_year_status", "academic_year", "status"),
+        Index(
+            "ix_flags_related_enrolment_ids",
+            "related_enrolment_ids",
+            postgresql_using="gin",
+        ),
     )
 
     type: Mapped[FlagType] = mapped_column(pg_enum(FlagType, "flags_type"), nullable=False)
@@ -57,6 +66,8 @@ class Flag(UUIDPk, Timestamps, Base):
     institution_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("institutions.id"), nullable=False)
     programme_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("programmes.id"))
     enrolment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("enrolments.id"))
+    # roll year of the enrolments that raised it
+    academic_year: Mapped[str | None] = mapped_column(String)
     related_enrolment_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=False, default=list
     )
