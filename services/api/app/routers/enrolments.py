@@ -174,6 +174,10 @@ async def enrolment_detail(
         status_date=iso(enrolment.status_date) or "",
         admission_date=iso(enrolment.admission_date) or "",
         uploaded_at=iso(enrolment.uploaded_at) or "",
+        record_status=enrolment.record_status.value,
+        status_reason=enrolment.status_reason,
+        next_step=enrolment.next_step,
+        record_status_at=iso(enrolment.record_status_at),
         upload=upload,
         seat=seat,
         countersign=Countersign.model_validate(countersign(checks)),
@@ -185,6 +189,10 @@ async def enrolment_detail(
                 checked_at=iso(c.checked_at),
                 attempts=c.attempts,
                 detail=c.detail,
+                supplied_by=c.supplied_by,
+                observed_at=iso(c.observed_at),
+                independent=c.independent,
+                resolved={k: c.resolved.get(k) for k in ("outcome", "at")} if c.resolved else None,
             )
             for c in checks
         ],

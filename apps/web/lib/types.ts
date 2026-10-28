@@ -14,6 +14,7 @@ export type Region =
 
 export type CheckType = "IDENTITY" | "ADMISSION" | "SEAT" | "STUDYING" | "STUDENT";
 export type CheckStatus = "CONFIRMED" | "CONTRADICTED" | "PENDING" | "NOT_YET_DUE" | "NOT_APPLICABLE" | "SOURCE_UNAVAILABLE";
+export type RecordStatus = "AWAITING_EVIDENCE" | "COUNTERSIGNED" | "UNDER_REVIEW" | "DISPUTED";
 export type FlagType =
   | "EXCESS_ADMISSION" | "QUOTA_BREACH" | "LATE_REFILL" | "INVALID_APAAR" | "NAME_MISMATCH"
   | "DUPLICATE_CROSS_INSTITUTION" | "DUPLICATE_WITHIN_UPLOAD" | "DUAL_ENROLMENT_ALLOWED"
@@ -181,7 +182,13 @@ export interface CheckBrief { type: CheckType; status: CheckStatus }
 export interface Countersign { score: Score | null; checks: CheckBrief[] }
 
 /** Replaces the Week 1 Check. */
-export interface Check { type: CheckType; status: CheckStatus; source: CheckSource; checked_at: string | null; attempts: number; detail: CheckDetail }
+export interface Check {
+  type: CheckType; status: CheckStatus; source: CheckSource; checked_at: string | null; attempts: number; detail: CheckDetail;
+  /** Provenance (D34): who supplied the fact, when, and whether independently of the college. */
+  supplied_by?: string; observed_at?: string | null; independent?: boolean;
+  /** Set when an officer's decision resolved this row's contradiction (R2). */
+  resolved?: { outcome: FlagStatus; at: string } | null;
+}
 
 // ---------- uploads ----------
 export interface UploadCounts {
@@ -263,6 +270,7 @@ export interface EnrolmentRow {
   seat_code: string | null; status: EnrolmentStatus; admission_date: string; status_date: string;
   uploaded_at: string; upload_batch_id: string | null; source_row_no: number | null;
   countersign: Countersign; flags: FlagRef[];
+  record_status?: RecordStatus; status_reason?: string | null;
 }
 export interface EnrolmentListQuery {
   page?: number; page_size?: number; programme_id?: string; status?: EnrolmentStatus; academic_year?: string; q?: string;
@@ -539,6 +547,7 @@ export interface EnrolmentDetail {
   academic_year: string; cohort_year: string; year_of_study: number;
   admission_route: AdmissionRoute; counselling_ref: string | null; category: Category;
   status: EnrolmentStatus; status_date: string; admission_date: string; uploaded_at: string;
+  record_status?: RecordStatus; status_reason?: string | null; next_step?: string | null; record_status_at?: string | null;
   upload: { batch_id: string; filename: string; row_no: number | null } | null;
   seat: { id: string; seat_code: string; seat_type: SeatType; academic_year: string; assigned_at: string | null } | null;
   countersign: Countersign;

@@ -53,6 +53,12 @@ class CheckOut(BaseModel):
     checked_at: str | None
     attempts: int = 0
     detail: dict[str, Any] = Field(default_factory=dict)
+    # provenance (D34): who supplied the fact, when, and whether independently of the college
+    supplied_by: str = ""
+    observed_at: str | None = None
+    independent: bool = False
+    # {outcome, at} when an officer's decision resolved this row's contradiction (R2)
+    resolved: dict[str, Any] | None = None
 
 
 class Countersign(BaseModel):

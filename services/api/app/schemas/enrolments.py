@@ -52,6 +52,11 @@ class EnrolmentDetail(BaseModel):
     status_date: str
     admission_date: str
     uploaded_at: str
+    # the record status (D35): one sentence on why, one on what happens next
+    record_status: str
+    status_reason: str | None
+    next_step: str | None
+    record_status_at: str | None
     upload: UploadRef | None
     seat: SeatRef | None
     countersign: Countersign

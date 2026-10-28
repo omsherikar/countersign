@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 
 from app.core.security import hash_password
 from app.db.session import session_factory
+from app.engine.status import refresh_record_status
 from app.engine.suite import DefaultEngines
 from app.main import app
 from app.models.audit import AuditLog
@@ -118,6 +119,8 @@ async def ids() -> AsyncIterator[Ids]:
         await suite.run_checks(session, [asha.id], gov)
         await suite.detect_duplicates(session, abc.id, "2026-27", abc_ids)
         await suite.refresh_seat_flags(session, list(ledger.touched_pools))
+        # as at the end of an upload batch, after the duplicate and seat flags
+        await refresh_record_status(session, [*abc_ids, twin_xyz.id])
         await session.commit()
         result = Ids(
             abc=abc.id,
@@ -319,6 +322,23 @@ async def test_enrolment_detail(ids, as_role) -> None:
     identity = body["checks"][0]
     assert identity["status"] == "CONFIRMED" and identity["source"] == "APAAR"
     assert identity["attempts"] == 0 and identity["checked_at"].endswith("Z")
+    assert (identity["supplied_by"], identity["independent"], identity["resolved"]) == (
+        "APAAR registry",
+        True,
+        None,
+    )
+    assert identity["observed_at"].endswith("Z")
+    studying = body["checks"][3]
+    assert (studying["status"], studying["supplied_by"], studying["observed_at"]) == (
+        "NOT_YET_DUE",
+        "",
+        None,
+    )
+    # one contradiction outranks the confirmations (D35)
+    assert body["record_status"] == "UNDER_REVIEW"
+    assert body["status_reason"] == "The joining record row contradicts the claim."
+    assert body["next_step"] == "An officer decides the case."
+    assert body["record_status_at"].endswith("Z")
     assert "123456784417" not in str(body)
     assert body["countersign"]["score"] == {"passes": 2, "applicable": 4}  # counselling not found
     assert [f["type"] for f in body["flags"]] == ["DUPLICATE_WITHIN_UPLOAD"]
@@ -373,6 +393,7 @@ async def test_enrolment_list_rows_and_filters(ids, as_role) -> None:
         await admin.get(url, params={"check_status": "CONTRADICTED", "check_type": "SEAT"})
     ).json()
     assert seat_fail["total"] == len(ids.unseated)
+    assert {r["record_status"] for r in seat_fail["items"]} == {"UNDER_REVIEW"}
     assert (await admin.get(url, params={"check_type": "SEAT"})).json()["total"] == 21
     pending = await admin.get(
         url, params={"check_status": "SOURCE_UNAVAILABLE", "check_type": "IDENTITY"}
