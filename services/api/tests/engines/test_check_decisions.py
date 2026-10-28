@@ -420,7 +420,7 @@ async def test_student_is_pending_until_the_notice() -> None:
     outcome = await student.evaluate(subject(), adapters(), GATE)
     assert outcome.status is CheckStatus.PENDING
     assert outcome.source == "STUDENT_NOTICE"
-    assert outcome.detail == {"summary": "Notice not sent yet."}
+    assert outcome.detail == {"summary": "Notice not sent yet.", "notice_state": "NOT_SENT"}
 
 
 def test_semester_shape() -> None:

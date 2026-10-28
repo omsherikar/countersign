@@ -4,6 +4,7 @@
 five checks for all of them concurrently with every adapter call behind one semaphore,
 then writes check rows, flags and audit entries sequentially. The session is never used
 inside the gather. `recheck_pending` does the same for PENDING checks other than STUDENT.
+`refresh_student` re-derives only the STUDENT check from the notices (ENGINES §16.4).
 """
 
 from __future__ import annotations
@@ -46,6 +47,8 @@ from app.models.seat import Seat, SeatPool
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadRowError
 from app.models.verification import Check
+from app.notices import student_check
+from app.privacy.service import notice_consent_withdrawn
 
 EVALUATORS = {
     CheckType.IDENTITY: identity.evaluate,
@@ -56,7 +59,7 @@ EVALUATORS = {
 }
 RECHECKABLE = tuple(t for t in CHECK_ORDER if t is not CheckType.STUDENT)
 
-__all__ = ["CheckSubject", "load_subjects", "recheck_pending", "run_checks"]
+__all__ = ["CheckSubject", "load_subjects", "recheck_pending", "refresh_student", "run_checks"]
 
 
 def _decrypt(token: bytes | None) -> str | None:
@@ -127,6 +130,9 @@ async def load_subjects(
         for programme_id, year, seat_type, capacity in pool_rows.all():
             capacities.setdefault((programme_id, year), {})[seat_type] = capacity
 
+    notices = await student_check.load_notice_facts(session, [e.id for e, *_ in rows])
+    withdrawn = await notice_consent_withdrawn(session, list({s.id for _, s, *_ in rows}))
+
     by_id: dict[uuid.UUID, CheckSubject] = {}
     for (
         enrolment,
@@ -180,6 +186,9 @@ async def load_subjects(
             checked_on=today,
             apaar_id=_decrypt(stu.apaar_encrypted),
             passport_no=_decrypt(stu.passport_encrypted),
+            notices=notices.get(enrolment.id, ()),
+            has_email=stu.email is not None,
+            notice_consent_withdrawn=stu.id in withdrawn,
         )
     return [by_id[i] for i in ids if i in by_id]
 
@@ -194,19 +203,17 @@ async def evaluate_subject(
 
 
 async def _existing_checks(
-    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID]
+    session: AsyncSession,
+    enrolment_ids: Sequence[uuid.UUID],
+    types: Sequence[CheckType] | None = None,
 ) -> dict[tuple[uuid.UUID, CheckType], Check]:
     if not enrolment_ids:
         return {}
+    stmt = select(Check).where(Check.enrolment_id.in_(enrolment_ids))
+    if types is not None:
+        stmt = stmt.where(Check.type.in_(types))
     rows = (
-        (
-            await session.execute(
-                select(Check)
-                .where(Check.enrolment_id.in_(enrolment_ids))
-                .order_by(Check.enrolment_id, Check.type)
-                .with_for_update()
-            )
-        )
+        (await session.execute(stmt.order_by(Check.enrolment_id, Check.type).with_for_update()))
         .scalars()
         .all()
     )
@@ -320,6 +327,32 @@ async def run_checks(
     for subject, outcomes in zip(subjects, evaluated, strict=True):
         result.changed += await writer.write(subject, outcomes)
         _count_outcomes(result, outcomes)
+    await writer.finish()
+    result.flags.merge(writer.flags)
+    return result
+
+
+async def refresh_student(
+    session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], *, actor_id: uuid.UUID | None = None
+) -> ChecksResult:
+    """Re-derive the STUDENT check of the ACTIVE enrolments among the ids and write it.
+
+    The one way the notices write the STUDENT row: same writer as `run_checks` (row,
+    `checked_at` on change, STUDENT_DENIED through `raise_intents`, one audit UPDATE per
+    enrolment whose status changed). Flushes, never commits.
+    """
+    subjects = await load_subjects(session, enrolment_ids)
+    result = ChecksResult(enrolments=len(subjects))
+    if not subjects:
+        return result
+    existing = await _existing_checks(
+        session, [s.enrolment_id for s in subjects], [CheckType.STUDENT]
+    )
+    writer = _Writer(session, existing, actor_id)
+    for subject in subjects:
+        outcome = student_check.derive(subject, now=writer.now)
+        result.changed += await writer.write(subject, [outcome])
+        _count_outcomes(result, [outcome])
     await writer.finish()
     result.flags.merge(writer.flags)
     return result
