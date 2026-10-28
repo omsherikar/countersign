@@ -297,4 +297,5 @@ export const studentCopy = {
   "verify.code_hint_degree": "For a printed degree insert, type the 8-character proof id under its QR.",
   "privacy.access.SYSTEM": "Countersign itself",
   "privacy.consent_state_none": "Not given yet",
+  "privacy.request.cancel": "Cancel",
 } as const;
