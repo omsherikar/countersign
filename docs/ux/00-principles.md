@@ -31,7 +31,7 @@ Terms used in this folder: "officer" means `AICTE_ADMIN` or `RO_OFFICER`; "regis
 ### P5. Score is "n of m", never a percentage
 - Per-enrolment countersign is displayed as "4 of 5" with the five-segment strip beside it.
 - `NA` checks are left out of the count and shown as a grey "n/a" segment with a reason on hover.
-- `PENDING` counts in the denominator and is shown hollow, never red: "3 of 5, 1 awaiting source".
+- `PENDING` counts in the denominator and is shown hollow, never red: "3 of 5, 1 pending". The Student check, pending for every enrolment until student notices start, is left out of that pending count.
 - Aggregates (dashboard tiles) may say "share of enrolments fully countersigned" with a percentage, because that is a share of a population, not a score. The word "score" is never followed by "%".
 - Integrity Index (Week 4) is a 0 to 100 number with its breakdown one click away ("why this score"). It is never coloured red or green on its own; it is ranked.
 
@@ -42,7 +42,7 @@ Terms used in this folder: "officer" means `AICTE_ADMIN` or `RO_OFFICER`; "regis
 ### P7. Source unavailable means Pending, not Fail
 - When a government source times out or is down, the check is `PENDING` with the label "Awaiting source" and the source name. The row never turns red.
 - The dashboard shows source health ("APAAR registry: unavailable since 09:30") so an officer knows why many rows are pending.
-- Retrying is a system job; the officer sees "Will retry" and no button to hammer the source.
+- A pending check runs again when its row is uploaded again, or when an officer or the registrar presses "Recheck pending checks" (rate-limited, API_CONTRACT §A2.12 and §A2.13). The button appears only when a check other than Student is pending, and a source still down leaves the check pending, never failed.
 
 ### P8. Officers rank, they do not scroll
 - Officer landing pages open on the ranked list (by open flags, then severity, then enrolments), not on a blank search.
@@ -72,7 +72,7 @@ Terms used in this folder: "officer" means `AICTE_ADMIN` or `RO_OFFICER`; "regis
 - "Academic year 2026-27", never "AY26" in user-facing text.
 - Institutions are "institutions" in officer views and "your college" in the registrar view. Students see "ABC College of Engineering says..." with the full name.
 - "Approved intake" for the AICTE number, "admitted" for what the college uploaded, "seated" for enrolments with a seat, "unseated" for enrolments without one. Never "overbooked", "illegal", "fake".
-- "Countersigned" for a check that passed; "not countersigned" for one that failed; "awaiting source" for pending; "n/a" for not applicable.
+- "Countersigned" for a check that passed; "not countersigned" for one that failed; for pending, the reason when it is known ("awaiting source", "needs review", "notice not sent yet", "awaiting next results"), else "pending"; "n/a" for not applicable.
 - Government source names: APAAR registry, Counselling allotment list, Seat ledger, ABC (Academic Bank of Credits), Student reply, DigiLocker, Study in India.
 
 ### Tone
@@ -101,7 +101,7 @@ Pattern: `<institution> says you joined <programme> (<academic year>). Is that r
 - Never: "Verify your enrolment immediately", "Action required", deadlines in bold red.
 
 ### Error messages
-- Say what happened, then what to do, in that order. "The APAAR registry did not respond. This check will retry on its own."
+- Say what happened, then what to do, in that order. "The APAAR registry did not respond. This check stays pending until a recheck or the next upload."
 - Never show an error code alone; show the message and keep the code in small text for support: "Ref: SOURCE_UNAVAILABLE".
 - 403 is phrased as a role statement, not a scolding: "This page is for AICTE officers. You are signed in as a registrar."
 
