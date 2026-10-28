@@ -1,20 +1,9 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-/** Mirrors `Check`, `CheckStatus`, `CheckType` and `Countersign` in lib/types.ts. */
-export type CheckType = "IDENTITY" | "ADMISSION" | "SEAT" | "STUDYING" | "STUDENT";
-export type CheckStatus = "PASS" | "FAIL" | "PENDING" | "NA";
-export interface Check {
-  type: CheckType;
-  status: CheckStatus;
-  source: string;
-  checked_at: string | null;
-  detail: Record<string, unknown>;
-}
-export interface Countersign {
-  score: { passes: number; applicable: number } | null;
-  checks: Check[];
-}
+import type { CheckStatus, CheckType, Countersign } from "@/lib/types";
+
+export type { CheckStatus, CheckType, Countersign };
 
 /** Display order is fixed by ARCHITECTURE.md section 9. */
 export const CHECK_ORDER: CheckType[] = ["IDENTITY", "ADMISSION", "SEAT", "STUDYING", "STUDENT"];

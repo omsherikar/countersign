@@ -8,7 +8,7 @@ import { t, tk } from "@/lib/copy";
 import { formatCount } from "@/lib/format";
 import { useInstitutions, useRegions, useStates } from "@/lib/queries";
 import { REGION_NAME } from "@/lib/roles";
-import type { InstitutionListParams, InstitutionSort, InstitutionType, Region } from "@/lib/types";
+import type { InstitutionListParams, InstitutionListSort, InstitutionType, Region } from "@/lib/types";
 import { useUrlParams } from "@/lib/use-url-params";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ interface Column {
   key: string;
   label: string;
   num?: boolean;
-  sort?: InstitutionSort;
+  sort?: InstitutionListSort;
   tip?: string;
 }
 
@@ -73,7 +73,7 @@ export function InstitutionsTable({
   const state = params.get("state") ?? "";
   const regionFilter = variant === "aicte" ? (params.get("region") ?? "") : "";
   const type = params.get("type") ?? "";
-  const sort = (params.get("sort") as InstitutionSort | null) ?? "enrolments";
+  const sort = (params.get("sort") as InstitutionListSort | null) ?? "enrolments";
   const order = (params.get("order") as "asc" | "desc" | null) ?? (sort === "name" ? "asc" : "desc");
   const page = Math.max(1, Number(params.get("page") ?? 1) || 1);
 
@@ -101,7 +101,7 @@ export function InstitutionsTable({
 
   const onSearch = React.useCallback((value: string) => set({ q: value, page: null }), [set]);
 
-  function toggleSort(key: InstitutionSort) {
+  function toggleSort(key: InstitutionListSort) {
     if (sort === key) set({ sort: key, order: order === "asc" ? "desc" : "asc", page: null });
     else set({ sort: key, order: key === "name" ? "asc" : "desc", page: null });
   }

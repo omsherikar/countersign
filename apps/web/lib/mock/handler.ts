@@ -97,15 +97,17 @@ function summary(user: User): DashboardSummary {
   const byState = new Map<string, DashboardSummary["by_state"][number]>();
   const byRegion = new Map<string, DashboardSummary["by_region"][number]>();
   for (const r of rows) {
-    const s = byState.get(r.state_code) ?? { state_code: r.state_code, state_name: r.state_name, region: r.region, institutions: 0, programmes: 0, approved_seats: 0, enrolments: 0, flags_open: 0 };
+    const s = byState.get(r.state_code) ?? { state_code: r.state_code, state_name: r.state_name, region: r.region, institutions: 0, programmes: 0, approved_seats: 0, admitted: 0, enrolments: 0, flags_open: 0 };
     s.institutions += 1;
     s.programmes += r.programmes;
     s.approved_seats += r.approved_seats;
+    s.admitted += r.admitted;
     s.enrolments += r.enrolments;
     byState.set(r.state_code, s);
-    const g = byRegion.get(r.region) ?? { region: r.region, region_name: regionName(r.region), institutions: 0, approved_seats: 0, enrolments: 0, flags_open: 0 };
+    const g = byRegion.get(r.region) ?? { region: r.region, region_name: regionName(r.region), institutions: 0, approved_seats: 0, admitted: 0, enrolments: 0, flags_open: 0 };
     g.institutions += 1;
     g.approved_seats += r.approved_seats;
+    g.admitted += r.admitted;
     g.enrolments += r.enrolments;
     byRegion.set(r.region, g);
   }
@@ -116,10 +118,13 @@ function summary(user: User): DashboardSummary {
       institutions: rows.length,
       programmes: rows.reduce((a, r) => a + r.programmes, 0),
       approved_seats: rows.reduce((a, r) => a + r.approved_seats, 0),
+      admitted: rows.reduce((a, r) => a + r.admitted, 0),
       enrolments: rows.reduce((a, r) => a + r.enrolments, 0),
       flags_open: 0,
       countersigned_pct: null,
+      clear_pct: null,
     },
+    flags_by_type: [],
     by_state: [...byState.values()].sort((a, b) => a.state_name.localeCompare(b.state_name)),
     by_region: [...byRegion.values()].sort((a, b) => a.region_name.localeCompare(b.region_name)),
   };
