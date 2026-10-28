@@ -101,6 +101,8 @@ class ParsedUpload:
     rows: list[RawRow]
     ignored_columns: list[str] = field(default_factory=list)
     kind: FileKind = "csv"
+    # [{"header", "column"}]: the headers read through the college's saved mapping (§A4.16)
+    column_mapping: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def total_rows(self) -> int:

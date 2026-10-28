@@ -37,6 +37,7 @@ from app.engine.contracts import (
     FlagTally,
     PoolRef,
 )
+from app.engine.upload import mapping as column_mapping
 from app.engine.upload.batches import empty_counts
 from app.engine.upload.parse import UNREADABLE, parse_rows, parse_upload
 from app.engine.upload.spool import delete_spool, find_spool, read_spool
@@ -331,13 +332,17 @@ class _BatchRun:
     async def _parse(self) -> None:
         self.stage = UploadStage.PARSE
         self.stage_started = time.perf_counter()
+        # the college's saved column mapping reads its own headers (D42)
+        async with self.factory() as session:
+            saved = await column_mapping.load(session, self.batch.institution_id)
         try:
-            self.parsed = self._read()
+            self.parsed = self._read(saved)
         except UploadFileError as exc:
             await self._finish(UploadStatus.FAILED, UploadStage.PARSE, error=exc.message)
             raise _Stop from None
         n = self.parsed.total_rows
         self.counts["rows"] = n
+        self.counts["column_mapping"] = self.parsed.column_mapping
         self._end()
         async with self.factory() as session:
             await self._set(
@@ -350,19 +355,19 @@ class _BatchRun:
             )
             await session.commit()
 
-    def _read(self) -> ParsedUpload:
+    def _read(self, saved: dict[str, str]) -> ParsedUpload:
         if isinstance(self.source, Path):
-            return parse_upload(self.source, self.source.name)
+            return parse_upload(self.source, self.source.name, mapping=saved)
         if isinstance(self.source, list):
-            return parse_rows(self.source)
+            return parse_rows(self.source, mapping=saved)
         found = find_spool(self.batch_id)
         if found is None:
             raise UploadFileError("UNSUPPORTED_FILE_TYPE", UNREADABLE)
         kind, path = found
         data = read_spool(path)
         if kind == "json":
-            return parse_rows(json.loads(data))
-        return parse_upload(data, f"{self.batch_id}.{kind}")
+            return parse_rows(json.loads(data), mapping=saved)
+        return parse_upload(data, f"{self.batch_id}.{kind}", mapping=saved)
 
     async def _validate(self) -> None:
         rows = self.parsed.rows

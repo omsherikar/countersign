@@ -66,6 +66,8 @@ class UploadBatchOut(BaseModel):
     timings_ms: dict[str, int]
     error: str | None
     ignored_columns: list[str]
+    # the headers the batch read through the college's saved column mapping (§A4.16)
+    column_mapping: list[MappedColumn] = Field(default_factory=list)
     same_file_as: SameFile | None
     uploaded_by: Uploader
     uploaded_at: str
