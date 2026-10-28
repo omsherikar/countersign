@@ -118,7 +118,7 @@ function ResolveSheet({ row, onClose, returnFocus }: { row: DataRequestAdminRow 
         }}
       >
         {row && (
-          <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+          <form onSubmit={submit} noValidate className="flex min-w-0 flex-col gap-5">
             <div className="flex flex-col gap-2 pr-6">
               <DialogTitle className="font-display text-xl font-semibold">{t("admin.requests.resolve_heading")}</DialogTitle>
               <DialogDescription asChild>

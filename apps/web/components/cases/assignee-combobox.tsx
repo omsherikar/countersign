@@ -86,7 +86,7 @@ export const AssigneeCombobox = React.forwardRef<
   }, [at]);
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-1.5">
       <label htmlFor={`${id}-input`} className="text-sm font-medium">
         {t("case.assign_label")}
       </label>
@@ -135,13 +135,13 @@ export const AssigneeCombobox = React.forwardRef<
                   choose(o);
                 }}
                 className={cn(
-                  "flex min-h-10 cursor-pointer items-center gap-2 px-2.5 text-sm",
+                  "flex min-h-10 cursor-pointer items-center gap-2 px-2.5 py-1.5 text-sm leading-snug",
                   i === at && "bg-flag-open-soft",
                   o.key === "none" && "border-t border-rule text-ink-muted",
                 )}
               >
                 <Check className={cn("size-4 shrink-0 text-ink-blue", !selected && "invisible")} aria-hidden="true" />
-                <span className="min-w-0 truncate">{o.label}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">{o.label}</span>
               </li>
             );
           })}
