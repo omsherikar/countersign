@@ -53,32 +53,33 @@ function useNow(): number {
   return now;
 }
 
-/** Sources panel on /aicte: one line per government source, refreshed every 60 s. */
+/**
+ * Sources on /aicte: one compact ruled bar under the KPI strip, a line per
+ * government source with its status word and latency, refreshed every 60 s.
+ */
 export function SourcesPanel() {
   const ping = useAdapterPing();
   const now = useNow();
   return (
-    <section aria-labelledby="sources-heading" className="rounded-md border border-line bg-paper-raised px-4 py-3 shadow-hairline">
-      <div className="mb-2 flex items-center justify-between gap-3">
+    <section
+      aria-labelledby="sources-heading"
+      className="flex flex-col gap-2 border-b border-rule bg-paper-raised px-4 py-2.5 lg:flex-row lg:items-center lg:gap-5"
+    >
+      <div className="flex shrink-0 items-center gap-2">
         <h2 id="sources-heading" className="font-sans text-sm font-semibold">
           {t("section.sources")}
         </h2>
-        {ping.data && (
-          <span className="rounded-chip border border-line px-1.5 font-mono text-2xs text-ink-muted">{ping.data.adapter}</span>
-        )}
+        {ping.data && <span className="rounded-chip border border-line px-1.5 font-mono text-2xs text-ink-muted">{ping.data.adapter}</span>}
       </div>
       {ping.isLoading && (
-        <ul className="flex flex-col gap-2 py-1" aria-hidden="true">
+        <div className="flex flex-1 flex-wrap gap-4" aria-hidden="true">
           {SOURCE_KEYS.map((k) => (
-            <li key={k} className="flex justify-between">
-              <Skeleton className="h-3.5 w-28" />
-              <Skeleton className="h-3.5 w-16" />
-            </li>
+            <Skeleton key={k} className="h-4 w-36" />
           ))}
-        </ul>
+        </div>
       )}
       {ping.isError && !ping.data && (
-        <p className="flex items-center gap-2 text-sm text-ink-muted" role="alert">
+        <p className="flex flex-1 items-center gap-2 text-sm text-ink-muted" role="alert">
           {t("source.failed")}
           <button type="button" onClick={() => ping.refetch()} className="inline-flex items-center gap-1 text-ink-blue hover:underline">
             <RefreshCw className="size-3.5" aria-hidden="true" />
@@ -88,34 +89,33 @@ export function SourcesPanel() {
       )}
       {ping.data && (
         <>
-          <ul className="flex flex-col">
+          <ul className="flex flex-1 flex-wrap items-center gap-x-5 gap-y-1.5">
             {SOURCE_KEYS.map((k) => {
               const s = ping.data.sources[k];
-              const row = (
+              const item = (
                 <li
                   key={k}
+                  tabIndex={s.status === "OK" ? undefined : 0}
                   className={cn(
-                    "flex items-center justify-between gap-3 border-b border-rule py-1.5 text-sm last:border-b-0",
-                    s.status === "UNAVAILABLE" && "-mx-2 bg-check-pending-soft px-2",
+                    "flex items-center gap-2 text-sm whitespace-nowrap",
+                    s.status === "UNAVAILABLE" && "rounded-chip bg-check-pending-soft px-1.5",
                   )}
                 >
-                  <span className="truncate">{SOURCE_NAME[k]}</span>
-                  <span className="flex items-center gap-3">
-                    <SourceStatusWord status={s.status} />
-                    <span className="num w-16 text-xs text-ink-muted">{formatLatency(s.latency_ms)}</span>
-                  </span>
+                  <span>{SOURCE_NAME[k]}</span>
+                  <SourceStatusWord status={s.status} />
+                  <span className="num text-xs text-ink-muted">{formatLatency(s.latency_ms)}</span>
                 </li>
               );
-              if (s.status === "OK") return row;
+              if (s.status === "OK") return item;
               return (
                 <Tooltip key={k}>
-                  <TooltipTrigger asChild>{row}</TooltipTrigger>
+                  <TooltipTrigger asChild>{item}</TooltipTrigger>
                   <TooltipContent>{s.status === "DISABLED" ? t("source.disabled_detail") : (s.detail ?? t("source.status.UNAVAILABLE"))}</TooltipContent>
                 </Tooltip>
               );
             })}
           </ul>
-          <p className="mt-2 text-xs text-ink-muted">
+          <p className="shrink-0 text-xs text-ink-muted">
             <span title={formatDateTime(ping.data.checked_at)}>{t("source.checked", { relative: formatRelative(ping.data.checked_at, now) })}</span>
             {ping.isFetching && <span className="ml-2 text-ink-faint">checking</span>}
           </p>

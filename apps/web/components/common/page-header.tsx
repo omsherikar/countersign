@@ -20,7 +20,7 @@ export function Crumbs({ items }: { items: Crumb[] }) {
               </span>
             )}
             {c.href && i < items.length - 1 ? (
-              <Link href={c.href} className="truncate text-ink-blue hover:underline">
+              <Link href={c.href} className="truncate text-ink-blue no-underline hover:underline">
                 {c.label}
               </Link>
             ) : (

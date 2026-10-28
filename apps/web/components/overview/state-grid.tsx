@@ -56,20 +56,21 @@ export function StateGrid({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="gap-8 xl:columns-2">
       {ordered.map(([region, rows]) => {
         const r = regionRows.get(region);
+        const name = r?.region_name ?? REGION_NAME[region];
         return (
-          <section key={region} aria-label={r?.region_name ?? REGION_NAME[region]}>
-            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-rule-strong pb-1.5">
-              <h3 className="font-sans text-md font-semibold">{r?.region_name ?? REGION_NAME[region]}</h3>
+          <section key={region} aria-label={name} className="mb-6 break-inside-avoid">
+            <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-rule-strong pb-1.5">
+              <h3 className="font-sans text-md font-semibold">{name}</h3>
               {r && (
                 <p className="num text-xs text-ink-muted">
-                  {formatCount(r.institutions)} institutions, {formatCount(r.approved_seats)} approved seats, {formatCount(r.enrolments)} enrolments
+                  {formatCount(r.institutions)} institutions, {formatCount(r.enrolments)} enrolments
                 </p>
               )}
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))]">
               {rows.map((row) => (
                 <StateGridCard key={row.state_code} row={row} selected={selected === row.state_code} onSelect={pick} />
               ))}

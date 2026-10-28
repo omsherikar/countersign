@@ -111,7 +111,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
               </SheetContent>
             </Sheet>
           )}
-          <Link href={landing} className="flex shrink-0 items-center rounded-md" aria-label={`${t("brand.name")}, ${t(items[0].label)}`}>
+          <Link href={landing} className="flex shrink-0 items-center rounded-md no-underline" aria-label={`${t("brand.name")}, ${t(items[0].label)}`}>
             <Logo className="h-7" />
           </Link>
           {scope && (

@@ -95,7 +95,7 @@ export function LoginForm({ next, notice }: { next: string | null; notice: strin
       <section aria-labelledby="demo-roles">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 id="demo-roles" className="font-sans text-sm font-semibold text-ink">
-            Pick a role
+            {t("app.pick_role")}
           </h2>
           <span className="stamp">{t("login.demo_tag")}</span>
         </div>

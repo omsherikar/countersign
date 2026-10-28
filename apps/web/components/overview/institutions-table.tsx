@@ -200,7 +200,7 @@ export function InstitutionsTable({
             )}
             {rows.map((r) => (
               <tr key={r.id}>
-                <td className="wrap max-w-[22rem]">
+                <td className="wrap min-w-[13rem] max-w-[22rem]">
                   <Link href={`${basePath}/institutions/${r.id}`} className="font-medium">
                     {r.name}
                   </Link>
@@ -211,7 +211,11 @@ export function InstitutionsTable({
                     {r.state_code}
                   </abbr>
                 </td>
-                {variant === "aicte" && <td className="text-ink-muted">{r.region_name ?? REGION_NAME[r.region]}</td>}
+                {variant === "aicte" && (
+                  <td className="text-ink-muted" title={r.region_name}>
+                    {REGION_NAME[r.region]}
+                  </td>
+                )}
                 <td>
                   <TypeChip type={r.type} />
                 </td>

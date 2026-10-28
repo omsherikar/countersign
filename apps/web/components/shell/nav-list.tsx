@@ -64,6 +64,7 @@ export function NavList({
               onClick={onNavigate}
               className={cn(
                 base,
+                "no-underline",
                 active
                   ? "bg-paper-raised font-medium text-ink shadow-hairline ring-1 ring-line"
                   : "text-ink-muted hover:bg-paper-raised/70 hover:text-ink",

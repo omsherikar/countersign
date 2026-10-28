@@ -48,7 +48,7 @@ export function KpiStrip({
 }) {
   return (
     <div className={className}>
-      <div className="kpi-strip min-h-24" role="group" aria-label="Key figures" aria-busy={loading}>
+      <div className="kpi-strip min-h-24 [grid-template-columns:repeat(auto-fit,minmax(8.5rem,1fr))]" role="group" aria-label="Key figures" aria-busy={loading}>
         {tiles.map((tile) => {
           const label = t(tile.label);
           if (loading) {

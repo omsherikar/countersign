@@ -38,7 +38,7 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
         description={data ? `${data.scope.label}, academic year ${data.academic_year}` : " "}
         actions={
           <FilterSelect
-            label="Academic year"
+            label={t("app.academic_year")}
             value={data?.academic_year ?? "2026-27"}
             options={[{ value: data?.academic_year ?? "2026-27", label: data?.academic_year ?? "2026-27" }]}
             allLabel={null}
@@ -47,7 +47,7 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
         }
       />
 
-      <div className="mb-10 grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
+      <div className="mb-10">
         <KpiStrip
           loading={summary.isLoading}
           failed={summary.isError && !data}
@@ -69,7 +69,7 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
         {variant === "aicte" ? (
           <SourcesPanel />
         ) : (
-          <div className="flex flex-col justify-center gap-1 border-l-2 border-rule-margin bg-paper-raised px-4 py-3 text-sm">
+          <div className="flex flex-col gap-x-6 gap-y-1 border-b border-rule bg-paper-raised px-4 py-2.5 text-sm lg:flex-row lg:items-center">
             <span className="text-ink-muted">{regionMeta ? t("ro.office_line", { hq_city: regionMeta.hq_city }) : " "}</span>
             {regionRow && (
               <span className="text-ink">
@@ -87,7 +87,7 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
       </section>
 
       <section aria-labelledby="by-state-heading" className="mb-12">
-        <SectionHeader id="by-state-heading" title={t("section.by_state")} aside={<span>Pick a state to filter the table above</span>} />
+        <SectionHeader id="by-state-heading" title={t("section.by_state")} aside={<span>{t("app.state_pick_hint")}</span>} />
         {summary.isError && !data ? (
           <ErrorBlock error={summary.error} onRetry={() => summary.refetch()} />
         ) : (
