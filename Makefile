@@ -17,7 +17,7 @@ logs: ## follow logs
 	$(COMPOSE) logs -f --tail=100
 
 datagen: ## generate synthetic data (small by default; SIZE=full for 500 colleges)
-	$(COMPOSE) run --rm datagen generate --size $${SIZE:-small} --seed $${SEED:-42} --out /data/generated
+	$(COMPOSE) --profile tools run --rm datagen generate --size $${SIZE:-small} --seed $${SEED:-42} --out /data/generated
 
 seed: ## load generated data into api and mockgov
 	$(COMPOSE) run --rm api python -m app.seed.cli --from /data/generated
@@ -30,7 +30,7 @@ demo-reset: ## wipe both databases and reseed
 test: ## run every test suite inside compose
 	$(COMPOSE) run --rm api pytest -q
 	$(COMPOSE) run --rm mockgov pytest -q
-	$(COMPOSE) run --rm datagen pytest -q
+	$(COMPOSE) --profile tools run --rm datagen pytest -q
 
 eval: ## run the accuracy evaluation (Week 4)
 	@echo "eval arrives in Week 4"
