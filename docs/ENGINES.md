@@ -30,7 +30,7 @@ Two branches build in parallel:
 | `app/engine/flags.py`, `app/engine/evidence.py` | engines | §10; evidence and check-detail sentences from API_CONTRACT §A2.14 and §A2.17 |
 | `app/engine/score.py` | engines | §11 |
 | `app/routers/flags.py`, `app/routers/enrolments.py`, `app/schemas/flags.py`, `app/schemas/enrolments.py` | engines | new |
-| `app/routers/dashboard.py`, `institutions.py`, `students.py`, `_stats.py`; `app/schemas/common.py`, `dashboard.py`, `institutions.py`, `students.py` | engines | count and countersign changes (API_CONTRACT §A2.10, §A2.18 to §A2.20) |
+| `app/routers/dashboard.py`, `institutions.py`, `students.py`, `_stats.py`; `app/schemas/common.py`, `dashboard.py`, `institutions.py`, `students.py` | engines | count and countersign changes, including `admitted` (API_CONTRACT §A2.10, §A2.18 to §A2.21) |
 | `app/main.py` | both | pipeline: multipart exemption and the uploads router; engines: flags and enrolments routers (§2.4) |
 | `app/engine/seatpools.py`, `app/core/cohort.py`, `app/core/audit.py`, `app/core/crypto.py`, `app/adapters/**` | nobody | read and call them; change only through the lead |
 | `tests/pipeline/`, `tests/engines/` | pipeline, engines | each branch puts new tests (and its own `conftest.py`) in its own package; nobody edits `tests/conftest.py` |
@@ -619,7 +619,7 @@ def is_clear(statuses: Iterable[CheckStatus | str]) -> bool: ...           # at 
 def countersign_state_sq(...): ...  # SQL per enrolment: countersigned (bool), clear (bool), for the dashboard
 ```
 
-applicable = checks whose status is not NA; passes = PASS. PENDING is applicable and not a pass (D18). An enrolment with no check rows has `score` None and is left out of both percentages (API_CONTRACT §A2.18).
+applicable = checks whose status is not NA; passes = PASS. PENDING is applicable and not a pass (D18). An enrolment with no check rows has `score` None and is left out of both percentages (API_CONTRACT §A2.19).
 
 ## 12. Audit chain calls
 
