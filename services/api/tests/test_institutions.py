@@ -1,4 +1,4 @@
-from tests.conftest import institution_id
+from tests.conftest import institution_id, login_as
 
 FORBIDDEN = {
     "code": "FORBIDDEN",
@@ -97,7 +97,8 @@ async def test_detail_scope_and_shape(
         "approved_intake": 120,
         "cutoff_date": "2026-09-15",
     }
-    assert cse["enrolments"] == 16 and cse["unseated"] == 16
+    # 15 first-years; the year-2 lateral entrant belongs to the 2025-26 batch
+    assert cse["enrolments"] == 15 and cse["unseated"] == 15
     pools = {p["seat_type"]: p for p in cse["pools"]}
     assert [p["seat_type"] for p in cse["pools"]] == [
         "REGULAR",
@@ -143,6 +144,7 @@ async def test_seats(admin, registrar_abc, registrar_xyz):
     assert body["total"] == 156 + 84
     first = body["items"][0]
     assert first["seat_code"] == "CSE-I-001"
+    assert first["academic_year"] == "2026-27"
     assert first["programme_code"] == "CSE"
     assert first["seat_type"] == "INTERNATIONAL"
     assert first["status"] == "FREE" and first["reserved_for"] == "CIWG"
@@ -172,6 +174,36 @@ async def test_seats(admin, registrar_abc, registrar_xyz):
         "total"
     ] == 156
     assert (await registrar_xyz.get(f"/institutions/{abc}/seats")).json() == NOT_FOUND
+
+
+async def test_seats_are_per_approval_year(three_cohorts):
+    registrar = await login_as("registrar@abc.edu.demo")
+    try:
+        abc = await institution_id("1-ABC-0001")
+        totals = {}
+        for params in ({}, {"academic_year": "2025-26"}, {"academic_year": "2024-25"}):
+            year = params.get("academic_year", "2026-27")
+            detail = (await registrar.get(f"/institutions/{abc}", params=params)).json()
+            capacity = sum(p["capacity"] for p in detail["programmes"][0]["pools"])
+            seats = (
+                await registrar.get(
+                    f"/institutions/{abc}/seats", params={**params, "page_size": 200}
+                )
+            ).json()
+            assert seats["total"] == capacity == len(seats["items"])
+            codes = [s["seat_code"] for s in seats["items"]]
+            assert len(codes) == len(set(codes))
+            assert {s["academic_year"] for s in seats["items"]} == {year}
+            totals[year] = seats["total"]
+        # 120 approved for 2026-27: 114 regular + 6 NRI + 6 TFW + 12 lateral + 18 international
+        assert totals["2026-27"] == 156
+        assert totals["2026-27"] > totals["2025-26"] > totals["2024-25"]
+        response = await registrar.get(
+            f"/institutions/{abc}/seats", params={"academic_year": "2026"}
+        )
+        assert response.status_code == 422
+    finally:
+        await registrar.aclose()
 
 
 async def test_enrolments(admin, registrar_abc, registrar_xyz, student):

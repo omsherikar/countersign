@@ -19,4 +19,6 @@ RUN uv sync --frozen --no-install-project
 COPY . .
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Keep idle connections open longer than the web proxy reuses them (uvicorn's default
+# is 5 s, which the Next.js proxy outlives and reports as "socket hang up").
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "75"]

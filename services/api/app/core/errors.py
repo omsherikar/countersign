@@ -96,12 +96,36 @@ async def _http_exception_handler(request: Request, exc: StarletteHTTPException)
     return envelope(exc.status_code, code, message, {}, exc.headers)
 
 
+# Pydantic prefixes messages raised by custom validators with these.
+_MESSAGE_PREFIXES = ("Value error, ", "Assertion failed, ")
+
+
+def _field_error(err: dict[str, Any]) -> dict[str, str]:
+    if err.get("type") == "json_invalid":
+        # loc is ("body", <character offset>), which means nothing to a reader
+        return {"field": "body", "message": "Not valid JSON"}
+    loc = [str(p) for p in err.get("loc", ()) if p not in ("body", "query", "path")]
+    message = str(err.get("msg") or "Invalid value")
+    for prefix in _MESSAGE_PREFIXES:
+        message = message.removeprefix(prefix)
+    return {"field": ".".join(loc) or "body", "message": message}
+
+
+def _sentence_case(message: str) -> str:
+    """Lower the first letter for use after "field: ", leaving acronyms such as URL alone."""
+    if len(message) > 1 and message[1].isupper():
+        return message
+    return message[:1].lower() + message[1:]
+
+
 async def _validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    fields = []
-    for err in exc.errors():
-        loc = [str(p) for p in err.get("loc", []) if p not in ("body", "query", "path")]
-        fields.append({"field": ".".join(loc) or "body", "message": err.get("msg", "invalid")})
-    return envelope(422, "VALIDATION_ERROR", "Request is not valid.", {"fields": fields})
+    """422 with details.fields = [{field, message}] and the first field's error as the message."""
+    fields = [_field_error(err) for err in exc.errors()]
+    if fields:
+        message = f"{fields[0]['field']}: {_sentence_case(fields[0]['message'])}"
+    else:
+        message = "Request is not valid."
+    return envelope(422, "VALIDATION_ERROR", message, {"fields": fields})
 
 
 async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:

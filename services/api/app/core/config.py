@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
+from limits import parse_many
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
@@ -39,6 +40,7 @@ class Settings(BaseSettings):
     rules_path: str = "./rules.yaml"
     auto_migrate: bool = True
     rate_limits_enabled: bool = True
+    login_rate_limit: str = "10/minute"
     log_level: str = "INFO"
 
     # Government adapters
@@ -57,6 +59,15 @@ class Settings(BaseSettings):
     def _split_origins(cls, value: object) -> object:
         if isinstance(value, str):
             return [v.strip() for v in value.split(",") if v.strip()]
+        return value
+
+    @field_validator("login_rate_limit")
+    @classmethod
+    def _check_rate_limit(cls, value: str) -> str:
+        try:
+            parse_many(value)
+        except ValueError:
+            raise ValueError(f"{value!r} is not a rate limit such as 10/minute") from None
         return value
 
     def database_url(self, db_name: str | None = None) -> str:

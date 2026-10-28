@@ -12,6 +12,7 @@ from sqlalchemy import Select, String, cast, func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core import audit
+from app.core.cohort import cohort_year_sql
 from app.core.config import get_settings
 from app.core.crypto import mask_apaar
 from app.core.deps import RequestId, SessionDep, require_roles, scoped_institution
@@ -190,6 +191,8 @@ async def institution_detail(
             for pool_id, status_value, n in counts:
                 seat_counts[pool_id][status_value] = n
 
+    # "Admitted" against an approval is the approval's cohort in the current roll: rows
+    # from the current academic year whose year of study puts them in that intake.
     enrol_counts = (
         await session.execute(
             select(
@@ -199,8 +202,9 @@ async def institution_detail(
             )
             .where(
                 Enrolment.institution_id == institution.id,
-                Enrolment.academic_year == year,
+                Enrolment.academic_year == get_settings().academic_year,
                 Enrolment.status == EnrolmentStatus.ACTIVE,
+                cohort_year_sql(Enrolment.academic_year, Enrolment.year_of_study) == year,
             )
             .group_by(Enrolment.programme_id)
         )
@@ -280,7 +284,9 @@ async def institution_seats(
     seat_type: SeatType | None = None,
     status: SeatStatus | None = None,
     q: Annotated[str | None, Query(max_length=120)] = None,
+    academic_year: Annotated[str | None, Query(pattern=r"^\d{4}-\d{2}$")] = None,
 ) -> Page[SeatRow]:
+    year = academic_year or get_settings().academic_year
     institution = await scoped_institution(session, user, institution_id)
     holder = aliased(Enrolment)
     holder_student = aliased(Student)
@@ -289,14 +295,22 @@ async def institution_seats(
         .where(SeatEvent.seat_id == Seat.id, SeatEvent.kind == SeatEventKind.ASSIGN)
         .scalar_subquery()
     )
+    # Each approval year has its own pools, and seat codes repeat across years.
     stmt = (
-        select(Seat, SeatPool, Programme.code, holder_student, assigned_at.label("assigned_at"))
+        select(
+            Seat,
+            SeatPool,
+            Programme.code,
+            Approval.academic_year,
+            holder_student,
+            assigned_at.label("assigned_at"),
+        )
         .join(SeatPool, SeatPool.id == Seat.pool_id)
         .join(Approval, Approval.id == SeatPool.approval_id)
         .join(Programme, Programme.id == Approval.programme_id)
         .outerjoin(holder, holder.id == Seat.enrolment_id)
         .outerjoin(holder_student, holder_student.id == holder.student_id)
-        .where(Programme.institution_id == institution.id)
+        .where(Programme.institution_id == institution.id, Approval.academic_year == year)
     )
     if programme_id:
         stmt = stmt.where(Programme.id == programme_id)
@@ -318,6 +332,7 @@ async def institution_seats(
             id=str(seat.id),
             seat_code=seat.seat_code,
             programme_code=programme_code,
+            academic_year=seat_year,
             seat_type=pool.seat_type.value,
             status=seat.status.value,
             reserved_for=seat.reserved_for,
@@ -325,13 +340,13 @@ async def institution_seats(
             student_name=student.name if student is not None else None,
             assigned_at=_iso(at) if seat.enrolment_id else None,
         )
-        for seat, pool, programme_code, student, at in rows
+        for seat, pool, programme_code, seat_year, student, at in rows
     ]
     await audit.record_read(
         session,
         user.id,
         "student",
-        [student.id for _, _, _, student, _ in rows if student is not None],
+        [student.id for *_, student, _ in rows if student is not None],
         request_id=request_id,
     )
     return Page(items=items, total=total, page=paging.page, page_size=paging.page_size)
