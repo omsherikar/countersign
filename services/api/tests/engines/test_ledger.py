@@ -364,6 +364,7 @@ async def test_ciwg_students_take_reserved_international_seats(world, session) -
         cse,
         route=AdmissionRoute.INTERNATIONAL,
         row_no=10,
+        eligibility={"ciwg": True},
     )
     result = await assign_seats(session, [e.id for e in foreign + [ciwg]], actor_id=None)
     assert result.unseated == [foreign[2].id]

@@ -242,6 +242,7 @@ class World:
         row_no: int | None = None,
         counselling_ref: str | None = None,
         apaar_problem: str | None = None,
+        eligibility: dict[str, bool | None] | None = None,
     ) -> Enrolment:
         enrolment = Enrolment(
             student_id=student.id,
@@ -259,6 +260,7 @@ class World:
             admission_date=admission_date,
             status_date=admission_date,
             apaar_problem=apaar_problem,
+            eligibility=eligibility or {},
         )
         self.session.add(enrolment)
         await self.session.flush()

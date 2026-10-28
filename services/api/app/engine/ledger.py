@@ -27,6 +27,7 @@ from app.core.audit import AuditEntry
 from app.core.rules import Rules, get_rules
 from app.engine import evidence as ev
 from app.engine.contracts import LedgerResult, PoolRef
+from app.engine.eligibility import is_ciwg
 from app.engine.flags import dedupe_key, raise_flag
 from app.engine.seatpools import CIWG
 from app.models.enums import (
@@ -74,11 +75,6 @@ class _Pool:
 def target_seat_type(route: AdmissionRoute, rules: Rules | None = None) -> SeatType:
     rules = rules or get_rules()
     return SeatType(rules.admission_routes[route.value].pool)
-
-
-def is_ciwg(route: AdmissionRoute, nationality: str | None) -> bool:
-    """A child of an Indian worker in the Gulf: international route, Indian national."""
-    return route is AdmissionRoute.INTERNATIONAL and (nationality or "").upper() == "IN"
 
 
 async def _pools_for(
@@ -297,7 +293,8 @@ async def _seat_queue(
 
     chosen: list[tuple[Enrolment, Seat]] = []
     for enrolment, nationality in queue:
-        if international and is_ciwg(enrolment.admission_route, nationality) and reserved:
+        ciwg = is_ciwg(enrolment.admission_route, nationality, enrolment.eligibility)
+        if international and ciwg and reserved:
             seat = reserved.pop(0)
         elif unreserved:
             seat = unreserved.pop(0)
