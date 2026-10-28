@@ -6,10 +6,19 @@ async def test_national_summary(admin):
         "institutions": 3,
         "programmes": 5,
         "approved_seats": 310,
+        "admitted": 38,
         "enrolments": 41,
         "flags_open": 0,
         "countersigned_pct": None,
+        "clear_pct": None,
     }
+    assert [f["type"] for f in body["flags_by_type"]][:3] == [
+        "EXCESS_ADMISSION",
+        "QUOTA_BREACH",
+        "LATE_REFILL",
+    ]
+    assert len(body["flags_by_type"]) == 12
+    assert all(f["open"] == 0 for f in body["flags_by_type"])
     assert [s["state_name"] for s in body["by_state"]] == ["Karnataka", "Maharashtra", "Tamil Nadu"]
     mh = body["by_state"][1]
     assert mh == {
@@ -19,6 +28,7 @@ async def test_national_summary(admin):
         "institutions": 1,
         "programmes": 2,
         "approved_seats": 180,
+        "admitted": 19,
         "enrolments": 20,
         "flags_open": 0,
     }
@@ -28,6 +38,7 @@ async def test_national_summary(admin):
         "region_name": "Western (Mumbai)",
         "institutions": 1,
         "approved_seats": 180,
+        "admitted": 19,
         "enrolments": 20,
         "flags_open": 0,
     }
