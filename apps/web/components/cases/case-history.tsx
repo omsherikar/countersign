@@ -74,18 +74,63 @@ function what(item: CaseHistoryItem): string {
   return tk(`case.history.${item.action}`);
 }
 
+/** The What cell: the action, the status change and reply date in small text, the note in quotes, the files. */
+function WhatCell({ item, flagId }: { item: CaseHistoryItem; flagId: string }) {
+  const changed = item.from_status && item.to_status && item.from_status !== item.to_status;
+  const note = item.action === "SYSTEM_NOTE" ? null : item.note;
+  return (
+    <>
+      <span className="block font-medium">{what(item)}</span>
+      {changed && (
+        <span className="block text-xs text-ink-muted">
+          {t("case.history.status_change", { from_word: tk(`flag_status.${item.from_status}`), to_word: tk(`flag_status.${item.to_status}`) })}
+        </span>
+      )}
+      {item.due_date && <span className="block text-xs text-ink-muted">{t("case.history.due", { due_date: formatDate(item.due_date) })}</span>}
+      {note && <span className="mt-1 block max-w-[68ch] [overflow-wrap:anywhere]">&ldquo;{note}&rdquo;</span>}
+      {item.attachments.length > 0 && (
+        <ul className="mt-1 flex flex-col gap-0.5">
+          {item.attachments.map((file) => (
+            <li key={file.id}>
+              <AttachmentLink flagId={flagId} file={file} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 /**
  * The case history (W3-8), oldest first, starting with Flag opened: When,
  * Who, What, with the status change and the reply date in small text, the
- * note in quotes and the attachments as downloads.
+ * note in quotes and the attachments as downloads. Phones get the same rows
+ * as a list, so a note never scrolls sideways.
  */
 export function CaseHistory({ flag }: { flag: FlagDetail }) {
   const { user } = useMe();
   const items = [...flag.history].sort((a, b) => a.seq - b.seq);
   const anyFiles = items.some((i) => i.attachments.length > 0);
+  const opened = { seq: -1, at: flag.created_at };
   return (
     <>
-      <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+      <ol aria-label={t("section.history")} className="flex flex-col divide-y divide-rule border-l-2 border-rule-margin bg-paper-raised text-sm sm:hidden">
+        <li className="px-3 py-2.5">
+          <p className="text-xs text-ink-muted">{formatDateTime(opened.at)}</p>
+          <p className="text-ink-muted">{t("case.history.system")}</p>
+          <p className="mt-1 font-medium">{t("case.history.opened")}</p>
+        </li>
+        {items.map((item) => (
+          <li key={item.seq} className="px-3 py-2.5">
+            <p className="text-xs text-ink-muted">{formatDateTime(item.at)}</p>
+            <p className="text-ink-muted">{who(item, flag, user?.role)}</p>
+            <div className="mt-1">
+              <WhatCell item={item} flagId={flag.id} />
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="relative hidden overflow-x-auto border-l-2 border-rule-margin bg-paper-raised sm:block">
         <table className="ledger-table">
           <caption className="sr-only">{t("section.history")}</caption>
           <thead>
@@ -102,42 +147,22 @@ export function CaseHistory({ flag }: { flag: FlagDetail }) {
           <tbody>
             <tr>
               <td className="wrap !h-auto py-2 align-top text-xs leading-snug">
-                <When at={flag.created_at} />
+                <When at={opened.at} />
               </td>
               <td className="wrap !h-auto py-2 align-top leading-snug">{t("case.history.system")}</td>
               <td className="wrap !h-auto py-2 align-top leading-snug">{t("case.history.opened")}</td>
             </tr>
-            {items.map((item) => {
-              const changed = item.from_status && item.to_status && item.from_status !== item.to_status;
-              const note = item.action === "SYSTEM_NOTE" ? null : item.note;
-              return (
-                <tr key={item.seq}>
-                  <td className="wrap !h-auto py-2 align-top text-xs leading-snug">
-                    <When at={item.at} />
-                  </td>
-                  <td className="wrap !h-auto min-w-36 py-2 align-top leading-snug">{who(item, flag, user?.role)}</td>
-                  <td className="wrap !h-auto min-w-56 py-2 align-top leading-snug">
-                    <span className="block font-medium">{what(item)}</span>
-                    {changed && (
-                      <span className="block text-xs text-ink-muted">
-                        {t("case.history.status_change", { from_word: tk(`flag_status.${item.from_status}`), to_word: tk(`flag_status.${item.to_status}`) })}
-                      </span>
-                    )}
-                    {item.due_date && <span className="block text-xs text-ink-muted">{t("case.history.due", { due_date: formatDate(item.due_date) })}</span>}
-                    {note && <span className="mt-1 block max-w-[68ch] [overflow-wrap:anywhere]">&ldquo;{note}&rdquo;</span>}
-                    {item.attachments.length > 0 && (
-                      <ul className="mt-1 flex flex-col gap-0.5">
-                        {item.attachments.map((file) => (
-                          <li key={file.id}>
-                            <AttachmentLink flagId={flag.id} file={file} />
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {items.map((item) => (
+              <tr key={item.seq}>
+                <td className="wrap !h-auto py-2 align-top text-xs leading-snug">
+                  <When at={item.at} />
+                </td>
+                <td className="wrap !h-auto min-w-36 py-2 align-top leading-snug">{who(item, flag, user?.role)}</td>
+                <td className="wrap !h-auto min-w-56 py-2 align-top leading-snug">
+                  <WhatCell item={item} flagId={flag.id} />
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
