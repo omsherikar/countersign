@@ -30,7 +30,7 @@ export function NavList({
         const label = t(item.label);
         const base = cn(
           "group flex items-center gap-2.5 rounded-md text-sm whitespace-nowrap",
-          vertical ? "h-9 px-2.5" : "h-9 px-3",
+          vertical ? "h-9 px-2.5" : "h-11 px-3",
         );
         if (item.week > 1) {
           const coming = t("shell.coming", { n: item.week });

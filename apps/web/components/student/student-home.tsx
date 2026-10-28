@@ -11,7 +11,6 @@ import { formatDate } from "@/lib/format";
 import { useStudentMe } from "@/lib/queries";
 import type { StudentEnrolment } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
 import { CountersignStrip } from "@/components/common/ledger-bits";
 
@@ -23,14 +22,14 @@ function EnrolmentCard({ e }: { e: StudentEnrolment }) {
         {t("student.card_lead", { institution_name: e.institution_name, programme_name: e.programme_name })}
       </h2>
       <p className="mt-2 text-md text-ink-muted">
-        {t("app.student.year_line", { academic_year: e.academic_year, year_of_study: e.year_of_study })}, {tk(`enrol_status.${e.status}`)}
+        {t("notice.meta", { academic_year: e.academic_year, year_of_study: e.year_of_study })} · {tk(`enrol_status.${e.status}`)}
       </p>
       <div className="mt-5 flex flex-col gap-2 border-t border-rule pt-4">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium">{t("col.countersign")}</span>
           <CountersignStrip countersign={e.countersign} size="md" />
         </div>
-        <p className="text-sm text-ink-muted">{CHECK_ORDER.map((c) => tk(`check.${c}`)).join(", ")}</p>
+        <p className="text-md text-ink-muted">{CHECK_ORDER.map((c) => tk(`check.${c}`)).join(" · ")}</p>
       </div>
     </section>
   );
@@ -79,7 +78,7 @@ export function StudentHome() {
               <dt className="text-ink-muted">{s.apaar_masked ? "APAAR" : t("provisional.label")}</dt>
               <dd className="flex flex-wrap items-center gap-2">
                 <MaskedApaar apaarMasked={s.apaar_masked} provisionalId={s.provisional_id} className="text-md" />
-                <ConsentBadge status={s.consent_status} title={tk(`consent.tip_${s.consent_status}`)} />
+                <ConsentBadge status={s.consent_status} />
               </dd>
               <dt className="text-ink-muted">{t("app.student.dob")}</dt>
               <dd>{formatDate(s.dob)}</dd>
@@ -112,20 +111,15 @@ export function StudentHome() {
             <Placeholder
               icon={<Link2 className="size-5" />}
               title={t("app.student.consent")}
-              text={t("app.student.consent_change", { tip: tk(`consent.tip_${s.consent_status}`) })}
+              text={t("app.student.consent_change", { tip: tk(`student.consent_${s.consent_status}`).replace(/\.$/, "") })}
             />
           </div>
 
-          <p className="text-sm text-ink-muted">
+          <p className="text-md text-ink-muted">
             {t("privacy.student_line")}{" "}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button type="button" aria-disabled="true" className="cursor-not-allowed text-ink-faint underline underline-offset-2">
-                  {t("privacy.how_link")}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("shell.coming", { n: 3 })}</TooltipContent>
-            </Tooltip>
+            <span className="text-ink-muted">
+              {t("privacy.how_link")} ({t("shell.coming", { n: 3 })})
+            </span>
           </p>
         </>
       )}
