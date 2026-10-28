@@ -12,6 +12,7 @@ from app.core.errors import ApiError
 from app.credentials import holder, issuer
 from app.models.audit import AuditLog
 from app.models.credential import Consent, CredentialPresentation
+from app.models.enums import ConsentPurpose
 from app.models.user import User
 from tests.credentials.conftest import make_countersigned, ravi_enrolment
 
@@ -88,8 +89,13 @@ async def test_a_share_discloses_only_the_chosen_fields(world, session):
     assert kb["nonce"] == share["code"] and kb["aud"] == "http://localhost:8000/verify"
     assert set(kb) == {"nonce", "aud", "iat", "sd_hash"}
 
-    consent = (await session.execute(select(Consent))).scalar_one()
-    assert consent.purpose.value == "CREDENTIAL_SHARE" and consent.status.value == "GIVEN"
+    # uploads also record APAAR_LINK consents, so look at the share consent only
+    consent = (
+        await session.execute(
+            select(Consent).where(Consent.purpose == ConsentPurpose.CREDENTIAL_SHARE)
+        )
+    ).scalar_one()
+    assert consent.status.value == "GIVEN"
     assert consent.channel == "PORTAL" and consent.notice_text == holder.SHARE_CONSENT_TEXT
     assert consent.enrolment_id is None
     entries = (
