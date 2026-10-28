@@ -239,7 +239,7 @@ The dashboard uses a **state grid / table, never a map** (decision 8).
 
 Check types, in display order: `IDENTITY`, `ADMISSION`, `SEAT`, `STUDYING`, `STUDENT`.
 
-Check status: `PASS`, `FAIL`, `PENDING` (source unavailable or awaiting reply), `NA` (not applicable, e.g. `STUDYING` for a first-year before results, `ADMISSION` for routes with no counselling list).
+Check status: `PASS`, `FAIL`, `PENDING` (source unavailable or awaiting reply), `NA` (not applicable, e.g. `STUDYING` for a first-year before results, `IDENTITY` when no APAAR is linked). `ADMISSION` is never `NA`: every route has a rule.
 
 Countersign score: `passes / applicable` where `applicable = checks with status != NA`. `PENDING` counts in the denominator but not the numerator. Wire shape:
 
