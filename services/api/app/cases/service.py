@@ -61,6 +61,9 @@ FLAG_NAMES = {
     FlagType.STUDENT_DENIED: "Student denied",
     FlagType.GHOST_RING: "Shared contact ring",
     FlagType.ANOMALY: "Unusual pattern",
+    FlagType.NOT_IN_JOINING_RECORD: "Not in the joining record",
+    FlagType.ELIGIBILITY_BREACH: "Category eligibility breach",
+    FlagType.MISSING_FROM_UPLOAD: "Missing from upload",
 }
 # copy deck email.docs_request.*
 DOCS_SUBJECT = "Documents requested by AICTE: {flag_name}, {where}"
