@@ -139,9 +139,125 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   return parsed as T;
 }
 
+/* ---- Multipart upload and file downloads (API_CONTRACT A2.1) ------------- */
+
+export interface UploadOptions {
+  /** Bytes sent so far as a whole percentage, 0 to 100. */
+  onProgress?: (pct: number) => void;
+  signal?: AbortSignal;
+}
+
+function parseJson(text: string): unknown {
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * POST multipart/form-data with upload progress. fetch cannot report bytes
+ * sent, so this uses XMLHttpRequest. The browser writes the Content-Type
+ * with its boundary; the /api proxy forwards the body as a stream.
+ */
+export async function upload<T>(path: string, form: FormData, options: UploadOptions = {}): Promise<T> {
+  const { onProgress, signal } = options;
+
+  if (MOCK_API) {
+    const { mockUpload } = await import("@/lib/mock/handler");
+    // Stand-in for bytes on the wire so the progress bar moves as it will against the api.
+    for (const pct of [8, 27, 51, 74, 92, 100]) {
+      if (signal?.aborted) throw new DOMException("Upload cancelled", "AbortError");
+      await new Promise((r) => setTimeout(r, 110));
+      onProgress?.(pct);
+    }
+    try {
+      return (await mockUpload(path, form)) as T;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) redirectToLogin();
+      throw err;
+    }
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE}${path}`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("Accept", "application/json");
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)));
+    };
+    xhr.onload = () => {
+      const parsed = parseJson(xhr.responseText);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress?.(100);
+        resolve(parsed as T);
+        return;
+      }
+      if (xhr.status === 401) redirectToLogin();
+      reject(toApiError(xhr.status, parsed));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "NETWORK", t("err.NETWORK")));
+    xhr.onabort = () => reject(new DOMException("Upload cancelled", "AbortError"));
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(form);
+  });
+}
+
+/** `attachment; filename="x.csv"` to `x.csv`. */
+export function filenameFrom(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  if (star) return decodeURIComponent(star[1].trim());
+  const plain = /filename="?([^";]+)"?/i.exec(disposition);
+  return plain ? plain[1].trim() : fallback;
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * GET a file (errors.csv, the templates) and save it under the name in
+ * Content-Disposition. Errors come back as the usual envelope, so a 404 or
+ * 403 shows as a message instead of a page of JSON.
+ */
+export async function download(path: string, fallbackName: string): Promise<string> {
+  if (MOCK_API) {
+    const { mockDownload } = await import("@/lib/mock/handler");
+    const { blob, filename } = await mockDownload(path);
+    saveBlob(blob, filename);
+    return filename;
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { credentials: "include", cache: "no-store" });
+  } catch {
+    throw new ApiError(0, "NETWORK", t("err.NETWORK"));
+  }
+  if (!res.ok) {
+    if (res.status === 401) redirectToLogin();
+    throw toApiError(res.status, parseJson(await res.text()));
+  }
+  const filename = filenameFrom(res.headers.get("Content-Disposition"), fallbackName);
+  saveBlob(await res.blob(), filename);
+  return filename;
+}
+
 export const api = {
   get: <T>(path: string, query?: Query, options?: Omit<RequestOptions, "method" | "query" | "body">) =>
     request<T>(path, { ...options, method: "GET", query }),
   post: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, "method" | "body">) =>
     request<T>(path, { ...options, method: "POST", body: body ?? {} }),
+  upload,
+  download,
 };
