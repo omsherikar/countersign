@@ -24,16 +24,20 @@ from app.routers import (
     admin,
     auth,
     cases,
+    credentials,
     dashboard,
     enrolments,
     flags,
     healthz,
     institutions,
+    issuer,
     meta,
     privacy,
     students,
+    university,
     uploads,
     users,
+    verify,
 )
 
 log = logging.getLogger("countersign.api")
@@ -136,9 +140,12 @@ def create_app() -> FastAPI:
         )
         return response
 
+    # registration order of ENGINES §16.9
     for router in (
         healthz,
         auth,
+        issuer,
+        verify,
         privacy,
         dashboard,
         institutions,
@@ -148,6 +155,8 @@ def create_app() -> FastAPI:
         users,
         uploads,
         students,
+        credentials,
+        university,
         meta,
         admin,
     ):

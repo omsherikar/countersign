@@ -289,7 +289,7 @@ async def test_withdrawal_and_transfer_revoke_the_enrolment_credentials(world, s
     credentials = {
         c.status_list_index: c for c in (await session.execute(select(Credential))).scalars()
     }
-    for index, reason in ((10, "Enrolment withdrawn"), (11, "Enrolment transferred")):
+    for index, reason in ((10, "ENROLMENT_WITHDRAWN"), (11, "ENROLMENT_TRANSFERRED")):
         credential = credentials[index]
         assert credential.revoked is True and credential.revoked_reason == reason
         assert credential.revoked_at is not None and credential.revoked_by_id == registrar.id
@@ -299,8 +299,8 @@ async def test_withdrawal_and_transfer_revoke_the_enrolment_credentials(world, s
     audit_rows = (await session.execute(select(AuditLog).order_by(AuditLog.seq))).scalars().all()
     revocations = [r for r in audit_rows if r.entity_type == "credential"]
     assert [(r.action, r.entity_id, r.after["revoked_reason"]) for r in revocations] == [
-        (AuditAction.UPDATE, credentials[10].id, "Enrolment withdrawn"),
-        (AuditAction.UPDATE, credentials[11].id, "Enrolment transferred"),
+        (AuditAction.UPDATE, credentials[10].id, "ENROLMENT_WITHDRAWN"),
+        (AuditAction.UPDATE, credentials[11].id, "ENROLMENT_TRANSFERRED"),
     ]
     # each revocation follows the release of that enrolment's seat in the chain
     release_and_revoke = [
