@@ -2561,39 +2561,42 @@ These override anything in Addendum 3 that disagrees.
 12. **Enrolment detail shows the proofs (A3.7).** The page lists every proof of the enrolment with its status and, when revoked, the date and reason in the wallet's words (the officer's own text for ADMIN); an AICTE officer revokes an ACTIVE one there with a reason of 5 to 300 characters.
 13. **Verify chain (A3.23).** `GET /admin/audit/verify` reads the chain as plain column tuples in chunks of 5,000 (about 4 s for 124,000 entries on the small seed when idle), and the web's `/api` proxy waits up to 120 s, so a busy machine slows the answer instead of failing it.
 
+
 ## Addendum 4 (2026-10-29): Week 4 endpoints and shapes
 
-Implements DECISIONS D34 to D49. Everything below is normative in the same way as sections A to E and Addenda 2 and 3: field names, casing, enum values and the quoted sentences are exact. The Python interfaces behind these endpoints are in `ENGINES.md` §17; the schema is `DATA_MODEL.md` "Migration 0004". Where this addendum and an earlier section disagree, this addendum wins.
+Implements DECISIONS D34 to D49. Everything below is normative in the same way as sections A to E and Addenda 2 and 3: field names, casing and enum values are exact. The sentences the api writes (row findings, source lines and details, status reasons, next steps, case summaries, signal summaries, error messages) are the copy deck's (`docs/ux/05-copy-deck.md`), named here by id; the api mirrors their English text and the web prints it verbatim. Where this addendum names a copy id the deck does not have yet, it is marked "proposed". The Python interfaces behind these endpoints are in `ENGINES.md` §17; the schema is `DATA_MODEL.md` "Migration 0004". Where this addendum and an earlier section disagree, this addendum wins.
 
 ### A4.1 Conventions added
 
-- **Words.** User-facing text says "case" (not flag), "attestation" (not proof or credential) and "dispute" for a student's "I never joined" (D44). Wire names do not change: paths stay `/flags` and `/credentials`, fields stay `flags_open` and `flag_type`, enums stay `FlagType` and `CredentialKind`. Every api message that a page prints verbatim and that named a flag or a proof now says case or attestation (the list is in §A4.22).
-- **Rows and their labels.** The five evidence rows keep their wire names; their labels are the copy deck's `row.label.*` (proposed: IDENTITY "Identity", SEAT "Seat", ADMISSION "Joining record", STUDYING "Credits", STUDENT "Student"). Sentences the api writes use the same words in lower case after the first word.
+- **Words.** User-facing text says "case" (not flag), "attestation" (not proof or credential) and "dispute" for a student's "I never joined" (D44). The three decisions read "Claim upheld", "Claim corrected" and "Claim withdrawn" everywhere a person reads them (copy deck `flag_status.*`, `case.history.*`); the wire keeps the actions UPHOLD, CORRECT and WITHDRAW and the statuses UPHELD, CORRECTED and WITHDRAWN. Wire names do not change: paths stay `/flags` and `/credentials`, fields stay `flags_open` and `flag_type`, enums stay `FlagType` and `CredentialKind`. Every api message that a page prints verbatim and that named a flag or a proof now says case or attestation (§A4.22).
+- **Rows.** The five evidence rows keep their wire names and are always listed in the deck's order: IDENTITY, SEAT, ADMISSION, STUDYING, STUDENT (labels `check.*`: Identity, Seat, Joining record, Credits, Student). This replaces the Week 2 order on every list and detail.
+- **Dates inside the sentences the api writes for rows, statuses and next steps** follow the copy deck: `12 Aug` when the date is in the current calendar year (IST, at the time the sentence is written), `12 Aug 2025` otherwise. Every other sentence keeps the `5 Oct 2026` form of §A2.1. Date fields stay `YYYY-MM-DD` and timestamps ISO.
 - **Removed from the wire**, everywhere they appeared: the `countersign` block (`score`, "n of m"), `kpis.clear_pct`, the enrolment filters `check_status` and `check_type`, `integrity_index` and `integrity_components` on institutions, the student password login (§A4.12), and the `/university/degrees/*` routes (§A4.15).
 - **Redirects.** `GET /auth/digilocker/start` and `GET /auth/digilocker/callback` answer `302` with a `Location` header and may set cookies. The web's `/api` proxy must pass `302` responses through with `Location` and every `Set-Cookie` unchanged and must not follow them (`redirect: "manual"`).
 - **A cookie on a public route.** `GET /notices/{token}` stays public, but reads the `cs_access` cookie (and the pending-claim cookie of §A4.12) when one is sent, only to say who is looking (`viewer`, §A4.13).
-- **Dates.** As before: `5 Oct 2026` inside sentences, `YYYY-MM-DD` and ISO timestamps in fields. The api never writes a clock time into a sentence.
-- **`rules.yaml` additions** (ENGINES §17.1): `reporting.deadline` (`{"2026-27": "2026-09-30"}`; a year that is not listed has its deadline on 30 September of its start year), `signals.anomaly` (`contamination: 0.05`, `n_estimators: 200`, `random_state: 0`) beside the existing `ghost_ring` thresholds, and `eligibility` clause sources (§A4.4). The `integrity_index` block is removed.
+- **`rules.yaml` additions** (ENGINES §17.1): `reporting.deadline` (`{"2026-27": "2026-09-30"}`; a year that is not listed has its deadline on 30 September of its start year), `signals.anomaly` (`contamination: 0.05`, `n_estimators: 200`, `random_state: 0`, `min_records: 20`) beside the existing `ghost_ring` thresholds, and `eligibility` with each rule's clause (§A4.4). The `integrity_index` block is removed.
 - **New enums** (also in §A4.24):
   - `EvidenceState`: `CONFIRMED`, `CONTRADICTED`, `PENDING`, `NOT_YET_DUE`, `NOT_APPLICABLE`, `SOURCE_UNAVAILABLE` (replaces `CheckStatus`; on the wire the field is `state`).
-  - `RecordStatus`: `AWAITING_EVIDENCE`, `COUNTERSIGNED`, `UNDER_REVIEW`, `DISPUTED`, in that display order; precedence is DISPUTED, UNDER_REVIEW, COUNTERSIGNED, AWAITING_EVIDENCE.
+  - `RecordStatus`: `AWAITING_EVIDENCE`, `COUNTERSIGNED`, `UNDER_REVIEW`, `DISPUTED`, in that display order (the deck's legend); precedence is DISPUTED, UNDER_REVIEW, COUNTERSIGNED, AWAITING_EVIDENCE.
   - `FlagStatus`: `OPEN`, `DOCS_REQUESTED`, `ESCALATED`, `UPHELD`, `CORRECTED`, `WITHDRAWN` (replaces `CLEARED` and `CONFIRMED`). Unresolved: OPEN, DOCS_REQUESTED, ESCALATED. Decided: UPHELD, CORRECTED, WITHDRAWN.
   - `CaseAction`: `UPHOLD`, `CORRECT`, `WITHDRAW`, `REQUEST_DOCS`, `ESCALATE`, `NOTE`, `ASSIGN`, `REOPEN`, `COLLEGE_RESPONSE`, `SYSTEM_NOTE` (`CLEAR` and `CONFIRM` are gone).
   - `FlagType` gains `NOT_IN_JOINING_RECORD`, `ELIGIBILITY_BREACH`, `MISSING_FROM_UPLOAD`.
   - `CheckSource` gains `ADMISSION_AUTHORITY` and `DIGILOCKER`; `COUNSELLING` is no longer written.
-  - `CredentialKind`: `ENROLMENT`, `COMPLETION` (replaces `DEGREE`). `RevokedReasonCode` gains `WITHDRAWN_BY_DECISION` and `DISPUTED`.
-  - `DeadlineState`: `NOT_DUE`, `ON_TIME`, `LATE`, `OVERDUE`. `SignalType`: `GHOST_RING`, `ANOMALY`. `SignalStatus`: `NEW`, `CASE_OPENED`, `DISMISSED`. `VersionSource`: `UPLOAD`, `DECISION`, `SEED`. `NoticeViewer`: `SIGNED_OUT`, `HOLDER`, `SOMEONE_ELSE`, `NEEDS_CLAIM`. `CaseScope`: `RECORD`, `MULTI_RECORD`, `INSTITUTION`.
+  - `CredentialKind`: `ENROLMENT`, `COMPLETION` (replaces `DEGREE`). `RevokedReasonCode` gains `CLAIM_WITHDRAWN` and `STUDENT_DISPUTE` (`FLAG_CONFIRMED` is no longer written).
+  - `DeadlineState`: `NOT_DUE`, `ON_TIME`, `LATE`, `OVERDUE`. `SignalType`: `GHOST_RING`, `ANOMALY`. `SignalStatus`: `NEW`, `CASE_OPENED`, `DISMISSED`. `VersionSource`: `UPLOAD`, `DECISION`, `SEED`. `NoticeMatch`: `MATCH`, `SOMEONE_ELSE`, `CLAIM_NEEDED`. `CaseScope`: `RECORD`, `MULTI_RECORD`, `INSTITUTION`. `DocsKind`: `ADMISSION`, `JOINING`, `IDENTITY`, `ELIGIBILITY`, `CREDITS`, `OTHER`.
   - Reason codes per decision: §A4.9.
 
 ### A4.2 Evidence rows (D34)
 
-A row is one fact about one enrolment. Enrolment detail carries five full rows in the order IDENTITY, SEAT, ADMISSION, STUDYING, STUDENT (empty before the first evaluation):
+A row is one fact about one enrolment. Enrolment detail carries five full rows in row order (empty before the first evaluation):
 
 ```json
 {
   "type": "ADMISSION",
   "state": "CONTRADICTED",
-  "summary": "Not in the state admission authority's joining record for CSE (2026-27), past the reporting deadline of 30 Sep 2026.",
+  "finding": "not found",
+  "source_line": "State admission authority · 28 Oct",
+  "summary": "Not found in the Maharashtra admission authority's joining record for CSE (2026-27) after the reporting deadline of 30 Sep.",
   "supplied_by": "State admission authority",
   "observed_at": "2026-10-28T10:02:18Z",
   "independent": true,
@@ -2601,56 +2604,58 @@ A row is one fact about one enrolment. Enrolment detail carries five full rows i
   "source": "ADMISSION_AUTHORITY",
   "checked_at": "2026-10-28T10:02:18Z",
   "attempts": 0,
-  "detail": { "summary": "...", "basis": "NOT_IN_JOINING_RECORD", "joining_year": "2026-27", "deadline": "2026-09-30", "published": true, "case_type": "NOT_IN_JOINING_RECORD" }
+  "detail": { "summary": "...", "finding": "not found", "source_line": "State admission authority · 28 Oct", "basis": "NOT_IN_JOINING_RECORD", "joining_year": "2026-27", "deadline": "2026-09-30", "published": true, "case_type": "NOT_IN_JOINING_RECORD" }
 }
 ```
 
-- `summary` equals `detail.summary` and is printed verbatim (§A4.4).
-- `supplied_by` is the source in words, printed verbatim in the card's "Source and date" column with `observed_at` formatted as a date. It is `""` when no source was consulted (a NOT_APPLICABLE row, or NOT_YET_DUE credits); the card then prints the summary in that column ("First semester not complete.").
-- `observed_at` is when that source supplied the fact (table below). It stays the same while a later evaluation gives the same state and the same `supplied_by`; it moves when either changes.
-- `independent` is true when the fact does not come from the institution that made the claim (D38). It is what the evidence rule reads for Joining record, Credits and Student. Identity rows carry the independence of their source; the Seat row is always false (derived from the college's own upload).
-- `resolved` is null, or `{"outcome": "UPHELD", "case_id", "case_action_seq", "reason_code", "at", "by": {"id", "name", "role"}}` when an officer upheld the claim against this row (D43). It is cleared when the row's state changes or the case is reopened.
+- `finding`: the short phrase the card prints after the state word (`evidence.with_finding`), from `check.finding.*`, or null when the deck gives none. `source_line`: the "Source and date" cell, from `source_line.*`, with `{date}` the row's `observed_at`. `summary`: the detail sentence, from `check.detail.*`. All three are written by the api (stored in `detail.finding`, `detail.source_line` and `detail.summary`) and printed verbatim; the web never rebuilds them.
+- `supplied_by`: the source in words, the provenance the rule and the reports read ("APAAR registry", "College upload", "AICTE approval v2, 2026-27 (Seat Ledger, derived)", "State admission authority", "ABC, issued by Maharashtra State Technical University", "Student via DigiLocker sign-in", "Study in India"); `""` when no source was consulted.
+- `observed_at`: when that source supplied the fact (table below). It stays the same while a later evaluation gives the same state and the same `supplied_by`, and moves when either changes, so `source_line` stays stable too.
+- `independent`: true when the fact does not come from the institution that made the claim (D38). The evidence rule reads it for Joining record, Credits and Student. The card shows the marker only on CONFIRMED and CONTRADICTED rows and never on the Seat row (copy deck §21).
+- `resolved`: null, or `{"outcome": "UPHELD", "case_id", "case_action_seq", "reason_code", "at", "by": {"id", "name", "role"}, "line": "Claim upheld by an officer on 31 Oct"}` when an officer upheld the claim against this row (D43). `line` is `evidence.resolved.UPHELD` filled with `at`; the state stays CONTRADICTED. It is cleared when the row's state changes or the case is reopened.
 - `source` (`CheckSource`), `checked_at` (the last evaluation that changed the row) and `attempts` (evaluations that met an unavailable source) keep their Week 2 meaning.
-- `detail` keeps the Week 2 and 3 keys and adds: `basis` (always: a short code naming why the row has its state, listed in §A4.4), `approval_id`, `approval_version`, `seat_code`, `seat_type`, `eligibility_rule`, `reported` (the markers as reported), `joining_year`, `joined_on`, `round`, `route`, `route_mismatch`, `deadline`, `published`, `issuer`, `issuer_name`, `self_issued`, `claimed_at`, `reviewed_by_officer`, `case_type` (the case the row raised, when it raised one). `flag_type` and `flag_dedupe_key` stay for the Seat row.
+- `detail` keeps the Week 2 and 3 keys and adds `finding`, `source_line`, `basis` (always: the code naming why the row has its state, §A4.4), `approval_id`, `approval_version`, `seat_code`, `seat_type`, `eligibility_rule`, `reported`, `joining_year`, `joined_on`, `round`, `route`, `route_mismatch`, `deadline`, `published`, `issuer`, `issuer_name`, `self_issued`, `claimed_at`, `reviewed_by_officer`, `case_type` (the case the row raised, when it raised one). `flag_type` and `flag_dedupe_key` stay on the Seat row.
 
-Lists carry the brief form, five in the same order once evaluated:
+Lists carry the brief form, five in row order once evaluated (`resolved` is a boolean here):
 
 ```json
-{ "type": "ADMISSION", "state": "CONFIRMED", "independent": true, "resolved": false }
+{ "type": "ADMISSION", "state": "CONFIRMED", "finding": "joined 2 Aug", "independent": true, "resolved": false }
 ```
 
-(`resolved` is a boolean in the brief form.)
+Provenance per row (the `source_line` ids are copy deck §15):
 
-Provenance per row:
+| row | state | `supplied_by` | `observed_at` | `independent` | `source_line` |
+|---|---|---|---|---|---|
+| IDENTITY | CONFIRMED, CONTRADICTED or PENDING through the registry | `APAAR registry` | the registry call | true | `source_line.APAAR` |
+| IDENTITY | CONTRADICTED, malformed APAAR | `College upload` | the upload | false | `source_line.COLLEGE_UPLOAD` |
+| IDENTITY | CONFIRMED through a DigiLocker claim (D36) | `Student via DigiLocker sign-in` | the claim | true | `source_line.STUDENT_DIGILOCKER` |
+| IDENTITY | CONFIRMED or PENDING through Study in India | `Study in India` | the call | true | `source_line.SII` |
+| IDENTITY | NOT_APPLICABLE (no APAAR, not claimed) | `""` | null | false | `source_line.na.IDENTITY` |
+| any of IDENTITY, ADMISSION, STUDYING | SOURCE_UNAVAILABLE | the source's words | the failed call | false | `source_line.unavailable` |
+| SEAT | any | `AICTE approval v{version}, {cohort_year} (Seat Ledger, derived)` | the evaluation that derived it | false | `source_line.SEAT_LEDGER` |
+| ADMISSION | CONFIRMED, CONTRADICTED, PENDING through the joining record | `State admission authority` | the call | true | `source_line.ADMISSION_AUTHORITY` |
+| ADMISSION | NOT_YET_DUE, or PENDING because nothing is published | `State admission authority` | the call | false | `source_line.not_due.ADMISSION` |
+| ADMISSION | through Study in India | `Study in India` | the call | true | `source_line.SII` |
+| STUDYING | CONFIRMED, PENDING, CONTRADICTED | `ABC, issued by {issuer_name}` (several issuers joined with "and"); `ABC, issued by {institution_name} (the college itself)` when the claiming college issued any semester read | the latest `uploaded_at` among the semesters read | true only when no semester read was issued by the claiming institution | `source_line.ABC`, or `source_line.ABC_self` |
+| STUDYING | NOT_YET_DUE | `""` | null | false | `source_line.not_due.STUDYING` or `source_line.not_due.STUDYING_lateral` |
+| STUDYING | NOT_APPLICABLE | `""` | null | false | `source_line.na.STUDYING` or `source_line.na.STUDYING_abc` |
+| STUDENT | CONFIRMED, CONTRADICTED | `Student via DigiLocker sign-in` | the deciding answer | true | `source_line.STUDENT_DIGILOCKER` |
+| STUDENT | PENDING | `""` | null | false | `source_line.STUDENT.not_sent`, `.sent` or `.expired` |
 
-| row | state | `supplied_by` | `observed_at` | `independent` |
-|---|---|---|---|---|
-| IDENTITY | CONFIRMED, CONTRADICTED, PENDING through the registry | `APAAR registry` | the registry call | true |
-| IDENTITY | CONFIRMED through a DigiLocker claim (D36) | `Student via DigiLocker sign-in` | the claim | true |
-| IDENTITY | CONFIRMED or PENDING through Study in India | `Study in India` | the call | true |
-| IDENTITY | NOT_APPLICABLE (no APAAR, not claimed) | `""` | null | false |
-| IDENTITY | SOURCE_UNAVAILABLE | `APAAR registry` or `Study in India` | null | false |
-| SEAT | any | `AICTE approval v{version}, {cohort_year} (Seat Ledger, derived)` | the evaluation that derived it | false |
-| ADMISSION | any but SOURCE_UNAVAILABLE | `State admission authority`, or `Study in India` for the INTERNATIONAL route | the call | true |
-| ADMISSION | SOURCE_UNAVAILABLE | the same words | null | false |
-| STUDYING | CONFIRMED, PENDING, CONTRADICTED | `ABC, issued by {issuer_name}`; several issuers are joined with "and"; a college issuing its own credits reads `ABC, issued by {institution_name} (the college itself)` | the latest `uploaded_at` among the semesters read | true only when no semester read was issued by the claiming institution |
-| STUDYING | NOT_YET_DUE, NOT_APPLICABLE | `""` | null | false |
-| STUDYING | SOURCE_UNAVAILABLE | `ABC` | null | false |
-| STUDENT | CONFIRMED, CONTRADICTED | `Student via DigiLocker sign-in` | the deciding reply | true |
-| STUDENT | PENDING | `""` | null | false |
+Placeholders the source lines and details use besides the deck's: `{version}` the cohort approval's `current_version`; `{deadline_date}` the reporting deadline of the joining year (§A4.18); `{issuer_name}` the issuing body's name from ABC; `{institution_name}` the claiming institution.
 
 ### A4.3 The record status (D35)
 
-Every ACTIVE enrolment carries:
+Every enrolment carries:
 
 ```json
 "record_status": "DISPUTED",
-"status_reason": "The student said \"I never joined\" after DigiLocker sign-in on 22 Aug 2026.",
-"next_step": "College asked for admission documents by 29 Aug 2026.",
+"status_reason": "The student said they never joined, after signing in with DigiLocker on 22 Aug.",
+"next_step": "College asked for admission documents by 29 Aug.",
 "record_status_at": "2026-10-29T06:10:00Z"
 ```
 
-`record_status`, `status_reason` and `next_step` are null on the wire for an enrolment that is not ACTIVE; for one that left ACTIVE, `status_reason` says why (`Withdrawn by decision on {date}.`, `Withdrawn by the college on {status_date}.`, `Transferred by the college on {status_date}.`, `Graduated.`).
+For an enrolment that is not ACTIVE, `record_status` and `status_reason` are null and `next_step` is `next_step.withdrawn` after a withdrawal by decision, else null; the record card shows `record.withdrawn_banner` or `record.withdrawn_upload_banner` from `status` and `status_date`.
 
 **Words the rule uses.**
 
@@ -2670,108 +2675,109 @@ Every ACTIVE enrolment carries:
 
 An officer's decision is never evidence: an upheld row stays CONTRADICTED and only stops counting as unresolved, so an upheld record still needs independent enrolment evidence to be COUNTERSIGNED.
 
-**`status_reason`**, one sentence, exact:
+**`status_reason`** is written from copy deck §21 `status_reason.*`:
 
-| status | deciding item | sentence |
+| status | deciding item | copy id |
 |---|---|---|
-| DISPUTED | the STUDENT row | `The student said "I never joined" after DigiLocker sign-in on {reply_date}.` |
-| UNDER_REVIEW | the first unresolved-contradicted row in row order | `{Row label} contradicts the claim ({case_name} case).` (`{case_name}` from `detail.case_type`; when the row raised no case: `{Row label} contradicts the claim.`) |
-| UNDER_REVIEW | otherwise the most severe unresolved case naming it (oldest first on a tie) | `A {case_name} case about this record is open.` |
-| COUNTERSIGNED | the independent rows | `Identity, seat and {row labels} confirmed; nothing is unresolved.` (`{row labels}`: the confirmed independent rows in row order, lower case, joined with "and": `joining record`, `joining record and student`) |
-| AWAITING_EVIDENCE | no rows yet | `Not checked yet.` |
-| AWAITING_EVIDENCE | identity not confirmed | `Identity: {identity row summary}` |
-| AWAITING_EVIDENCE | SEAT not CONFIRMED | `Seat: {seat row summary}` |
-| AWAITING_EVIDENCE | only self-issued credits are confirmed | `Only credits issued by the college itself are confirmed; they do not count as independent evidence.` |
-| AWAITING_EVIDENCE | otherwise | `No enrolment evidence independent of the college yet.` |
+| DISPUTED | the STUDENT row (`{reply_date}` its `observed_at`) | `status_reason.DISPUTED` |
+| UNDER_REVIEW | the first unresolved-contradicted row in row order (`{check}` its label, `{finding}` its finding) | `status_reason.UNDER_REVIEW.row` |
+| UNDER_REVIEW | else the most severe unresolved case naming it, oldest first on a tie | `status_reason.UNDER_REVIEW.case` |
+| COUNTERSIGNED | the confirmed independent rows (`{independent_rows}` as the deck says) | `status_reason.COUNTERSIGNED` |
+| AWAITING_EVIDENCE | identity not confirmed (`{finding}` the Identity row's finding, or its `source_line` when it has no finding) | `status_reason.AWAITING_EVIDENCE.identity` |
+| AWAITING_EVIDENCE | SEAT not CONFIRMED (the same for the Seat row) | `status_reason.AWAITING_EVIDENCE.seat` |
+| AWAITING_EVIDENCE | a row was upheld and nothing independent confirms the record (`{date}` the decision) | `status_reason.AWAITING_EVIDENCE.upheld` |
+| AWAITING_EVIDENCE | the only CONFIRMED enrolment row comes from the college itself | `status_reason.AWAITING_EVIDENCE.only_self` |
+| AWAITING_EVIDENCE | otherwise, and before the first evaluation | `status_reason.AWAITING_EVIDENCE.independent` |
 
-`{case_name}` is the copy deck's `flag.<TYPE>.name` (STUDENT_DENIED reads "Student dispute"), mirrored in the api as today.
+**`next_step`** is written from copy deck §21 `next_step.*`. For DISPUTED and UNDER_REVIEW it follows the deciding case: the STUDENT_DENIED case, the unresolved case named by the deciding row's `detail.case_type`, else the deciding case of the table above.
 
-**`next_step`**, one sentence, exact, or null for COUNTERSIGNED. For DISPUTED and UNDER_REVIEW it comes from the deciding case: the STUDENT_DENIED case, the case named by the deciding row's `detail.case_type` when it is unresolved, else the deciding case of the table above.
-
-| the deciding case | sentence |
+| the deciding case | copy id |
 |---|---|
-| DOCS_REQUESTED, no response yet, a due date | `College asked for {docs_words} by {due_date}.` |
-| DOCS_REQUESTED, no response yet, no due date | `College asked for {docs_words}.` |
-| DOCS_REQUESTED, the college responded | `College responded on {response_date}; waiting for an officer's decision.` |
-| ESCALATED | `Escalated to AICTE; waiting for its decision.` |
-| OPEN, STUDENT_DENIED | `Waiting for an officer to review the student's dispute.` |
-| OPEN, any other type | `Waiting for an officer to review the {case_name} case.` |
-| none unresolved (the case was decided, then the row was contradicted again) | `Waiting for an officer to reopen the {case_name} case.` |
+| DOCS_REQUESTED, no response, due date today or later (`{docs_words}` from the request's `docs_kind`) | `next_step.docs_requested` |
+| DOCS_REQUESTED, no response, no due date | `next_step.docs_requested_no_date` |
+| DOCS_REQUESTED, no response, the due date has passed | `next_step.docs_overdue` |
+| DOCS_REQUESTED, the college responded (`{date}` the latest response) | `next_step.responded` |
+| ESCALATED (`{date}` the escalation) | `next_step.escalated` |
+| OPEN, STUDENT_DENIED | `next_step.dispute_open` |
+| OPEN, any other type | `next_step.case_open` |
+| none unresolved: the case was decided, then the row was contradicted again | proposed `next_step.case_reopen`: "Waiting for an officer to reopen the {case_name} case." |
 
-`{docs_words}` follows the REQUEST_DOCS row's reason code (§A4.9): ADMISSION_DOCUMENTS "admission documents", IDENTITY_DOCUMENTS "identity documents", SEAT_DOCUMENTS "seat documents", ACADEMIC_RECORDS "academic records", MISSING_STUDENTS "the missing students' records", OTHER "documents". `{response_date}` is the date of the latest COLLEGE_RESPONSE.
+For AWAITING_EVIDENCE it comes from the first missing evidence, in the order identity, seat, ADMISSION, STUDYING, STUDENT (rows that are NOT_APPLICABLE, or CONFIRMED but not independent, are skipped):
 
-For AWAITING_EVIDENCE, `next_step` comes from the first missing evidence, in this order: identity, seat, then ADMISSION, STUDYING, STUDENT (rows that are NOT_APPLICABLE, or CONFIRMED but not independent, are skipped):
-
-| row and state | sentence |
+| row and state | copy id |
 |---|---|
-| no rows yet | `Waiting for the checks to run.` |
-| IDENTITY NOT_APPLICABLE | `Waiting for the student to sign in with DigiLocker and claim the record.` |
-| IDENTITY PENDING (Study in India has no record) | `Waiting for Study in India to record the admission.` |
-| IDENTITY or ADMISSION or STUDYING SOURCE_UNAVAILABLE | `Waiting for the {source_name} to respond; a recheck will try again.` (`{source_name}`: APAAR registry, state admission authority, ABC, Study in India) |
-| SEAT PENDING | `College to report the TFW income certificate.` |
-| ADMISSION PENDING or NOT_YET_DUE | `Waiting for the joining record from the state admission authority.` |
-| STUDYING NOT_YET_DUE | `Credits are due after the first semester result.` |
-| STUDYING PENDING | `Waiting for the next semester's credits in ABC.` |
-| STUDENT PENDING | `Waiting for the student to confirm after DigiLocker sign-in.` |
-| nothing left that could become independent evidence | `Waiting for enrolment evidence independent of the college.` |
+| IDENTITY NOT_APPLICABLE | `next_step.identity_claim` |
+| IDENTITY, ADMISSION or STUDYING SOURCE_UNAVAILABLE | `next_step.source_unavailable` |
+| SEAT PENDING | `next_step.seat_tfw` |
+| ADMISSION PENDING, not yet in a published record | `next_step.joining_record` |
+| ADMISSION NOT_YET_DUE | `next_step.joining_deadline` |
+| ADMISSION PENDING, nothing published and the deadline has passed | `next_step.joining_record` |
+| STUDYING NOT_YET_DUE or PENDING (`{issuer_name}` the issuer of the student's latest credits, else the institution's affiliating university, else "ABC"; `{sem}` the next semester expected) | `next_step.credits` |
+| STUDENT PENDING with a notice sent | `next_step.student` |
+| STUDENT PENDING with no notice sent | proposed `next_step.student_not_sent`: "Waiting for evidence independent of the college; no notice has reached the student yet." |
+| nothing left that could become independent evidence | proposed `next_step.no_route`: "Waiting for evidence independent of the college." |
+
+COUNTERSIGNED: `next_step.none`.
 
 **When it is recomputed.** In the same transaction as any change to a row (an upload, a recheck, a reply, a claim, a correction), to a case naming the record (an engine raising or refreshing it, any officer action including NOTE and ASSIGN, a college response, a case opened from a signal) or to the enrolment itself (ENGINES §17.2). `record_status_at` moves only when `record_status` changes. A change of status writes an audit UPDATE on `enrolment` with `before` and `after` `{"record_status"}`.
 
-### A4.4 Row states and their sentences
+### A4.4 Row states, findings and their cases
 
-Replaces the table of §A2.14 and rows 1 to 6 of §A3.8. `detail.summary` is exactly the sentence; `basis` is the `detail.basis` code. Placeholders as in §A2.14, plus `{deadline}` (the reporting deadline of the joining year), `{joining_year}` (the academic year the student joined this programme: the cohort year, or for a LATERAL entrant the year it entered year 2), `{version}` (the approval's `current_version`), `{issuer_name}`, `{reply_date}`, `{provisional_masked}` (§A3.1).
+Replaces the table of §A2.14 and rows 1 to 6 of §A3.8. Each `basis` names one row of copy deck §15: the api writes `finding` from `check.finding.<case>`, `source_line` from the source line that row names, and `summary` from `check.detail.<case>`. The deck's placeholders are filled as it says.
 
-| row | state | `basis` | when | `detail.summary` | case raised |
-|---|---|---|---|---|---|
-| any of IDENTITY, ADMISSION, STUDYING | SOURCE_UNAVAILABLE | `SOURCE_UNAVAILABLE` | the source did not answer, or the real adapter is disabled | `{source_name} did not respond. This row stays unavailable until a recheck or the next upload.` | |
-| IDENTITY | CONFIRMED | `APAAR_MATCH` | similarity 90 or more, date of birth matches | `Name and date of birth match the APAAR registry (similarity {name_score} of 100).` | |
-| IDENTITY | PENDING | `NAME_REVIEW` | similarity 75 to 89 (`needs_review: true`) | `Name on upload is close to the APAAR registry but not a clear match (similarity {name_score} of 100); an officer should review.` | NAME_MISMATCH, LOW |
-| IDENTITY | CONTRADICTED | `APAAR_MALFORMED` | malformed APAAR on upload | `APAAR as uploaded {problem}; the enrolment was kept without it.` | INVALID_APAAR, MEDIUM |
-| IDENTITY | CONTRADICTED | `APAAR_UNKNOWN` | the registry has no such id | `APAAR ending {apaar_last4} is not in the APAAR registry.` | INVALID_APAAR, HIGH |
-| IDENTITY | CONTRADICTED | `DOB_MISMATCH` | date of birth differs | `Date of birth on upload does not match the APAAR registry.` | NAME_MISMATCH, MEDIUM |
-| IDENTITY | CONTRADICTED | `NAME_MISMATCH` | similarity below 75 | `Name on upload differs from the APAAR registry (similarity {name_score} of 100).` | NAME_MISMATCH, MEDIUM |
-| IDENTITY | NOT_APPLICABLE | `NO_APAAR` | consent REFUSED or PENDING, record not claimed | `APAAR not linked; alternative route not used yet.` | |
-| IDENTITY | CONFIRMED | `DIGILOCKER_CLAIM` | the student claimed the record (§A4.12) | `The student signed in with DigiLocker and claimed this record with provisional id {provisional_masked}; name and date of birth match.` | |
-| IDENTITY | CONFIRMED | `SII_MATCH` | INTERNATIONAL route or consent; Study in India knows the passport | `Study in India confirms the passport holder.` | |
-| IDENTITY | PENDING | `SII_NONE` | INTERNATIONAL; Study in India has no admission for the passport | `Study in India has no admission on record for this passport; see the Joining record row.` | |
-| SEAT | CONFIRMED | `FITS` | holds a seat of its cohort approval and is eligible for it | `Fits approved intake: seat {seat_code} ({seat_type_word}), AICTE approval v{version}, {cohort_year}.` | |
-| SEAT | CONTRADICTED | `NO_SEAT` | no seat (excess or quota) | `No {seat_type_word} seat is free in {programme_code} under AICTE approval v{version}, {cohort_year}; see the {case_name} case.` | EXCESS_ADMISSION or QUOTA_BREACH (raised by the FLAGS stage, §A2.17) |
-| SEAT | CONTRADICTED | `NOT_ELIGIBLE` | an eligibility rule below is broken | the rule's sentence below | ELIGIBILITY_BREACH, MEDIUM |
-| SEAT | PENDING | `TFW_NOT_REPORTED` | TFW route, `tfw_income_certified` not reported | `TFW income certificate not reported.` | |
-| ADMISSION | CONFIRMED | `JOINED` | the joining record has the student | `Joined {programme_code} at this college on {joined_on} ({route_word}).`; with a counselling round: `Joined {programme_code} at this college on {joined_on} ({route_word}, round {round}).` | |
-| ADMISSION | PENDING | `NOT_YET_IN_RECORD` | not found, today is on or before `{deadline}` | `Not in the joining record yet; the reporting deadline is {deadline}.` | |
-| ADMISSION | NOT_YET_DUE | `NOT_PUBLISHED` | the authority has published nothing for that state and year (`published: false`), on or before `{deadline}` | `The state admission authority has not published its {joining_year} joining record yet.` | |
-| ADMISSION | PENDING | `NOT_PUBLISHED_LATE` | nothing published, after `{deadline}` | `The state admission authority has not published its {joining_year} joining record, due by {deadline}.` | |
-| ADMISSION | CONTRADICTED | `NOT_IN_JOINING_RECORD` | not found, after `{deadline}` | `Not in the state admission authority's joining record for {programme_code} ({joining_year}), past the reporting deadline of {deadline}.` | NOT_IN_JOINING_RECORD, MEDIUM |
-| ADMISSION | CONFIRMED | `SII_ADMITTED` | INTERNATIONAL; Study in India confirms this institution, programme and year | `Study in India confirms this admission to {programme_code} ({cohort_year}).` | |
-| ADMISSION | CONTRADICTED | `SII_NOT_ADMITTED` | INTERNATIONAL; otherwise | `Study in India has no matching admission for this passport at this institution.` | NOT_IN_JOINING_RECORD, MEDIUM |
-| STUDYING | NOT_YET_DUE | `FIRST_YEAR` | year 1 | `First semester not complete.` | |
-| STUDYING | NOT_YET_DUE | `LATERAL_FIRST_YEAR` | LATERAL in year 2 | `Joined in year 2 as a lateral entrant; first semester here not complete.` | |
-| STUDYING | NOT_APPLICABLE | `NO_APAAR` | no linked APAAR | `APAAR not linked; ABC credits cannot be checked.` | |
-| STUDYING | NOT_APPLICABLE | `ABC_UNKNOWN` | ABC does not know the APAAR | `ABC has no record of this APAAR; see the Identity row.` | |
-| STUDYING | CONFIRMED | `CREDITS` | credits in every expected semester | `Credits recorded in ABC for all {expected} semesters since admission, issued by {issuer_name}.` | |
-| STUDYING | CONFIRMED | `CREDITS_SELF_ISSUED` | the same, and the claiming institution issued at least one of them (`self_issued: true`, `independent: false`) | `Credits recorded in ABC for all {expected} semesters since admission, issued by the college itself; they do not count as independent evidence.` | |
-| STUDYING | PENDING | `ONE_SEMESTER_MISSING` | one semester missing | `No credits recorded in ABC for semester {sem} ({academic_year}); waiting for the next upload.` | |
-| STUDYING | CONTRADICTED | `NO_ACADEMIC_ACTIVITY` | two or more missing | `No credits recorded in ABC for {missing} of {expected} semesters since admission.` | NO_ACADEMIC_ACTIVITY, MEDIUM |
-| STUDENT | CONTRADICTED | `DENIED` | a notice's current response is NO | `The student said "I never joined" after DigiLocker sign-in on {reply_date}.` | STUDENT_DENIED, HIGH |
-| STUDENT | CONFIRMED | `CONFIRMED` | a notice's current response is YES | `Confirmed by the student after DigiLocker sign-in on {reply_date}.` | |
-| STUDENT | PENDING | `UNREACHABLE` | no notice delivered, no email and no linked APAAR | `No email or APAAR on record, so no notice can be sent; the student can still sign in with DigiLocker to answer.` | |
-| STUDENT | PENDING | `NOT_SENT` | no notice delivered yet | `Notice not sent yet.` | |
-| STUDENT | PENDING | `SENT` | a delivered notice is live | `Notice sent on {sent_date}; the student has not signed in to answer yet.` | |
-| STUDENT | PENDING | `EXPIRED` | every delivered notice expired unanswered | `No reply (expired).` | |
+| row | state | `basis` | copy deck §15 row | case raised |
+|---|---|---|---|---|
+| IDENTITY, ADMISSION, STUDYING | SOURCE_UNAVAILABLE | `SOURCE_UNAVAILABLE` | `check.detail.unavailable` | |
+| IDENTITY | CONFIRMED | `APAAR_MATCH` | `IDENTITY.confirmed` | |
+| IDENTITY | PENDING (`needs_review`) | `NAME_REVIEW` | `IDENTITY.pending_review` | NAME_MISMATCH, LOW |
+| IDENTITY | CONTRADICTED | `APAAR_UNKNOWN` | `IDENTITY.contradicted_not_found` | INVALID_APAAR, HIGH |
+| IDENTITY | CONTRADICTED | `APAAR_MALFORMED` | `IDENTITY.contradicted_malformed` | INVALID_APAAR, MEDIUM |
+| IDENTITY | CONTRADICTED | `NAME_MISMATCH` | `IDENTITY.contradicted_name` | NAME_MISMATCH, MEDIUM |
+| IDENTITY | CONTRADICTED | `DOB_MISMATCH` | `IDENTITY.contradicted_dob` | NAME_MISMATCH, MEDIUM |
+| IDENTITY | NOT_APPLICABLE | `NO_APAAR` | `IDENTITY.na_no_apaar` | |
+| IDENTITY | CONFIRMED | `DIGILOCKER_CLAIM` | `IDENTITY.confirmed_digilocker` | |
+| IDENTITY | CONFIRMED | `SII_MATCH` | `IDENTITY.confirmed_sii` | |
+| IDENTITY | PENDING | `SII_NONE` | proposed `IDENTITY.pending_sii`: finding none; source line `source_line.SII`; "Study in India has no admission on record for this passport; see the Joining record row." | |
+| SEAT | CONFIRMED | `FITS` | `SEAT.confirmed` | |
+| SEAT | CONTRADICTED | `NO_SEAT` | `SEAT.contradicted_no_seat` | EXCESS_ADMISSION or QUOTA_BREACH (raised by the FLAGS stage, §A2.17) |
+| SEAT | CONTRADICTED | `NO_POOL` | `SEAT.contradicted_no_pool` | QUOTA_BREACH |
+| SEAT | CONTRADICTED | `NOT_ELIGIBLE` | `SEAT.contradicted_eligibility` | ELIGIBILITY_BREACH, MEDIUM; HIGH for an INTERNATIONAL seat |
+| SEAT | PENDING | `TFW_NOT_REPORTED` | `SEAT.pending_tfw` | |
+| ADMISSION | CONFIRMED | `JOINED` | `ADMISSION.confirmed` | |
+| ADMISSION | PENDING | `NOT_YET_IN_RECORD` | `ADMISSION.pending` (not found, today on or before the deadline) | |
+| ADMISSION | NOT_YET_DUE | `NOT_PUBLISHED` | `ADMISSION.not_yet_due` (`published: false`, today on or before the deadline) | |
+| ADMISSION | PENDING | `NOT_PUBLISHED_LATE` | proposed `ADMISSION.pending_unpublished`: finding "not published yet"; source line `source_line.not_due.ADMISSION`; "The {state_name} admission authority has not published its joining record for {academic_year}; it was due by {deadline_date}." (`published: false` after the deadline; the authority's delay is never the student's contradiction) | |
+| ADMISSION | CONTRADICTED | `NOT_IN_JOINING_RECORD` | `ADMISSION.contradicted` (not found in a published record after the deadline; source line "State admission authority · {date checked}") | NOT_IN_JOINING_RECORD, MEDIUM |
+| ADMISSION | CONFIRMED | `SII_ADMITTED` | `ADMISSION.confirmed_sii` | |
+| ADMISSION | CONTRADICTED | `SII_NOT_ADMITTED` | `ADMISSION.contradicted_sii` | NOT_IN_JOINING_RECORD, MEDIUM |
+| STUDYING | NOT_YET_DUE | `FIRST_YEAR` | `STUDYING.not_yet_due` | |
+| STUDYING | NOT_YET_DUE | `LATERAL_FIRST_YEAR` | `STUDYING.not_yet_due_lateral` | |
+| STUDYING | NOT_APPLICABLE | `NO_APAAR` | `STUDYING.na_no_apaar` | |
+| STUDYING | NOT_APPLICABLE | `ABC_UNKNOWN` | `STUDYING.na_abc_unknown` | |
+| STUDYING | CONFIRMED | `CREDITS` | `STUDYING.confirmed` | |
+| STUDYING | CONFIRMED | `CREDITS_SELF_ISSUED` | `STUDYING.confirmed_self` (`self_issued: true`, `independent: false`) | |
+| STUDYING | PENDING | `ONE_SEMESTER_MISSING` | `STUDYING.pending` | |
+| STUDYING | CONTRADICTED | `NO_ACADEMIC_ACTIVITY` | `STUDYING.contradicted` | NO_ACADEMIC_ACTIVITY, MEDIUM |
+| STUDENT | CONTRADICTED | `DENIED` | `STUDENT.contradicted` | STUDENT_DENIED, HIGH |
+| STUDENT | CONFIRMED | `CONFIRMED` | `STUDENT.confirmed` | |
+| STUDENT | CONFIRMED | `CONFIRMED_CHANGED` | `STUDENT.confirmed_changed` (No changed to Yes; the case keeps its status) | |
+| STUDENT | PENDING | `UNREACHABLE` | `STUDENT.pending_not_sent` (no email and no linked APAAR: no notice can be sent; the student can still sign in and answer) | |
+| STUDENT | PENDING | `NOT_SENT` | `STUDENT.pending_not_sent` | |
+| STUDENT | PENDING | `SENT` | `STUDENT.pending_sent` | |
+| STUDENT | PENDING | `EXPIRED` | `STUDENT.pending_expired` | |
 
-- The ADMISSION row for every route except INTERNATIONAL reads the joining record (D39); the counselling list is no longer called. `route_mismatch: true` (with `route` the authority's route) is set when the authority's route differs from the upload's; the row stays CONFIRMED and the summary adds `; the upload says {upload_route_word}` before the full stop.
-- The STUDENT row keeps the `notice_state`, `channel`, `sent_at`, `responded_at` and `changed` keys of §A3.8 and its rules (a No beats a Yes, one change within 7 days). Every reply now comes from a student signed in through DigiLocker (§A4.13).
-- Eligibility rules for the SEAT row (D41), checked only when the enrolment holds a seat; `eligibility_rule` names the rule, `reported` gives the markers:
+- Every route except INTERNATIONAL reads the joining record (D39); the counselling list is no longer called. `route_mismatch: true` (with `route` the authority's route) is set when the authority's route differs from the upload's; the row stays CONFIRMED.
+- `{round_words}` in `ADMISSION.confirmed`: "round {round}" for a counselling joining, "{route_word} admission approved by the state" otherwise (copy deck §15).
+- The STUDENT row keeps the `notice_state`, `channel`, `sent_at`, `responded_at` and `changed` keys of §A3.8 and its rules (a No beats a Yes, one change within 7 days). Every answer now comes from a student signed in through DigiLocker (§A4.13).
+- Eligibility rules for the SEAT row (D41), checked when the enrolment holds a seat; `eligibility_rule` names the rule, `reported` gives the markers, `{reported_word}` is the deck's `eligibility.word.*` and `{clause}` the rule's clause from `rules.yaml` `eligibility`:
 
-| `eligibility_rule` | breach when | `detail.summary` | clause (`rules.yaml` `eligibility.*.source`) |
+| `eligibility_rule` | breach when | `{reported_word}` | clause |
 |---|---|---|---|
-| `INTERNATIONAL_CIWG` | an INTERNATIONAL seat held by a student of nationality `IN` not marked `ciwg` | `An Indian national can hold an international seat only as a CIWG student (APH 2024-27 cl. 2.9).` | APH 2024-27 cl. 2.9 |
-| `NRI_STATUS` | an NRI seat held by a row not marked `nri_sponsored` (blank or no) | `An NRI seat needs a student marked NRI or NRI-sponsored (APH 2024-27 cl. 2.8(b)).` | APH 2024-27 cl. 2.8(b) |
-| `TFW_INCOME` | a TFW seat with `tfw_income_certified` = no | `A TFW seat needs a family income certificate, and the college reported none (APH 2024-27 cl. 6.42(d)).` | APH 2024-27 cl. 6.42(d) |
+| `INTERNATIONAL_CIWG` | an INTERNATIONAL seat held by a student of nationality `IN` not marked `ciwg` | `eligibility.word.NOT_MARKED` | APH 2024-27 cl. 2.9 |
+| `NRI_STATUS` | an NRI seat held by a row not marked `nri_sponsored` (blank or no) | `eligibility.word.NOT_MARKED` | APH 2024-27 cl. 2.8(b) |
+| `TFW_INCOME` | a TFW seat with `tfw_income_certified` = no | "without a family income certificate" | APH 2024-27 cl. 6.42(d) |
 
-  A CIWG student is an INTERNATIONAL-route row with nationality `IN` and `ciwg` yes; only CIWG students take the CIWG-reserved third of the international seats (replaces the rule of §A2.2 that read CIWG from route and nationality alone).
-
+  A blank `tfw_income_certified` on a TFW seat is the PENDING row above, not a breach. A CIWG student is an INTERNATIONAL-route row with nationality `IN` and `ciwg` yes; only CIWG students take the CIWG-reserved third of the international seats (replaces the rule of §A2.2 that read CIWG from route and nationality alone).
 ### A4.5 Enrolment list changes (`GET /institutions/{id}/enrolments`, A2.10)
 
 Rows lose `countersign` and gain the record and the brief rows:
@@ -2787,24 +2793,24 @@ Rows lose `countersign` and gain the record and the brief rows:
   "seat_code": "CSE-R-001", "status": "ACTIVE", "admission_date": "2026-08-02", "status_date": "2026-10-28",
   "uploaded_at": "2026-10-28T10:02:14Z", "upload_batch_id": "b7c1...", "source_row_no": 2,
   "record_status": "COUNTERSIGNED",
-  "status_reason": "Identity, seat and joining record confirmed; nothing is unresolved.",
-  "next_step": null,
+  "status_reason": "Identity, seat and the joining record confirm the record, and nothing is unresolved.",
+  "next_step": "None. The evidence is complete.",
   "record_status_at": "2026-10-28T10:02:21Z",
   "checks": [
-    { "type": "IDENTITY", "state": "CONFIRMED", "independent": true, "resolved": false },
-    { "type": "SEAT", "state": "CONFIRMED", "independent": false, "resolved": false },
-    { "type": "ADMISSION", "state": "CONFIRMED", "independent": true, "resolved": false },
-    { "type": "STUDYING", "state": "NOT_YET_DUE", "independent": false, "resolved": false },
-    { "type": "STUDENT", "state": "PENDING", "independent": false, "resolved": false }
+    { "type": "IDENTITY", "state": "CONFIRMED", "finding": null, "independent": true, "resolved": false },
+    { "type": "SEAT", "state": "CONFIRMED", "finding": "fits approved intake", "independent": false, "resolved": false },
+    { "type": "ADMISSION", "state": "CONFIRMED", "finding": "joined 2 Aug", "independent": true, "resolved": false },
+    { "type": "STUDYING", "state": "NOT_YET_DUE", "finding": null, "independent": false, "resolved": false },
+    { "type": "STUDENT", "state": "PENDING", "finding": "no answer yet", "independent": false, "resolved": false }
   ],
   "flags": []
 }
 ```
 
-- `checks` is in row order (IDENTITY, SEAT, ADMISSION, STUDYING, STUDENT), the card's order; `[]` before the first evaluation.
+- `checks` is in row order (IDENTITY, SEAT, ADMISSION, STUDYING, STUDENT); `[]` before the first evaluation.
 - `eligibility` gives what the college reported (null: not reported).
 - Filters: `record_status` (one value or a comma-separated list) replaces `check_status` and `check_type`, which are ignored if sent. `flagged`, `seated` and the Week 1 and 2 filters stay.
-- Sorts: `status_priority` (DISPUTED, UNDER_REVIEW, AWAITING_EVIDENCE, COUNTERSIGNED, then name) joins `name_asc` (default), `year_desc`, `route_asc`.
+- Sorts: `status_priority` (DISPUTED, UNDER_REVIEW, AWAITING_EVIDENCE, COUNTERSIGNED, oldest `record_status_at` first within each; copy deck `record_status.sort.attention`) joins `name_asc` (default), `year_desc`, `route_asc`.
 - The page envelope gains `status_counts`: `{"AWAITING_EVIDENCE": n, "COUNTERSIGNED": n, "UNDER_REVIEW": n, "DISPUTED": n}` over ACTIVE enrolments matching every filter except `record_status` and `status`, so the page's status tabs show their counts.
 
 `GET /students/me` (A3.6): each `enrolments[]` item loses `countersign` and gains `record_status`, `status_reason`, `next_step`, `checks` (brief), `response` (the current Yes or No the student gave on this enrolment, or null), `can_respond` (true when ACTIVE) and `claimed` (true when the student's identity on this record came from a DigiLocker claim). The body gains `signed_in_with: "DIGILOCKER"`.
@@ -2815,20 +2821,21 @@ The detail is the record card (D49). It loses `countersign`; `checks` becomes th
 
 ```json
 "record_status": "DISPUTED",
-"status_reason": "The student said \"I never joined\" after DigiLocker sign-in on 22 Aug 2026.",
-"next_step": "College asked for admission documents by 29 Aug 2026.",
+"status_reason": "The student said they never joined, after signing in with DigiLocker on 22 Aug.",
+"next_step": "College asked for admission documents by 29 Aug.",
 "record_status_at": "2026-10-29T06:10:00Z",
 "eligibility": { "tfw_income_certified": null, "nri_sponsored": null, "ciwg": null },
 "approval": { "id": "ap1...", "academic_year": "2026-27", "version": 2, "approved_intake": 120, "effective_from": "2026-05-20", "source": "AICTE EoA 2026-27, revised" },
 "claim": null,
+"versions": [ { "...EnrolmentVersion (§A4.7)..." } ],
 "history_count": 3
 ```
 
 - `approval`: the cohort approval the Seat row was checked against, at its current version; null when the programme has none for the cohort.
 - `claim`: for a record without a linked APAAR, `{"claimed": true, "claimed_at": "..."}` once the student claimed it through DigiLocker, `{"claimed": false, "claimed_at": null}` before; null for a record with a linked APAAR or an international one.
-- `history_count`: the number of `enrolment_versions` rows (§A4.7).
+- `versions`: the 20 most recent versions, newest first, as in §A4.7 (the History section of the card); `history_count`: how many there are in all, paged by `GET /enrolments/{id}/history`.
 - `flags` stays (every case naming the record, any status, `FlagSummary` with the new statuses).
-- `credentials` stays, with the kinds and reason codes of §A4.14.
+- `credentials` stays (the card's attestations), with the kinds and reason codes of §A4.14.
 
 **Recheck endpoints** (A2.12, A2.13). A recheck re-runs every IDENTITY, SEAT, ADMISSION and STUDYING row that is PENDING, NOT_YET_DUE or SOURCE_UNAVAILABLE (STUDENT is still never rechecked), then recomputes the record status, then calls attestation issuance. That is also how rows that waited for the reporting deadline move on: there is no scheduler.
 
@@ -2839,7 +2846,7 @@ The detail is the record card (D49). It loses `countersign`; `checks` becomes th
   "results": [ { "type": "ADMISSION", "before": "PENDING", "after": "CONTRADICTED" } ],
   "flags_raised": 1,
   "record_status": "UNDER_REVIEW",
-  "checks": [ { "type": "IDENTITY", "state": "CONFIRMED", "independent": true, "resolved": false }, "... five ..." ]
+  "checks": [ { "type": "IDENTITY", "state": "CONFIRMED", "finding": null, "independent": true, "resolved": false }, "... five ..." ]
 }
 ```
 
@@ -2904,7 +2911,7 @@ Replaces the table of §A3.9. `A` = AICTE_ADMIN, `R` = RO_OFFICER (cases of inst
 | UPHELD, CORRECTED, WITHDRAWN | 409 | 409 | 409 | 409 | 409 | =: A, R | 409 | OPEN: A | 409 |
 
 - 403 versus 409, scope 404, and the order of answers are as §A3.9 and §A3.26. A decision the table allows from the status but that does not apply to the case's type (§A4.10) is `409 DECISION_NOT_AVAILABLE`.
-- **Who reads the note.** Notes on UPHOLD, CORRECT, WITHDRAW and REQUEST_DOCS are shown to the college; notes on ESCALATE, NOTE and REOPEN stay with officers; ASSIGN has none. Reason codes are shown to everyone who can open the case.
+- **Who reads the note.** Notes on UPHOLD, CORRECT, WITHDRAW and REQUEST_DOCS are shown to the college; notes on ESCALATE, NOTE and REOPEN stay with officers; ASSIGN has none. Reason codes and `docs_kind` are shown to everyone who can open the case. A student sees only the outcome of a decision on their dispute (`student.decision.*`), never a note or an officer's name.
 - `allowed_actions` (FlagDetail) lists what the table and §A4.10 allow the caller now, in the order `UPHOLD`, `CORRECT`, `WITHDRAW`, `REQUEST_DOCS`, `ESCALATE`, `NOTE`, `ASSIGN`, `REOPEN`.
 
 ### A4.9 `POST /flags/{id}/actions`
@@ -2912,35 +2919,36 @@ Replaces the table of §A3.9. `A` = AICTE_ADMIN, `R` = RO_OFFICER (cases of inst
 Roles: `AICTE_ADMIN`, `RO_OFFICER`. Others: 403.
 
 ```json
-{ "action": "WITHDRAW", "reason_code": "NEVER_JOINED", "note": "The college could not produce an admission record; the student's dispute stands.", "enrolment_ids": ["e7e7e7e7-5555-4666-8777-888899990000"] }
-{ "action": "CORRECT", "reason_code": "WRONG_ROUTE_OR_CATEGORY", "note": "Admitted through lateral entry, not counselling.", "enrolment_id": "e8e8...", "fields": { "admission_route": "LATERAL", "year_of_study": 2 } }
-{ "action": "UPHOLD", "reason_code": "APPROVAL_VERSION_COVERS", "note": "Approval v3 raises intake to 132." }
-{ "action": "REQUEST_DOCS", "reason_code": "ADMISSION_DOCUMENTS", "note": "Send the admission register extract for this student.", "due_date": "2026-11-11" }
+{ "action": "WITHDRAW", "reason_code": "STUDENT_NEVER_JOINED", "note": "The college could not produce an admission record; the student's dispute stands.", "withdrawn_enrolment_ids": ["e7e7e7e7-5555-4666-8777-888899990000"] }
+{ "action": "CORRECT", "reason_code": "WRONG_SEAT_CATEGORY", "note": "Admitted through lateral entry, not counselling.", "correction": { "enrolment_id": "e8e8...", "fields": { "admission_route": "LATERAL", "year_of_study": 2 } } }
+{ "action": "UPHOLD", "reason_code": "APPROVAL_VERSION_COVERS", "note": "Approval v3 raises the intake to 132.", "approval_version": 3 }
+{ "action": "REQUEST_DOCS", "docs_kind": "ADMISSION", "note": "Send the admission register extract for this student.", "due_date": "2026-11-11" }
+{ "action": "WITHDRAW", "reason_code": "STUDENT_NEVER_JOINED", "note": "...", "withdrawn_enrolment_ids": ["..."], "dry_run": true }
 ```
 
 | field | rule |
 |---|---|
 | `action` | one of the officer actions of §A4.8 |
-| `reason_code` | required for UPHOLD, CORRECT, WITHDRAW, REQUEST_DOCS, ESCALATE and REOPEN, one of that action's codes below ("Choose a reason."); ignored for NOTE and ASSIGN |
-| `note` | as §A3.10: 1 to 2,000 characters, required for every action except ASSIGN |
+| `reason_code` | required for UPHOLD, CORRECT, WITHDRAW and ESCALATE: one of that action's codes below. Missing: `422 REASON_REQUIRED`; not one of the action's codes: `422 VALIDATION_ERROR` on `reason_code`. Ignored for the other actions |
+| `note` | as §A3.10: 1 to 2,000 characters, required for every action except ASSIGN. Missing on a decision: `422 REASON_REQUIRED` |
+| `docs_kind` | REQUEST_DOCS only, required: `ADMISSION`, `JOINING`, `IDENTITY`, `ELIGIBILITY`, `CREDITS` or `OTHER` (copy deck `docs_kind.*`); stored in `case_actions.reason_code` of the REQUEST_DOCS row |
 | `due_date` | REQUEST_DOCS only, as §A3.10 |
 | `assignee_id` | ASSIGN and ESCALATE, as §A3.10 |
-| `enrolment_ids` | WITHDRAW only. Optional on a case that names one record (default: the case's `enrolment_id`); required on a multi-record case. Each id must be a record the case names, at the case's institution, ACTIVE ("Choose records this case names that are still active.") |
-| `enrolment_id` | CORRECT only. Optional when the case names one record at its institution; required otherwise; same rule as above |
-| `fields` | CORRECT only, required, at least one key ("Choose at least one field to correct."). Keys and values below |
+| `withdrawn_enrolment_ids` | WITHDRAW only. Optional on a case that names one record (default: the case's `enrolment_id`); required on a multi-record case, and an empty list is `422 WITHDRAW_NONE_SELECTED`. Each id must be a record the case names, at the case's institution, still ACTIVE; otherwise `409 WITHDRAW_NOT_NAMED` with `details: {"n": <how many are not>, "named_enrolment_ids": [...]}` |
+| `correction` | CORRECT only, required: `{"enrolment_id", "fields"}`. `enrolment_id` is optional when the case names one record at its institution, else required and checked like a withdrawal id (`409 WITHDRAW_NOT_NAMED`). `fields` with no key, or only values equal to the current ones: `422 CORRECTION_EMPTY`. A wrong value: `422 CORRECTION_INVALID`, message "{Field word}: {row error message of §A2.3}", `details.field` |
+| `approval_version` | UPHOLD on an EXCESS_ADMISSION or QUOTA_BREACH case: required; the version number of the case's approval that covers the admissions (§A4.10). Ignored otherwise |
+| `dry_run` | optional, default false. True runs every check and every effect of the action in a transaction that is then rolled back: nothing is stored, audited, emailed or issued, and the answer is `200 {"dry_run": true, "effects": {...}}` (below). Validation and status answers are the same as for a real action |
 
-Reason codes (copy deck `case.reason.<CODE>` gives the words):
+Reason codes (copy deck §6 `reason.<ACTION>.<CODE>` gives the words):
 
 | action | codes |
 |---|---|
-| UPHOLD | `EVIDENCE_SUPPORTS_CLAIM`, `PERMITTED_DUAL_PROGRAMME`, `APPROVAL_VERSION_COVERS`, `NAME_VARIANT_ACCEPTED`, `DISPUTE_NOT_SUPPORTED`, `SOURCE_RECORD_LATE`, `OTHER` |
-| CORRECT | `DATA_ENTRY_ERROR`, `WRONG_ROUTE_OR_CATEGORY`, `WRONG_YEAR_OR_DATE`, `IDENTITY_DETAILS`, `ELIGIBILITY_MARKER`, `OTHER` |
-| WITHDRAW | `NEVER_JOINED`, `IDENTITY_MISUSE`, `ADMITTED_BEYOND_INTAKE`, `NOT_ELIGIBLE_FOR_SEAT`, `DUPLICATE_RECORD`, `OTHER` |
-| REQUEST_DOCS | `ADMISSION_DOCUMENTS`, `IDENTITY_DOCUMENTS`, `SEAT_DOCUMENTS`, `ACADEMIC_RECORDS`, `MISSING_STUDENTS`, `OTHER` |
-| ESCALATE | `NEEDS_AICTE_DECISION`, `SPANS_REGIONS`, `POSSIBLE_FRAUD`, `OTHER` |
-| REOPEN | `NEW_EVIDENCE`, `DECISION_ERROR`, `OTHER` |
+| UPHOLD | `DOCUMENTS_SUPPORT_CLAIM`, `SOURCE_RECORD_WRONG`, `NAME_VARIANT`, `PERMITTED_DUAL_PROGRAMME`, `APPROVAL_VERSION_COVERS`, `STUDENT_ANSWER_MISTAKEN`, `MISSING_NOW_UPLOADED`, `OTHER` |
+| CORRECT | `UPLOAD_ERROR`, `DOCUMENTS_SHOW_OTHER_VALUE`, `WRONG_SEAT_CATEGORY`, `OTHER` |
+| WITHDRAW | `STUDENT_NEVER_JOINED`, `NO_JOINING_EVIDENCE`, `BEYOND_APPROVED_INTAKE`, `NOT_ELIGIBLE_FOR_SEAT`, `DUPLICATE_RECORD`, `NO_RESPONSE`, `OTHER` |
+| ESCALATE | `NEEDS_AICTE_DECISION`, `POLICY_QUESTION`, `SPANS_REGIONS`, `REPEATED_PATTERN`, `OTHER` |
 
-CORRECT `fields` (values follow the upload rules of §A2.2; a wrong value is 422 on `fields.<key>` with the row error message of §A2.3):
+CORRECT `fields` (values follow the upload rules of §A2.2):
 
 | key | changes | note |
 |---|---|---|
@@ -2953,26 +2961,33 @@ CORRECT `fields` (values follow the upload rules of §A2.2; a wrong value is 422
 | `admission_date` | the enrolment | not after today |
 | `tfw_income_certified`, `nri_sponsored`, `ciwg` | `enrolments.eligibility` | `true`, `false` or `null` (not reported) |
 
-An APAAR, a passport, contact details and the programme cannot be corrected by an officer: the college uploads the row again (D14).
+An APAAR, a passport, contact details, the programme and the status cannot be corrected by an officer: the college uploads the row again (D14), and a withdrawal is its own decision.
 
-Checks run in this order: the route's roles (403), body shape (422), case in scope (404 "Case not found."), role and status per §A4.8 (403, then 409 `FLAG_TRANSITION_INVALID`), the case type per §A4.10 (409 `DECISION_NOT_AVAILABLE`), then the field rules above (422).
+Checks run in this order: the route's roles (403), body shape (422), case in scope (404 "Case not found."), role and status per §A4.8 (403, then 409 `FLAG_TRANSITION_INVALID`), the case type per §A4.10 (409 `DECISION_NOT_AVAILABLE`), then the field rules above.
 
-Response `200`: the case as `FlagDetail` (§A4.11) after the action, plus `effects`:
+Response `200` to a real action: the case as `FlagDetail` (§A4.11) after the action, plus `effects`. The same `effects` answer a dry run. They name every consequence with its real values, which the decision sheets print (copy deck `case.*_change.*`):
 
 ```json
 "effects": {
-  "records": [ { "enrolment_id": "e7e7...", "status": "WITHDRAWN", "record_status": null, "status_reason": "Withdrawn by decision on 30 Oct 2026." } ],
-  "versions_written": 1,
+  "case_status": "WITHDRAWN",
+  "records": [ { "enrolment_id": "e7e7...", "status": "WITHDRAWN", "record_status": null, "status_reason": null } ],
+  "version": 2,
+  "changes": [],
   "rows_resolved": 0,
   "rows_rerun": 0,
-  "seats_released": 1,
-  "seats_assigned": 1,
-  "attestations_revoked": 1,
-  "attestations_issued": 0
+  "seats_released": [ { "enrolment_id": "e7e7...", "seat_code": "CSE-R-087" } ],
+  "seats_assigned": [ { "enrolment_id": "e9e9...", "seat_code": "CSE-R-087" } ],
+  "attestations_revoked": [ { "enrolment_id": "e7e7...", "credential_id": "c1c1...", "short_id": "7Q2MK4PX" } ],
+  "attestations_issued": [],
+  "approval": null
 }
 ```
 
-`records` lists every enrolment whose `status` or `record_status` changed in the transaction (a released seat given to a backlog record counts that record too). For NOTE, ASSIGN, ESCALATE, REQUEST_DOCS and REOPEN, `effects` reports the record statuses the action changed (their `next_step` changes even when the status does not) and zeros elsewhere.
+- `case_status`: the case's status after the action (unchanged on a multi-record action that leaves records outstanding).
+- `records`: every enrolment whose `status` or `record_status` changed (a backlog record seated by a released seat counts too).
+- `version` and `changes`: the version number written (or to be written, on a dry run) and the changed fields `[{field, before, after}]` for a CORRECT; for a WITHDRAW, the version of the first record; else null and `[]`.
+- `approval`: `{"version", "approved_intake", "cohort_year", "programme_code"}` for an UPHOLD under an approval version, else null.
+- For NOTE, ASSIGN, ESCALATE, REQUEST_DOCS and REOPEN, `effects` lists the records whose status or next step changed and is otherwise empty.
 
 ### A4.10 What each decision changes (D43)
 
@@ -2980,21 +2995,23 @@ Response `200`: the case as `FlagDetail` (§A4.11) after the action, plus `effec
 
 | case type | covers row | scope | UPHOLD | CORRECT | WITHDRAW |
 |---|---|---|---|---|---|
-| EXCESS_ADMISSION | SEAT | MULTI_RECORD | yes | yes, per named record | yes, per named record |
-| QUOTA_BREACH | SEAT | MULTI_RECORD | yes | yes, per named record | yes, per named record |
+| EXCESS_ADMISSION | SEAT | MULTI_RECORD | only with an `approval_version` that covers the admissions | yes, one named record at a time | yes, with the record picker |
+| QUOTA_BREACH | SEAT | MULTI_RECORD | the same | the same | the same |
 | ELIGIBILITY_BREACH | SEAT | RECORD | yes | yes | yes |
 | LATE_REFILL | none | RECORD | yes | yes | yes |
-| INVALID_APAAR | IDENTITY | RECORD | yes | no | yes |
+| INVALID_APAAR | IDENTITY | RECORD | yes | yes (identity details) | yes |
 | NAME_MISMATCH | IDENTITY | RECORD | yes | yes | yes |
 | NOT_IN_JOINING_RECORD | ADMISSION | RECORD | yes | yes | yes |
 | NO_ACADEMIC_ACTIVITY | STUDYING | RECORD | yes | yes | yes |
-| STUDENT_DENIED | STUDENT | RECORD | yes | no | yes |
-| DUPLICATE_WITHIN_UPLOAD | none | RECORD (either of the two) | yes | no | yes |
-| DUPLICATE_CROSS_INSTITUTION | none | RECORD (its own institution's) | yes | no | yes |
-| DUAL_ENROLMENT_ALLOWED | none | RECORD (its own institution's) | yes | no | yes |
-| GHOST_RING (opened from a signal) | none | MULTI_RECORD | yes | no | yes, per named record |
+| STUDENT_DENIED | STUDENT | RECORD | yes | yes | yes |
+| DUPLICATE_WITHIN_UPLOAD | none | RECORD (either of the two) | yes | yes | yes |
+| DUPLICATE_CROSS_INSTITUTION | none | RECORD (its own institution's) | yes | yes | yes |
+| DUAL_ENROLMENT_ALLOWED | none | RECORD (its own institution's) | yes | yes | yes |
+| GHOST_RING (opened from a signal) | none | MULTI_RECORD | yes | yes, one named record at a time | yes, with the record picker |
 | MISSING_FROM_UPLOAD | none | INSTITUTION | yes | no | no |
 | ANOMALY (opened from a signal) | none | INSTITUTION | yes | no | no |
+
+A version **covers** the admissions of an EXCESS_ADMISSION or QUOTA_BREACH case when it is the approval's current version and, under it, the case's pool has no ACTIVE cohort enrolment without a seat (the backlog was seated when the version was added, §A4.17). Otherwise `409 UPHOLD_NEEDS_VERSION`.
 
 An **outstanding** record of a multi-record case is a named record at the case's institution that is ACTIVE and, for a case that covers a row, whose covered row is unresolved-contradicted (for GHOST_RING: not withdrawn or corrected by this case). On a multi-record case, WITHDRAW and CORRECT move the case to WITHDRAWN or CORRECTED only when no named record is outstanding after the action; otherwise the status stays and the history row records what was done. UPHOLD always decides the whole case.
 
@@ -3002,14 +3019,15 @@ An **outstanding** record of a multi-record case is a named record at the case's
 
 | action | case | records | seat | attestation | version |
 |---|---|---|---|---|---|
-| UPHOLD | UPHELD, `resolved_at` | for each named record at the case's institution that is ACTIVE: the covered row, when CONTRADICTED (or PENDING with `needs_review` for NAME_MISMATCH), gets `resolved` | none | issued when a record becomes COUNTERSIGNED (§A4.14); one revoked by its dispute is issued again | none |
-| CORRECT | CORRECTED (or unchanged, MR); `case_actions.correction` | the fields are applied; the record's five rows are evaluated again (adapter calls inside the request); the Seat Ledger runs for the record | released or assigned by the ledger when the target pool changed; seat flags of touched pools refreshed | as the new status says | one DECISION version with the changed fields |
-| WITHDRAW | WITHDRAWN (or unchanged, MR); `withdrawn_enrolment_ids` | each listed record: `status` WITHDRAWN, `status_date` today (IST), `status_reason` "Withdrawn by decision on {date}." | its seat released (seat event reason `withdrawn by decision`); the freed seat goes to the pool's backlog, whose Seat rows run again; seat flags refreshed | every live attestation of each listed record revoked with `WITHDRAWN_BY_DECISION` and the officer | one DECISION version per record: `status`, `status_date` |
-| REQUEST_DOCS, ESCALATE, NOTE, ASSIGN, COLLEGE_RESPONSE | as §A3.9 | status recomputed (`next_step` follows the case) | none | none | none |
+| UPHOLD | UPHELD, `resolved_at` | for each named record at the case's institution that is ACTIVE: the covered row, when CONTRADICTED (or PENDING with `needs_review` for NAME_MISMATCH), gets `resolved` | none (an approval version already seated the backlog) | issued when a record becomes COUNTERSIGNED (§A4.14); one revoked by the student's dispute is issued again | none |
+| CORRECT | CORRECTED (or unchanged, MR); `case_actions.correction` | the fields are applied; the record's five rows are evaluated again (adapter calls inside the request); the Seat Ledger runs for the record | released or assigned by the ledger when the target pool changed; seat cases of touched pools refreshed | as the new status says | one DECISION version with the changed fields |
+| WITHDRAW | WITHDRAWN (or unchanged, MR); `withdrawn_enrolment_ids` | each listed record: `status` WITHDRAWN, `status_date` today (IST), `next_step` `next_step.withdrawn` | its seat released (seat event reason `withdrawn by decision`); the freed seat goes to the pool's backlog, whose Seat rows run again; seat cases refreshed | every live attestation of each listed record revoked with `CLAIM_WITHDRAWN` and the officer | one DECISION version per record: `status`, `status_date` |
+| REQUEST_DOCS, ESCALATE, NOTE, ASSIGN, COLLEGE_RESPONSE | as §A3.9 | statuses recomputed (`next_step` follows the case) | none | none | none |
 | REOPEN | OPEN, as §A3.9 | `resolved` markers this case set are cleared; statuses recomputed | none | none | none |
 
-- Every record whose rows, case or enrolment changed has its status recomputed before the commit (§A4.3); a record that becomes DISPUTED has its attestation revoked with `DISPUTED` (§A4.14).
-- Audit, in the same transaction: UPDATE on `flag` with `after: {"action", "from_status", "to_status", "case_action_seq", "reason_code", "enrolment_ids"?, "fields"? (field names only), "assignee_id"?, "due_date"?}`; UPDATE on `enrolment` per record whose status or record status changed (`before`/`after` `{"status", "record_status"}`) and per version written (`after: {"version", "source", "changed": [field names]}`); UPDATE on `check` per row resolved or cleared (`after: {"type", "resolved": true | false}`); the ledger's seat entries and the credentials' revocation entries as before. Notes, names and dates of birth never go into the audit log.
+- Every record whose rows, case or enrolment changed has its status recomputed before the commit (§A4.3); a record that becomes DISPUTED has its attestation revoked with `STUDENT_DISPUTE` (§A4.14).
+- An UPHOLD row stores `{"approval_version": n}` in `case_actions.correction` when it cites a version; the history shows it.
+- Audit, in the same transaction: UPDATE on `flag` with `after: {"action", "from_status", "to_status", "case_action_seq", "reason_code"?, "docs_kind"?, "withdrawn_enrolment_ids"?, "fields"? (field names only), "approval_version"?, "assignee_id"?, "due_date"?}`; UPDATE on `enrolment` per record whose status or record status changed (`before`/`after` `{"status", "record_status"}`) and per version written (`after: {"version", "source", "changed": [field names]}`); UPDATE on `check` per row resolved or cleared (`after: {"type", "resolved": true | false}`); the ledger's seat entries and the credentials' revocation entries as before. Notes, names and dates of birth never go into the audit log. A dry run writes nothing.
 - Nothing is deleted. Engines still never change a case's status; an engine refresh of a decided case adds the system note of §A3.8.
 
 ### A4.11 `GET /flags` and `GET /flags/{id}` changes (A2.15, A2.16, A3.13)
@@ -3019,93 +3037,104 @@ An **outstanding** record of a multi-record case is a named record at the case's
 ```json
 "covers": "STUDENT",
 "scope": "RECORD",
-"decision": { "action": "UPHOLD", "reason_code": "DISPUTE_NOT_SUPPORTED", "at": "2026-10-31T04:00:00Z" },
+"decision": { "action": "UPHOLD", "reason_code": "STUDENT_ANSWER_MISTAKEN", "at": "2026-10-31T04:00:00Z" },
 "signal_id": null
 ```
 
-- `covers`: the row type the case covers (§A4.10), or null. `scope`: `RECORD`, `MULTI_RECORD` or `INSTITUTION`. `decision`: the latest UPHOLD, CORRECT or WITHDRAW row while the case is decided, else null. `signal_id`: the signal the case was opened from, else null.
-- `status` carries the new values. Filters: `status` accepts the new values, `UNRESOLVED` (as before) and `DECIDED` (UPHELD, CORRECTED, WITHDRAWN); `type` accepts the three new types; new `signal_id`.
+- `covers`: the row type the case covers (§A4.10), or null. `scope`: `RECORD`, `MULTI_RECORD` or `INSTITUTION`. `decision`: the latest UPHOLD, CORRECT or WITHDRAW row while the case is decided, else null. `signal_id`: the signal the case was opened from, else null, and always null for an INSTITUTION caller (a college never sees a signal).
+- `status` carries the new values. Filters: `status` accepts the new values, `UNRESOLVED` (as before) and `DECIDED` (UPHELD, CORRECTED, WITHDRAWN); `type` accepts the three new types; new `signal_id` (officers only).
 - 404 message: "Case not found." (replaces "Flag not found." everywhere).
 
-`FlagDetail` gains `outstanding_enrolment_ids` (multi-record cases: the outstanding records, else `[]`), and its `history` items gain `reason_code`, `correction` (`{"enrolment_id", "changes": [{"field", "before", "after"}]}` or null) and `withdrawn_enrolment_ids` (`[]` unless WITHDRAW). The redaction for INSTITUTION is unchanged (§A3.13): the college sees the reason codes, its corrections and the withdrawn ids; ASSIGN rows and internal notes stay hidden. Every enrolment row inside a case (`enrolment`, `related_enrolments`) is the §A4.5 row, so it shows each record's status.
+`FlagDetail` gains:
 
-New evidence templates (stored by the engines, shown verbatim; format of §A2.17):
+- `outstanding_enrolment_ids`: multi-record cases, the outstanding records; else `[]`.
+- `approval`: for EXCESS_ADMISSION and QUOTA_BREACH, the case's approval `{"id", "current_version", "approved_intake", "covers": true | false}` (whether the current version covers the admissions, so the Uphold sheet can offer it); else null.
+- `missing_students`: for MISSING_FROM_UPLOAD, the list of §A4.18 (name, roll number, programme, joining date); else `[]`.
+- `history` items gain `reason_code`, `docs_kind`, `approval_version`, `correction` (`{"enrolment_id", "changes": [{"field", "before", "after"}]}` or null) and `withdrawn_enrolment_ids` (`[]` unless WITHDRAW).
 
-| type | severity | `summary` | `facts` (label: value, source) | `rule_source` |
-|---|---|---|---|---|
-| NOT_IN_JOINING_RECORD (joining record) | MEDIUM | `Not in the {state_name} admission authority's joining record for {programme_code} ({joining_year}).` | Programme: `{programme_code} ({joining_year})`, College upload. Admission route: `{route_word}`, College upload. Joining record: `Not found`, State admission authority. Reporting deadline: `{deadline}`, AICTE reporting schedule. Checked on: `{checked_date}`, State admission authority | `State admission authority joining record` |
-| NOT_IN_JOINING_RECORD (Study in India) | MEDIUM | `Study in India has no matching admission for this passport at this institution.` | Programme: `{programme_code} ({cohort_year})`, College upload. Study in India reply: `No matching admission`, Study in India. Checked on: `{checked_date}`, Study in India | `Study in India` |
-| ELIGIBILITY_BREACH | MEDIUM | `{seat_type_word} seat {seat_code} is held by a student who is not eligible for it.` | Seat: `{seat_code} ({seat_type_word})`, Seat ledger. Reported by the college: `{marker words}` (e.g. "NRI or NRI-sponsored: not marked"), College upload. Nationality: `{nationality}`, College upload. Rule: the §A4.4 rule sentence, AICTE approval rules | the rule's clause |
-| MISSING_FROM_UPLOAD | MEDIUM | `{missing} of {joined} students in the {state_name} admission authority's joining record for {academic_year} are missing from the college's upload.` | Joined (authority): `{joined}`, State admission authority. Uploaded and joined: `{uploaded_and_joined}`, College uploads. Missing: `{missing}`, Reconciliation. Completeness: `{completeness_pct}%`, Reconciliation. Then one fact per missing student, at most 100, label `Missing student`, value `{id_masked}, {programme_code}, joined {joined_on}`, source State admission authority; when more: `And {n} more`, Reconciliation | `State admission authority joining record; reporting deadline {deadline}` |
-| GHOST_RING (from a signal) | HIGH | the signal's `summary` | the signal's fact items, then Signal: `Shared contact ring found on {signal_date}`, Countersign signals | the signal's `rule` |
-| ANOMALY (from a signal) | MEDIUM | the signal's `summary` | the signal's fact items, then Signal: `Unusual pattern found on {signal_date}`, Countersign signals | the signal's `rule` |
+The redaction for INSTITUTION is unchanged (§A3.13): the college sees reason codes, document kinds, its corrections and the withdrawn ids; ASSIGN rows and internal notes stay hidden. For a case opened from a signal it sees only its own students and the case's rule line: facts that name other colleges, the signal's model score and `signal_id` are officers only. Every enrolment row inside a case (`enrolment`, `related_enrolments`) is the §A4.5 row, so it shows each record's status.
 
-- `dedupe_key`s: `NOT_IN_JOINING_RECORD:{enrolment_id}`, `ELIGIBILITY_BREACH:{enrolment_id}`, `MISSING_FROM_UPLOAD:{institution_id}:{academic_year}`, `GHOST_RING:{signal_id}:{institution_id}`, `ANOMALY:{signal_id}`.
-- MISSING_FROM_UPLOAD: `programme_id`, `enrolment_id` null, `related_enrolment_ids` `[]`; `{id_masked}` is `XXXX XXXX {apaar_last4}` when the authority gives the last four APAAR digits, else `Roll XXXX{last four of roll_no}`. The api never stores a missing student's name.
-- STUDENT_DENIED keeps §A3.8 with this summary: `Student said "I never joined" after DigiLocker sign-in on {reply_date}.` (after a change to Yes: `Student said "I never joined" after DigiLocker sign-in on {reply_date}, then changed the reply to Yes on {changed_date}.`) and the fact Channel replaced by Signed in with: `DigiLocker`, Student reply.
-- `flags_by_type` (dashboard) lists all fifteen types in ARCHITECTURE §9 order.
+**Case texts.** Names, summaries and facts of every case type are the copy deck's §5 (`flag.<TYPE>.name`, `flag.<TYPE>.summary`, the facts table); the engines mirror them. For the new types:
+
+| type | severity | `dedupe_key` | notes |
+|---|---|---|---|
+| NOT_IN_JOINING_RECORD | MEDIUM | `NOT_IN_JOINING_RECORD:{enrolment_id}` | raised by the ADMISSION row after the deadline, or by a Study in India mismatch (summary then `check.detail.ADMISSION.contradicted_sii`); `rule_source` "State admission authority joining record" or "Study in India" |
+| ELIGIBILITY_BREACH | MEDIUM; HIGH for an INTERNATIONAL seat | `ELIGIBILITY_BREACH:{enrolment_id}` | `{allowed_words}` from the rule; `rule_source` the clause |
+| MISSING_FROM_UPLOAD | MEDIUM | `MISSING_FROM_UPLOAD:{institution_id}:{academic_year}` | `programme_id`, `enrolment_id` null, `related_enrolment_ids` `[]`; the facts are the deck's four counts; the students are in `missing_students`; when an upload brings some of them in, the refresh adds the system note `case.system_note.missing_updated`; `rule_source` "State admission authority joining record; reporting deadline {deadline_date}" |
+| GHOST_RING (from a signal) | chosen by the officer (default HIGH) | `GHOST_RING:{signal_id}:{institution_id}` | summary `flag.GHOST_RING.summary`; facts: the signal's facts about this institution's members, then `Signal`: `Shared contact ring found on {date}` (officers only); `rule_source` the signal's rule |
+| ANOMALY (from a signal) | chosen by the officer (default MEDIUM) | `ANOMALY:{signal_id}` | summary `flag.ANOMALY.summary`; facts: the signal's feature lines; `rule_source` the signal's rule |
+
+STUDENT_DENIED keeps §A3.8, with the deck's summaries (`flag.STUDENT_DENIED.summary`, `.summary_changed`) and facts (Signed in with, Notice sent, Answered on, Answer changed, Comment from the student for officers only). `flags_by_type` (dashboard) lists all fifteen types in ARCHITECTURE §9 order.
 
 ### A4.12 Student sign-in through DigiLocker (D36, D37)
 
-The api is an OpenID Connect client of DigiLocker (in the demo, mockgov's labelled simulator, §A4.25). Settings: `DIGILOCKER_CLIENT_ID` (default `countersign-demo`), `DIGILOCKER_CLIENT_SECRET`, `DIGILOCKER_AUTHORIZE_URL` (what the browser opens; default `http://localhost:8001/digilocker/oauth/authorize`), `DIGILOCKER_ISSUER` (default `http://localhost:8001/digilocker`); the token call goes through the DigiLocker adapter (`MOCKGOV_URL`). The redirect URI is `{WEB_ORIGIN}/api/auth/digilocker/callback`.
+The api is an OpenID Connect client of DigiLocker (in the demo, mockgov's labelled simulator, §A4.25). Settings: `DIGILOCKER_CLIENT_ID` (default `countersign-demo`), `DIGILOCKER_CLIENT_SECRET`, `DIGILOCKER_AUTHORIZE_URL` (what the browser opens; default `http://localhost:8001/digilocker/oauth/authorize`), `DIGILOCKER_ISSUER` (default `http://localhost:8001/digilocker`); the token call goes through the DigiLocker adapter (`MOCKGOV_URL`). The redirect URI is `{WEB_ORIGIN}/api/auth/digilocker/callback`. Web pages: `/auth/digilocker/return` (where every sign-in lands; public) and `/student/claim`.
 
 **`GET /auth/digilocker/start?next=/student/notices/{token}`** (public, 30 per minute). `next` must be a path starting with `/student`; anything else becomes `/student`. Creates `state` and `nonce` (each 32 random bytes, URL-safe), sets the cookie `cs_dl_state` (a JWT signed with `API_SECRET_KEY` holding `state`, `nonce` and `next`; `HttpOnly`, `SameSite=Lax`, `Path=/`, 10 minutes) and answers `302` to `{DIGILOCKER_AUTHORIZE_URL}?response_type=code&client_id={id}&redirect_uri={uri}&scope=openid&state={state}&nonce={nonce}`.
 
-**`GET /auth/digilocker/callback?code&state`** (public, 30 per minute). Always answers `302` and clears `cs_dl_state`:
+**`GET /auth/digilocker/callback?code&state`** (public, 30 per minute). Always answers `302` and clears `cs_dl_state`. Failures land on `/auth/digilocker/return?error={code}&next={next}`, where the page prints `err.{code}` and nothing has been recorded:
 
-1. `state` missing or not the cookie's, or the cookie missing or expired: `302` to `/login?error=DIGILOCKER_FAILED`.
-2. The adapter exchanges `code` for the id token and verifies it (signature, `iss`, `aud` = the client id, `exp`, `nonce` = the cookie's); any failure, or DigiLocker unavailable: `302` to `/login?error=DIGILOCKER_FAILED`.
-3. A user whose `digilocker_sub` is the token's `sub`: that user is signed in.
-4. Else the token carries `apaar_id`, and a student holds that APAAR (`apaar_hmac`) with consent LINKED: that student's STUDENT user (the seeded `student@demo` for Ravi Kumar Sharma, or a new account) gets `digilocker_sub` and is signed in.
-5. Else: nobody is signed in; the cookie `cs_dl_claim` (a JWT signed with `API_SECRET_KEY` holding `sub`, `name`, `birthdate` and `next`; `HttpOnly`, `SameSite=Lax`, `Path=/`, 15 minutes; never the APAAR) is set and the answer is `302` to `/student/claim?next={next}`.
+1. `state` missing or not the cookie's, or the cookie missing or expired: `DIGILOCKER_STATE_INVALID`.
+2. DigiLocker sent `error=access_denied` (the person cancelled): `DIGILOCKER_CANCELLED`.
+3. The adapter exchanges `code` for the id token and verifies it (signature, `iss`, `aud` = the client id, `exp`, `nonce` = the cookie's); any failure, or DigiLocker unavailable: `DIGILOCKER_FAILED`.
+4. A user whose `digilocker_sub` is the token's `sub`: that user is signed in.
+5. Else the token carries `apaar_id`, and a student holds that APAAR (`apaar_hmac`) with consent LINKED: that student's STUDENT user (the seeded `student@demo` for Ravi Kumar Sharma, or a new account) gets `digilocker_sub` and is signed in.
+6. Else nobody is signed in: the cookie `cs_dl_claim` (a JWT signed with `API_SECRET_KEY` holding `sub`, `name`, `birthdate` and `next`; `HttpOnly`, `SameSite=Lax`, `Path=/`, 15 minutes; never the APAAR) is set, and the answer is `302` to `next` (a notice page then shows `CLAIM_NEEDED`), or to `/student/claim?next={next}` when `next` is not a notice page.
 
-Signing in sets `cs_access` exactly as `POST /auth/login` does (ARCHITECTURE §3), writes a LOGIN audit entry with `after: {"via": "digilocker"}`, and answers `302` to `next`. A new account is created as DATA_MODEL `users` says (synthetic `@digilocker.invalid` email, unusable password) with the DigiLocker name, and audited (CREATE on `user`, `after: {"role": "STUDENT", "via": "digilocker"}`); binding an existing account writes UPDATE on `user` with `after: {"digilocker_bound": true}`. The APAAR in the token is used only for the lookup in step 4 and is never stored or logged.
+Signing in sets `cs_access` exactly as `POST /auth/login` does (ARCHITECTURE §3), writes a LOGIN audit entry with `after: {"via": "digilocker"}`, and answers `302` to `/auth/digilocker/return?next={next}`, which shows `signin.done` and moves on to `next`. A new account is created as DATA_MODEL `users` says (synthetic `@digilocker.invalid` email, unusable password) with the DigiLocker name, and audited (CREATE on `user`, `after: {"role": "STUDENT", "via": "digilocker"}`); binding an existing account writes UPDATE on `user` with `after: {"digilocker_bound": true}`. The APAAR in the token is used only for the lookup in step 5 and is never stored or logged. One DigiLocker account binds to one student record.
 
-**`GET /auth/digilocker/claim`** (the pending-claim cookie only). `200 {"name": "Ravi Kumar Sharma", "birthdate": "2007-03-21", "next": "/student"}`: the DigiLocker identity waiting to claim a record, for the claim page to show. Without a valid cookie: `401 CLAIM_EXPIRED`.
+**`GET /auth/digilocker/claim`** (the pending-claim cookie only). `200 {"name": "Asha Patil", "birthdate": "2008-01-14", "next": "/student/notices/AbC..."}`: the DigiLocker identity waiting to claim a record, for the claim page to show. Without a valid cookie: `401 DIGILOCKER_STATE_INVALID`.
 
-**`POST /auth/digilocker/claim`** (the pending-claim cookie only, 10 per minute per client).
+**`POST /auth/digilocker/claim`** (the pending-claim cookie only; 5 tries per 15 minutes per DigiLocker subject, then `429 RATE_LIMITED` with `details.retry_after`, which the page shows as `claim.locked`).
 
 ```json
 { "provisional_id": "PRV-7Q2MK4PX" }
 ```
 
-The id is trimmed and upper-cased. It must be a student's `provisional_id`, that student must have no linked APAAR, its `dob` must equal the token's `birthdate` and `match_names(record name, DigiLocker name).score` must be at least 75 (name matching supports the claim, the sign-in decides it). Anything else, including an unknown id, is `409 CLAIM_NOT_MATCHED` "This provisional id does not match your DigiLocker identity." with no detail of which part failed. A student already bound to another DigiLocker subject: `409 CLAIM_TAKEN` "This record has already been claimed through another DigiLocker account.". No pending claim: `401 CLAIM_EXPIRED` "Your DigiLocker sign-in has expired. Sign in again.".
+The id is trimmed and upper-cased; one that is not `PRV-` and 8 characters of the provisional alphabet is `422 VALIDATION_ERROR` on `provisional_id` (`claim.format`). Then, in this order:
 
-On success, in one transaction: the student's STUDENT user is created or bound (`digilocker_sub`), the IDENTITY row of each of the student's ACTIVE enrolments is evaluated again (it becomes CONFIRMED, basis `DIGILOCKER_CLAIM`, §A4.4), their statuses are recomputed and attestations issued where they became COUNTERSIGNED; audit UPDATE on `student` with `after: {"claimed_via": "digilocker", "enrolments": n}` and the LOGIN entry. `cs_access` is set, `cs_dl_claim` cleared. Response `200`:
+1. The id must be a student's `provisional_id`, that student's `dob` must equal the token's `birthdate`, and `match_names(record name, DigiLocker name).score` must be at least 75 (name matching supports the claim, the sign-in decides it). Anything else, an unknown id included: `422 CLAIM_NO_MATCH`, with no detail of which part failed.
+2. The student has a linked APAAR (its record links through DigiLocker by APAAR, step 5 above): `409 CLAIM_NOT_NEEDED`.
+3. The student is already bound to another DigiLocker subject: `409 CLAIM_ALREADY_CLAIMED`.
+
+No pending claim: `401 DIGILOCKER_STATE_INVALID`. Steps 2 and 3 answer only after step 1 matched, so nobody learns which ids exist.
+
+On success, in one transaction: the student's STUDENT user is created or bound (`digilocker_sub`), the IDENTITY row of each of the student's ACTIVE enrolments is evaluated again (CONFIRMED, basis `DIGILOCKER_CLAIM`, §A4.4), their statuses are recomputed and attestations issued where they became COUNTERSIGNED; audit UPDATE on `student` with `after: {"claimed_via": "digilocker", "enrolments": n}` and the LOGIN entry. `cs_access` is set and `cs_dl_claim` cleared. Response `200`:
 
 ```json
-{ "user": { "...User (A.2)..." }, "next": "/student/notices/AbC...", "claimed": { "student_id": "st9...", "enrolments": 1 } }
+{ "user": { "...User (A.2)..." }, "next": "/student/notices/AbC...", "claimed": { "student_id": "st9...", "enrolments": [ { "...StudentEnrolment (§A4.5)..." } ] } }
 ```
 
-**`POST /auth/login`** (A.2). A STUDENT account cannot sign in with a password any more: its email and correct password give the same `401 INVALID_CREDENTIALS` as a wrong password. Every other role is unchanged. The login page shows "Sign in with DigiLocker" (`/api/auth/digilocker/start`) for students, and the demo DigiLocker page lists Ravi Kumar Sharma first. `GET /me` and `POST /auth/logout` are unchanged; signing out does not sign the student out of DigiLocker.
+**`POST /auth/login`** (A.2). A STUDENT account cannot sign in with a password any more: its email and correct password give the same `401 INVALID_CREDENTIALS` as a wrong password. Every other role is unchanged. The login page's student card links to `/api/auth/digilocker/start?next=/student` (`login.card.student`, `login.digilocker_hint`), and the demo DigiLocker page lists Ravi Kumar Sharma first. `GET /me` and `POST /auth/logout` are unchanged; signing out does not sign the student out of DigiLocker.
 
 ### A4.13 Notices behind sign-in (D37)
 
 **`GET /notices/{token}`** (public, A3.3) gains:
 
 ```json
-"viewer": "SIGNED_OUT",
-"can_answer": false,
+"viewer": { "signed_in": true, "name": "Ravi Kumar Sharma", "match": "MATCH" },
+"can_answer": true,
 "sign_in_url": "/api/auth/digilocker/start?next=/student/notices/AbC...",
 "claim_url": null
 ```
 
-| `viewer` | when | the page |
+| `viewer` | when | the page (copy deck §23) |
 |---|---|---|
-| `SIGNED_OUT` | no `cs_access` cookie and no pending claim | the claim, and "Sign in with DigiLocker to answer" (`sign_in_url`) |
-| `HOLDER` | a STUDENT is signed in and is the notice's student | the claim with Yes and No (`can_answer` true while the rules of §A3.4 allow a reply or a change) |
-| `NEEDS_CLAIM` | a pending claim cookie is present and the notice's student has no linked APAAR | the claim and a link to `claim_url` (`/student/claim?next=/student/notices/{token}`) |
-| `SOMEONE_ELSE` | anyone else signed in: another student, an officer or a registrar; or a pending claim for a notice whose student has a linked APAAR | [notice.someone_else] "This notice is for someone else." and nothing to press |
+| `{"signed_in": false, "name": null, "match": null}` | no `cs_access` and no pending claim | the claim card, `notice.signin_lead` and `notice.signin_button` (`sign_in_url`) |
+| `match: "MATCH"` | a STUDENT is signed in and is the notice's student (by APAAR, or by a claim) | `notice.signed_in_as`, then Yes and No as §8 (`can_answer` true while the rules of §A3.4 allow a reply or a change) |
+| `match: "CLAIM_NEEDED"` | a pending claim (no student bound yet) and the notice's student has no linked APAAR and is not claimed | `notice.claim_needed_heading`, `notice.claim_needed`, `notice.claim_button` to `claim_url` (`/student/claim?next=/student/notices/{token}`) |
+| `match: "SOMEONE_ELSE"` | anyone else signed in (another student, an officer, a registrar), or a pending claim for a notice whose student has a linked APAAR | `notice.someone_else_*`; no buttons; nothing recorded |
 
-The body never names the signed-in person. The READ audit entry of §A3.3 gains `"viewer"` in `after`.
+`name` is the name DigiLocker returned for the person looking (the signed-in student's account name, or the pending claim's), never the record's name; it is null for anyone who is not a student. The READ audit entry of §A3.3 gains `"match"` in `after`.
 
-**`POST /notices/{token}/respond`** (A3.4) now needs a signed-in STUDENT. In this order: token rules (404 `NOTICE_NOT_FOUND`, 410 `NOTICE_EXPIRED`); no valid `cs_access`: `401 SIGN_IN_REQUIRED` "Sign in with DigiLocker to answer."; the caller is not a STUDENT, or is not the notice's student: `403 NOTICE_NOT_YOURS` "This notice is for someone else."; then rules 3 to 5 of §A3.4. Nothing is recorded on 401 or 403. Effects as §A3.4, except that the audit entry has the student as actor and `after.via` `digilocker-sign-in`, and the record status is recomputed (§A4.3). The consent row keeps the channel the notice came by (`NOTICE_EMAIL` or `NOTICE_DIGILOCKER`).
+**`POST /notices/{token}/respond`** (A3.4) now needs a signed-in STUDENT. In this order: token rules (404 `NOTICE_NOT_FOUND`, 410 `NOTICE_EXPIRED`); no valid `cs_access`: `401 SIGNIN_REQUIRED`; the caller is not a STUDENT, or is not the notice's student: `403 NOTICE_IDENTITY_MISMATCH`; then rules 3 to 5 of §A3.4. Nothing is recorded on 401 or 403. Effects as §A3.4, except that the audit entry has the student as actor and `after.via` `digilocker-sign-in`, and the record status is recomputed (§A4.3). The consent row keeps the channel the notice came by (`NOTICE_EMAIL` or `NOTICE_DIGILOCKER`).
 
-**`POST /students/me/enrolments/{enrolment_id}/respond`** (`STUDENT`, 10 per minute per user). Same body as §A3.4. The student answers a claim on their own enrolments page, with or without a notice link. The enrolment must be the student's (else 404 "Enrolment not found.") and ACTIVE (else `409 CONFLICT`, `details.reason` `NOT_ACTIVE`). The reply goes to the enrolment's latest delivered notice, else its latest notice; when it has none, one notice row is written for it (channel `DIGILOCKER`, `delivery_status` SENT, `sent_at` now, `message` "Answered after DigiLocker sign-in.", a token hash nobody holds), because the Student row is derived from notices. Rules 3 to 5 of §A3.4 then apply to that notice (409 `NOTICE_ALREADY_CHANGED` as there). Response `200`: the enrolment as in `GET /students/me`.
+**`POST /students/me/enrolments/{enrolment_id}/respond`** (`STUDENT`, 10 per minute per user). Same body as §A3.4. The student answers a claim on their own enrolments page, with or without a notice link. The enrolment must be the student's (else 404 "Enrolment not found.") and ACTIVE (else `409 CONFLICT`, `details.reason` `NOT_ACTIVE`). The answer goes to the enrolment's latest delivered notice, else its latest notice; when it has none, one notice row is written for it (channel `DIGILOCKER`, `delivery_status` SENT, `sent_at` now, `message` "Answered after DigiLocker sign-in.", a token hash nobody holds), because the Student row is derived from notices. Rules 3 to 5 of §A3.4 then apply to that notice (409 `NOTICE_ALREADY_CHANGED` as there). Response `200`: the enrolment as in `GET /students/me`.
 
-- Notice texts point to sign-in: copy deck [notice.email_body] and [notice.digilocker] say to sign in with DigiLocker to answer. An email to a student without a linked APAAR also carries the provisional id in full (copy deck [notice.email_body_provisional]), because the student needs it to claim the record; the notice page itself shows it masked.
-- Seeded replies (`python -m app.seed.replies`, D31) stand for replies made after DigiLocker sign-in: they go through the same `apply_reply`, with `via` `demo-seed` and no actor, and the Student row reads "after DigiLocker sign-in" for them as for any reply.
-- `GET /students/me/export.json` (A3.22): each enrolment's `checks` items carry `state` (not `status`), `supplied_by` and `observed_at`, and each enrolment gains `record_status`, `status_reason` and `history` (its versions as in §A4.7, without `actor`).
+- Notice texts point to sign-in: copy deck `notice.email_body` and `notice.digilocker` say to sign in with DigiLocker to answer. An email to a student without a linked APAAR also carries the provisional id in full, because the student needs it to claim the record (proposed copy `notice.email_provisional_line`: "Your college recorded you without an APAAR. Your provisional ID is {provisional_id}; you need it to claim the record after signing in."); the notice page itself shows it masked.
+- After a decision on the student's dispute, `GET /students/me` gives each enrolment `decision`: `{"outcome": "UPHELD" | "CORRECTED" | "WITHDRAWN" | "ESCALATED", "reason_code", "at"}` (the latest decision or escalation of a STUDENT_DENIED case on it), else null, for `student.decision.*`. Never the note or the officer.
+- Seeded replies (`python -m app.seed.replies`, D31) stand for answers given after DigiLocker sign-in: they go through the same `apply_reply`, with `via` `demo-seed` and no actor, and the Student row reads them as any answer.
+- `GET /students/me/export.json` (A3.22): each enrolment's `checks` items carry `state` (not `status`), `finding`, `source_line`, `supplied_by` and `observed_at`, and each enrolment gains `record_status`, `status_reason` and `history` (its versions as in §A4.7, without `actor`).
 
 ### A4.14 Attestations (D44)
 
@@ -3119,8 +3148,8 @@ The body never names the signed-in person. The READ audit entry of §A3.3 gains 
 |---|---|---|---|---|
 | `ENROLMENT_WITHDRAWN` | the college's upload withdrew the enrolment | the code | the uploader | yes, if the enrolment becomes ACTIVE and COUNTERSIGNED again |
 | `ENROLMENT_TRANSFERRED` | the college's upload transferred it | the code | the uploader | yes, as above |
-| `WITHDRAWN_BY_DECISION` | an officer's WITHDRAW (§A4.10) | the code | the officer | no |
-| `DISPUTED` | the record became DISPUTED | the code | none | yes, when the dispute is upheld and the record is COUNTERSIGNED again |
+| `CLAIM_WITHDRAWN` | an officer's WITHDRAW (§A4.10) | the code | the officer | no |
+| `STUDENT_DISPUTE` | the record became DISPUTED | the code | none | yes, when the dispute is upheld and the record is COUNTERSIGNED again |
 | `ADMIN` | `POST /credentials/{id}/revoke` | the officer's text | the officer | no |
 | `FLAG_CONFIRMED` | a CONFIRM before Week 4 (no longer written) | the code | the officer | no |
 
@@ -3129,14 +3158,14 @@ The body never names the signed-in person. The READ audit entry of §A3.3 gains 
 
 ### A4.15 Certificate integration and the verifier (D44)
 
-The university pages become certificate integration: the awarding body prints its own certificate and Countersign gives it the masked APAAR and a compact QR that verifies a completion attestation. Roles and scope are those of §A3.21. The `/university/degrees/*` routes are removed.
+The university pages become certificate integration: the awarding body prints its own certificate and Countersign gives it the masked APAAR and a compact QR that verifies a completion attestation. A completion attestation is still issued for a GRADUATED enrolment of an affiliate (§A3.21): graduate records carry no evidence rows and no record status, so the copy deck's `cert.status.not_eligible` does not occur. Roles and scope are those of §A3.21. The `/university/degrees/*` routes are removed.
 
 | route | replaces | answer |
 |---|---|---|
 | `GET /university/graduates` | itself | rows as §A3.21 with `attestation` in place of `degree`: `{credential_id, short_id, status, issued_at}` or null; query `attestation=issued \| not_issued` in place of `degree` |
-| `POST /university/certificates/{enrolment_id}/attestation` | `POST /university/degrees/{enrolment_id}/issue` | as before: `201` with the print data, `200` when one is already active; `409 CREDENTIAL_NOT_ELIGIBLE` `NOT_GRADUATED` |
+| `POST /university/certificates/{enrolment_id}/issue` | `POST /university/degrees/{enrolment_id}/issue` | as before: `201` with the print data, `200` when one is already active; `409 CREDENTIAL_NOT_ELIGIBLE` `NOT_GRADUATED` |
 | `GET /university/certificates/{enrolment_id}` | `GET /university/degrees/{enrolment_id}` | the print data of §A3.21 with `attestation` in place of `degree`, and `lookup_url` `{WEB_ORIGIN}/verify/completion/{short_id}` |
-| `GET /university/certificates/{enrolment_id}/insert.pdf` | `.../degrees/{enrolment_id}/insert.pdf` | as before; filename `certificate-insert-{short_id}.pdf`; the line under the QR reads `Attestation id {short_id}`; footer "Sample certificate insert generated from synthetic demo data. Countersign does not issue degrees." |
+| `GET /university/certificates/{enrolment_id}/block.pdf` | `.../degrees/{enrolment_id}/insert.pdf` | the certificate block (copy deck §11 `cert.print.*`) as one A4 page; filename `certificate-block-{short_id}.pdf`; under the QR `cert.print.attestation_id` and `cert.scan_line`; footer "Sample certificate block generated from synthetic demo data. Countersign does not issue degrees." |
 
 - The compact JWS and its payload `{v, cid, n, p, i, u, y, a}` are unchanged, and so is `GET /verify/d/{jws}`; its result has `kind` `COMPLETION`.
 - `GET /verify/completion/{short_id}` replaces `GET /verify/degree/{short_id}` (the old path answers the same, for inserts already printed). Web routes: `/university/certificates/[enrolmentId]/print`, `/verify/completion/[shortId]`.
@@ -3158,7 +3187,7 @@ The university pages become certificate integration: the awarding body prints it
 
 `mapping` is `{}` and `updated_at`, `updated_by` null when none was saved.
 
-**`PUT /institutions/{id}/column-mapping`**. Roles: `INSTITUTION` (own), `AICTE_ADMIN`. Body `{"mapping": {"<their header>": "<template column>"}}`, replacing the whole mapping (`{}` clears it). Rules (422 on `mapping`): at most 60 entries; each header 1 to 120 characters; each value one of the template columns ("Map to a template column."); two headers that normalise alike, or two headers mapped to the same column, are refused ("Each column can be mapped once."). Audit UPDATE on `institution_column_mapping` with `after: {"headers": n}`. Response `200`: the GET body.
+**`PUT /institutions/{id}/column-mapping`**. Roles: `INSTITUTION` (own), `AICTE_ADMIN`. Body `{"mapping": {"<their header>": "<template column>"}, "headers": ["Student Name", "D.O.B.", "..."]}`, replacing the whole mapping (`{}` clears it). `headers` is optional: the header row of the file being mapped, sent by the upload form's mapping step. Rules: at most 60 entries, each header 1 to 120 characters, each value one of the template columns (`422 VALIDATION_ERROR` on `mapping`: "Map to a template column."); two headers mapped to the same column, or two headers that normalise alike: `422 MAPPING_DUPLICATE`, `details.column`; with `headers`, a required column that the headers do not reach after the mapping: `422 MAPPING_INCOMPLETE`, `details.missing_columns`. Audit UPDATE on `institution_column_mapping` with `after: {"headers": n}`. Response `200`: the GET body.
 
 **Uploads with a mapping** (§A2.2, A2.4, A2.5). Each header cell is normalised as §A2.2; a header whose normalised form matches a saved mapping key (also normalised) is read as the mapped column; else a header that is a template column is read as itself; else it is unknown. Then:
 
@@ -3188,34 +3217,35 @@ The university pages become certificate integration: the awarding body prints it
 }
 ```
 
-**`POST /approvals/{id}/versions`** (`AICTE_ADMIN` only; everyone else 403). Body `{"approved_intake": 132, "effective_from": "2026-11-01", "source": "AICTE EoA 2026-27, second revision"}`: intake 1 to 10,000; `effective_from` not before the current version's ("A new version must take effect after the current one."); `source` 3 to 200 characters. In one transaction (ENGINES §17.5): a new version row, `approvals.approved_intake` and `current_version` updated, every pool's capacity recomputed from `rules.yaml`; a raised pool gets new FREE seats (next seat numbers; CIWG reservation recomputed) and its backlog is seated; a lowered pool loses FREE seats, highest numbers first, a seat with history kept as `RELEASED` (retired); the Seat rows of the approval's enrolments run again (they now cite the new version); seat flags refreshed; statuses recomputed. When a lowered pool would hold fewer seats than it has ASSIGNED: `409 APPROVAL_BELOW_ASSIGNED` "The new intake is below the seats already assigned.", `details.pools: [{"seat_type", "assigned", "new_capacity"}]`, and nothing changes. Audit CREATE on `approval_version` and UPDATE on `approval` (`after: {"current_version", "approved_intake"}`), plus the ledger's seat entries. Response `201`: the GET body plus `"effects": {"seats_added", "seats_removed", "seated", "flags_refreshed", "records_changed"}`.
+**`POST /approvals/{id}/versions`** (`AICTE_ADMIN` only; everyone else 403). Body `{"approved_intake": 132, "effective_from": "2026-11-01", "source": "AICTE EoA 2026-27, second revision"}`: intake 1 to 10,000; `effective_from` not before the current version's ("A new version must take effect after the current one."); `source` 3 to 200 characters. In one transaction (ENGINES §17.5): a new version row, `approvals.approved_intake` and `current_version` updated, every pool's capacity recomputed from `rules.yaml`; a raised pool gets new FREE seats (next seat numbers; CIWG reservation recomputed) and its backlog is seated; a lowered pool loses FREE seats, highest numbers first, a seat with history kept as `RELEASED` (retired); the Seat rows of the approval's enrolments run again (they now cite the new version); seat flags refreshed; statuses recomputed. When a lowered pool would hold fewer seats than it has ASSIGNED: `409 APPROVAL_BELOW_ASSIGNED` "The new intake is below the seats already assigned.", `details: {"intake": <the new intake>, "assigned": <seats assigned across the approval>, "pools": [{"seat_type", "assigned", "new_capacity"}]}` (copy deck `err.APPROVAL_BELOW_ASSIGNED` reads `intake` and `assigned`), and nothing changes. Audit CREATE on `approval_version` and UPDATE on `approval` (`after: {"current_version", "approved_intake"}`), plus the ledger's seat entries. Response `201`: the GET body plus `"effects": {"seats_added", "seats_removed", "seated", "flags_refreshed", "records_changed"}`.
 
 Where the id comes from: `GET /institutions/{id}` programmes' `approval` gains `id`, `version`, `effective_from` and `source`; enrolment detail carries `approval` (§A4.6). An approval version that covers an excess lets an officer UPHOLD the EXCESS_ADMISSION case with `APPROVAL_VERSION_COVERS`; when the backlog was seated by the new version, the Seat rows are already CONFIRMED.
 
 ### A4.18 Completeness and reporting deadlines (D40)
 
-The reconciliation of one institution and academic year (ENGINES §17.10) reads the authority's joinings list for the institution and that year, matches each joining to the institution's enrolments (any status) whose joining year is that year, by programme code, date of birth and a name score of 90 or more, and stores the counts in `institution_scores`. It runs after every batch reaches DONE (worker), for every institution in `make seed`, and on `POST /completeness/refresh`.
+The reconciliation of one institution and academic year (ENGINES §17.10) reads the authority's joinings list for the institution and that year, matches each joining to the institution's enrolments (any status) whose joining year is that year, by programme code, date of birth and a name score of 90 or more, and stores the result in `institution_scores`. It runs after every batch reaches DONE (worker), for every institution in `make seed`, and on `POST /completeness/refresh`.
 
-- `joined`: joinings in the authority's list. `uploaded_and_joined`: joinings matched to an uploaded enrolment. `missing = joined - uploaded_and_joined`. `uploaded_not_joined`: the institution's ACTIVE records of that joining year whose ADMISSION row is CONTRADICTED with basis `NOT_IN_JOINING_RECORD`. `completeness_pct = round(100 * uploaded_and_joined / joined, 1)`, null when `joined` is 0.
+- `joined`: joinings in the authority's list. `uploaded_and_joined`: joinings matched to an uploaded enrolment. `missing = joined - uploaded_and_joined`. `uploaded_not_joined`: the institution's ACTIVE records of that joining year whose ADMISSION row is CONTRADICTED with basis `NOT_IN_JOINING_RECORD`. `completeness_pct = round(100 * uploaded_and_joined / joined, 1)`, null when `joined` is 0. `published`: false when the authority has published nothing for the institution's state and that year.
 - `deadline`: `rules.yaml` `reporting.deadline` for the year. `first_upload_at`: the `uploaded_at` of the institution's first DONE batch for the year. `deadline_state`, computed when read: `ON_TIME` (first upload on or before the deadline, IST), `LATE` (after it), `OVERDUE` (no DONE batch and the deadline has passed), `NOT_DUE` (no DONE batch, deadline ahead).
-- When `missing` is above 0, a MISSING_FROM_UPLOAD case is raised or refreshed (§A4.11). When it later reaches 0 the case's evidence is refreshed and the case stays as it is (only officers decide). The authority being unavailable keeps the last stored counts and sets `source_unavailable: true`.
+- When `missing` is above 0, a MISSING_FROM_UPLOAD case is raised or refreshed (§A4.11). When an upload brings some of the students in, the case's evidence is refreshed (with `case.system_note.missing_updated` on a decided case) and the case stays as it is: only officers decide. The authority being unavailable keeps the last stored result and sets `source_unavailable: true`.
+- **Missing students** are the college's own admitted students, so the college and officers see who they are: each item is `{"name", "roll_no", "programme_code", "joined_on", "round", "route", "apaar_masked"}` from the authority's list (`apaar_masked` `XXXX XXXX 8812` or null; never a full APAAR). They are stored with the reconciliation and shown on the completeness page and the MISSING_FROM_UPLOAD case. A university sees the counts only.
 
-**`GET /institutions/{id}/completeness?academic_year`**. Roles: `AICTE_ADMIN`, `RO_OFFICER` (region), `INSTITUTION` (own), `UNIVERSITY` (affiliates, without `missing_students`). Outside scope 404.
+**`GET /institutions/{id}/completeness?academic_year`**. Roles: `AICTE_ADMIN`, `RO_OFFICER` (region), `INSTITUTION` (own), `UNIVERSITY` (affiliates, `missing_students` always `[]`). Outside scope 404.
 
 ```json
 200 {
   "institution": { "id": "a0b1...", "name": "ABC College of Engineering", "aicte_permanent_id": "1-ABC-0001", "state_code": "MH", "state_name": "Maharashtra", "region": "WEST" },
   "academic_year": "2026-27",
   "joined": 140, "uploaded_and_joined": 132, "missing": 8, "uploaded_not_joined": 3,
-  "completeness_pct": 94.3,
+  "completeness_pct": 94.3, "published": true,
   "deadline": "2026-09-30", "first_upload_at": "2026-09-22T06:30:00Z", "deadline_state": "ON_TIME",
   "computed_at": "2026-10-29T06:00:00Z", "source_unavailable": false,
   "case": { "id": "f5f5...", "status": "OPEN" },
-  "missing_students": [ { "id_masked": "XXXX XXXX 8812", "programme_code": "CSE", "joined_on": "2026-08-04", "route": "COUNSELLING" } ]
+  "missing_students": [ { "name": "Sneha Kulkarni", "roll_no": "MHCET-2026-007731", "programme_code": "CSE", "joined_on": "2026-08-04", "round": 2, "route": "COUNSELLING", "apaar_masked": "XXXX XXXX 8812" } ]
 }
 ```
 
-Before the first reconciliation the counts are 0, `completeness_pct` and `computed_at` null. `missing_students` lists every missing joining, masked as §A4.11 (no names); a READ audit entry on `institution_scores` with `after: {"via": "completeness"}` is written when the list is returned.
+Before the first reconciliation the counts are 0 and `completeness_pct` and `computed_at` null. A READ audit entry on `institution_score` with `after: {"via": "completeness", "missing": n}` is written when `missing_students` is returned non-empty. `GET /institutions/{id}/completeness.csv` (same roles; not the university) returns the missing list as CSV (`missing.download`): `name,roll_no,programme_code,joined_on,round,route,apaar_masked`, with the same audit entry.
 
 **`GET /completeness?academic_year&region&state&deadline_state&sort&page&page_size`**. Roles: `AICTE_ADMIN` (all; `region`, `state` filters), `RO_OFFICER` (its region; `region` ignored). Others 403. Sort `completeness_asc` (default, nulls last), `missing_desc`, `name_asc`.
 
@@ -3223,7 +3253,7 @@ Before the first reconciliation the counts are 0, `completeness_pct` and `comput
 200 {
   "items": [
     { "institution": { "...InstitutionRef..." }, "joined": 140, "uploaded_and_joined": 132, "missing": 8, "completeness_pct": 94.3,
-      "deadline_state": "ON_TIME", "first_upload_at": "2026-09-22T06:30:00Z", "case_status": "OPEN" }
+      "published": true, "deadline_state": "ON_TIME", "first_upload_at": "2026-09-22T06:30:00Z", "case_status": "OPEN" }
   ],
   "total": 50, "page": 1, "page_size": 25,
   "totals": { "joined": 10410, "uploaded_and_joined": 10290, "missing": 120, "completeness_pct": 98.8,
@@ -3238,7 +3268,7 @@ Before the first reconciliation the counts are 0, `completeness_pct` and `comput
 
 ### A4.19 Signals (D45)
 
-Officers only. A regional officer sees a signal when any of its `institution_ids` is in its region, and then sees all of it (as for cross-institution cases). `INSTITUTION`, `STUDENT`, `UNIVERSITY`: 403 on every route.
+Officers only; `INSTITUTION`, `STUDENT`, `UNIVERSITY`: 403 on every route, and no count or panel anywhere. A regional officer sees a signal when any of its `institution_ids` is in its region; inside it, members and colleges outside the region are counted, not listed (`members_hidden`, `institutions_hidden`). Summaries, fact labels, feature words and rule lines are copy deck §27 (`signal.summary.*`, `signal.fact.*`, `signal.feature.*`, `signal.rule.*`); the api writes `summary` and `rule`.
 
 **`GET /signals?academic_year&type&status&institution_id&state&sort&page&page_size`**. Sort `newest` (default) or `score` (ANOMALY first by score, then GHOST_RING by size).
 
@@ -3248,9 +3278,10 @@ Officers only. A regional officer sees a signal when any of its `institution_ids
     {
       "id": "sg1...", "type": "GHOST_RING", "academic_year": "2026-27", "status": "NEW",
       "summary": "40 students across 3 colleges share 3 mobile numbers.",
-      "member_count": 40, "score": null,
+      "member_count": 40, "members_hidden": 0, "score": null,
       "institutions": [ { "id": "a0b1...", "name": "ABC College of Engineering", "aicte_permanent_id": "1-ABC-0001", "state_code": "MH", "region": "WEST" } ],
-      "rule": "Students linked by a shared mobile, email or address; a group of 3 or more across 2 or more colleges, or 5 or more in one college (NetworkX connected components).",
+      "institutions_hidden": 0,
+      "rule": "Rule: students linked by a shared mobile number, email or address form a group; a group of 3 or more across 2 or more colleges, or of 5 or more in one college, is a signal.",
       "cases": [], "created_at": "2026-10-29T06:20:00Z", "updated_at": "2026-10-29T06:20:00Z"
     }
   ],
@@ -3265,22 +3296,22 @@ Officers only. A regional officer sees a signal when any of its `institution_ids
 "shared": [ { "kind": "MOBILE", "masked": "XXXXXX1234", "students": 14 } ],
 "features": [],
 "members": [ { "enrolment_id": "e1...", "student": { "id": "st1...", "name": "...", "apaar_masked": "XXXX XXXX 0042", "provisional_id": null },
-               "institution": { "id": "a0b1...", "name": "ABC College of Engineering" }, "programme_code": "CSE", "record_status": "COUNTERSIGNED" } ],
+               "institution": { "id": "a0b1...", "name": "ABC College of Engineering" }, "programme_code": "CSE", "record_status": "UNDER_REVIEW" } ],
 "dismissal": null
 ```
 
-- GHOST_RING: `shared` lists each shared contact, masked (`MOBILE` as `XXXXXX1234`, `EMAIL` as `r***@example.com`, `ADDRESS` as `Same address`), with how many members share it; `members` every member; `features` `[]`.
-- ANOMALY: `members` `[]`, `shared` `[]`; `features` `[{"name": "nri_share", "label": "NRI share of admissions", "value": 0.31, "peer_median": 0.04, "robust_z": 6.2, "stands_out": true}]` for every feature (ENGINES §17.11), `score` the Isolation Forest score.
+- GHOST_RING: `shared` lists each shared contact, masked (`MOBILE` as `XXXXXX1234`, `EMAIL` as `r***@example.com`, `ADDRESS` as `Same address`), with how many members share it; `members` every member the caller may see; `features` `[]`. The graph is NetworkX connected components over students linked by a shared mobile, email or address hash, with the `ghost_ring` thresholds of `rules.yaml`.
+- ANOMALY: `members` `[]`, `shared` `[]`; `features` `[{"name": "nri_share", "value": 0.31, "peer_low": 0.02, "peer_high": 0.07, "peer_median": 0.04, "robust_z": 6.2, "stands_out": true}]` for every feature (ENGINES §17.11; `peer_low` and `peer_high` the 25th and 75th percentiles of the peers, for `signal.feature_line`), `score` the Isolation Forest score.
 - `dismissal`: `{"note", "by": {"id", "name"}, "at"}` once dismissed. `cases`: `[{"id", "institution_id", "status"}]` opened from it.
-- READ audit entry on `student` for every member returned (the signal detail is a read of their records); the summary and facts never hold a name.
+- READ audit entry on `student` for every member returned; the summary and facts never hold a name.
 
-**`POST /signals/{id}/open-case`**. Body `{"institution_id": "a0b1...", "note": "Shared mobiles across three colleges; ask each for admission records."}`. `institution_id`: one of the signal's institutions (for a regional officer, one in its region); optional when the signal has one institution. `note`: 1 to 2,000 characters. A DISMISSED signal: `409 SIGNAL_DECIDED` "This signal was dismissed.". A case for that signal and institution already: `200` with that case. Otherwise, in one transaction: a GHOST_RING (HIGH) or ANOMALY (MEDIUM) case is raised through the flags engine for that institution (§A4.11: `related_enrolment_ids` the members at that institution for a ring, `[]` for an anomaly), a NOTE row with the officer's note and the officer as actor starts its history, the signal's `status` becomes CASE_OPENED (`case_flag_id` set the first time, `facts.cases` appended), the named records' statuses are recomputed (they are now UNDER_REVIEW: the case follows §A4.3 and §A4.10 like any other); audit CREATE on `flag` with the officer as actor and UPDATE on `signal`. Response `201`: `FlagDetail`.
+**`POST /signals/{id}/open-case`**. Body `{"institution_ids": ["a0b1..."], "note": "Shared mobiles across three colleges; ask each for admission records.", "severity": "HIGH"}`. `institution_ids`: one or more of the signal's institutions (a regional officer only those in its region); optional when the signal has one institution. `note`: 1 to 2,000 characters. `severity`: `LOW`, `MEDIUM` or `HIGH`, default HIGH for GHOST_RING and MEDIUM for ANOMALY. A DISMISSED signal, or another officer acting on it at the same moment: `409 SIGNAL_ALREADY_HANDLED`. For each institution, in one transaction: a GHOST_RING or ANOMALY case is raised through the flags engine (§A4.11: `related_enrolment_ids` the members at that institution for a ring, `[]` for an anomaly), unless a case for that signal and institution exists, in which case it is returned as it is; a NOTE row with the officer's note and the officer as actor starts its history; the signal's `status` becomes CASE_OPENED (`case_flag_id` set the first time, `facts.cases` appended). **The records each case names read Under review from that moment** (R5: the case follows §A4.3 and §A4.10 like any other), and their statuses are recomputed in the same transaction; nothing else about them changes. Audit CREATE on `flag` with the officer as actor and UPDATE on `signal`. Response `201`: `{"cases": [FlagRow...], "signal": SignalDetail}`.
 
-**`POST /signals/{id}/dismiss`**. Body `{"note": "..."}` (1 to 2,000 characters). Only from NEW (else `409 SIGNAL_DECIDED` "This signal already has a case or was dismissed."). Sets `status` DISMISSED and `facts.dismissal`; audit UPDATE on `signal` (`after: {"status": "DISMISSED"}`, never the note). Response `200`: the signal detail. A dismissed signal is refreshed by later runs and stays DISMISSED.
+**`POST /signals/{id}/dismiss`**. Body `{"note": "..."}` (1 to 2,000 characters). Only from NEW (else `409 SIGNAL_ALREADY_HANDLED`). Sets `status` DISMISSED and `facts.dismissal`; audit UPDATE on `signal` (`after: {"status": "DISMISSED"}`, never the note). Response `200`: the signal detail. A dismissed signal is refreshed by later runs and stays DISMISSED; no record or case changes.
 
 **`POST /signals/run`** (`AICTE_ADMIN`, 2 per minute). Body `{"academic_year": "2026-27"}`. Runs both detectors synchronously over ACTIVE enrolments of the year and upserts by `dedupe_key`; nothing is deleted, and a signal not found again keeps its last facts and `updated_at`. `200 {"academic_year", "rings": 4, "anomalies": 3, "created": 7, "updated": 0, "duration_ms": 950, "model": {"name": "IsolationForest", "contamination": 0.05, "n_estimators": 200, "random_state": 0, "institutions": 50}}`. `make seed` runs the same after the replies.
 
-Signals never change rows, record statuses or cases; only `open-case` makes a case (R5).
+Signals never change rows, record statuses or cases; only `open-case` makes a case, and only through that case can a record's status change (R5). A 404 for a signal out of scope reads "Signal not found." (`err.NOT_FOUND_signal`).
 
 ### A4.20 Dashboards and institutions (D46)
 
@@ -3326,7 +3357,7 @@ Signals never change rows, record statuses or cases; only `open-case` makes a ca
 200 { "items": [ { "name": "by-state", "title": "Records by state", "formats": ["csv", "xlsx", "pdf"], "columns": ["academic_year", "state_code", "..."] } ] }
 ```
 
-**`GET /reports/{name}.{format}`**. Roles: `AICTE_ADMIN` (national; optional `region`, `state`), `RO_OFFICER` (its region; `region` ignored). Others 403. Query `academic_year` (default the current year). An unknown name or a format the name does not offer: `404 REPORT_NOT_FOUND` "Report not found.". Writes a READ audit entry on `report` with `after: {"name", "format", "scope"}` (aggregates only, no student data).
+**`GET /reports/{name}.{format}`**. Roles: `AICTE_ADMIN` (national; optional `region`, `state`), `RO_OFFICER` (its region; `region` ignored). Others 403. Query `academic_year` (default the current year). An unknown name or a format the name does not offer: `404 REPORT_NOT_FOUND` "Report not found.". A file that cannot be built (an XLSX or PDF renderer error): `500 REPORT_FAILED` "The report could not be prepared." (the CSV of the same report is the fallback, `err.REPORT_FAILED`). Writes a READ audit entry on `report` with `after: {"name", "format", "scope"}` (aggregates only, no student data).
 
 | name | one row per | columns, in order | formats |
 |---|---|---|---|
@@ -3344,45 +3375,59 @@ Signals never change rows, record statuses or cases; only `open-case` makes a ca
 
 ### A4.22 Error codes and messages added in Week 4
 
-| status | code | message (exact) | `details` |
-|---|---|---|---|
-| 401 | `SIGN_IN_REQUIRED` | "Sign in with DigiLocker to answer." | `{}` |
-| 403 | `NOTICE_NOT_YOURS` | "This notice is for someone else." | `{}` |
-| 401 | `CLAIM_EXPIRED` | "Your DigiLocker sign-in has expired. Sign in again." | `{}` |
-| 409 | `CLAIM_NOT_MATCHED` | "This provisional id does not match your DigiLocker identity." | `{}` |
-| 409 | `CLAIM_TAKEN` | "This record has already been claimed through another DigiLocker account." | `{}` |
-| 409 | `DECISION_NOT_AVAILABLE` | "This decision does not apply to a {case_name} case." | `action`, `type`, `allowed_actions` |
-| 409 | `APPROVAL_BELOW_ASSIGNED` | "The new intake is below the seats already assigned." | `pools` |
-| 422 | `UPLOAD_HEADER_UNMAPPED` | "The file has columns Countersign does not recognise. Map them to the template once, then upload again." | `unknown_headers`, `missing_columns`, `suggestions` |
-| 409 | `SIGNAL_DECIDED` | "This signal was dismissed." or "This signal already has a case or was dismissed." | `status` |
-| 404 | `REPORT_NOT_FOUND` | "Report not found." | `{}` |
+The codes are the copy deck's §13 `err.<CODE>` ids; the web prints the deck's sentence for the code, and the api's `message` below is the plain fallback.
 
-Changed messages (codes unchanged): `FLAG_TRANSITION_INVALID` "This action is not possible while the case is {status_word}." with `{status_word}` OPEN open, DOCS_REQUESTED waiting for documents, ESCALATED escalated, UPHELD upheld, CORRECTED corrected, WITHDRAWN withdrawn; 404 "Case not found.", "Attestation not found.", "Approval not found."; the attestation messages of §A4.14. `/login?error=DIGILOCKER_FAILED` is a page state, not an api error: the login page shows [login.digilocker_failed]. Copy deck §13 gains an `err.<CODE>` line for each new code.
+| status | code | message | `details` |
+|---|---|---|---|
+| 401 | `SIGNIN_REQUIRED` | "Sign in with DigiLocker to answer this notice." | `{}` |
+| 403 | `NOTICE_IDENTITY_MISMATCH` | "This notice is for someone else. Nothing was recorded." | `{}` |
+| 401 | `DIGILOCKER_STATE_INVALID` | "This sign-in has expired or was started in another browser." | `{}` (also a `/auth/digilocker/return?error=` state) |
+| page state | `DIGILOCKER_CANCELLED`, `DIGILOCKER_FAILED` | (only `/auth/digilocker/return?error=`; never a JSON answer) | |
+| 422 | `CLAIM_NO_MATCH` | "This provisional ID does not match the name and date of birth on your DigiLocker." | `{}` |
+| 409 | `CLAIM_ALREADY_CLAIMED` | "This record is already claimed through another DigiLocker sign-in." | `{}` |
+| 409 | `CLAIM_NOT_NEEDED` | "This record has an APAAR, so it links to DigiLocker on its own." | `{}` |
+| 422 | `REASON_REQUIRED` | "Choose a reason and write a note before you decide." | `fields` |
+| 422 | `CORRECTION_EMPTY` | "Change at least one field, or choose another decision." | `{}` |
+| 422 | `CORRECTION_INVALID` | "{Field word}: {message}" | `field` |
+| 422 | `WITHDRAW_NONE_SELECTED` | "Select at least one record to withdraw." | `{}` |
+| 409 | `WITHDRAW_NOT_NAMED` | "{n} of the selected records are not named by this case." | `n`, `named_enrolment_ids` |
+| 409 | `UPHOLD_NEEDS_VERSION` | "This case can be upheld only when an approval version covers these admissions." | `current_version`, `covers` (false) |
+| 409 | `DECISION_NOT_AVAILABLE` | "This decision does not apply to a {case_name} case." | `action`, `type`, `allowed_actions` (proposed copy `err.DECISION_NOT_AVAILABLE`; the action bar shows only `allowed_actions`, so a person rarely meets it) |
+| 409 | `APPROVAL_BELOW_ASSIGNED` | "The new intake is below the seats already assigned." | `intake`, `assigned`, `pools` |
+| 422 | `UPLOAD_HEADER_UNMAPPED` | "The file has columns Countersign does not recognise. Map them to the template once, then upload again." | `unknown_headers`, `missing_columns`, `suggestions` (proposed copy `err.UPLOAD_HEADER_UNMAPPED`, leading to the mapping step) |
+| 422 | `MAPPING_INCOMPLETE` | "Map every required column before you continue: {columns}." | `missing_columns` |
+| 422 | `MAPPING_DUPLICATE` | "Each Countersign column can be chosen once. {column} is chosen more than once." | `column` |
+| 409 | `SIGNAL_ALREADY_HANDLED` | "This signal already has a case or was dismissed." | `status` |
+| 404 | `REPORT_NOT_FOUND` | "Report not found." | `{}` (proposed copy `err.NOT_FOUND_report`) |
+| 500 | `REPORT_FAILED` | "The report could not be prepared." | `{}` |
+
+Changed messages (codes unchanged): `FLAG_TRANSITION_INVALID` "This action is not possible while the case is {status_word}." with `{status_word}` OPEN open, DOCS_REQUESTED waiting for documents, ESCALATED escalated, UPHELD claim upheld, CORRECTED claim corrected, WITHDRAWN claim withdrawn; 404 "Case not found.", "Attestation not found.", "Approval not found.", "Signal not found."; the attestation messages of §A4.14.
 
 ### A4.23 Addendum 4 scoping
 
 | Endpoint | AICTE_ADMIN | RO_OFFICER | INSTITUTION | STUDENT | UNIVERSITY | public |
 |---|---|---|---|---|---|---|
 | `GET /auth/digilocker/start`, `GET /auth/digilocker/callback` | | | | | | yes, 30/min |
-| `GET /auth/digilocker/claim`, `POST /auth/digilocker/claim` | | | | | | pending-claim cookie only; POST 10/min |
+| `GET /auth/digilocker/claim`, `POST /auth/digilocker/claim` | | | | | | pending-claim cookie only; POST 5 per 15 min per DigiLocker subject |
 | `POST /auth/login` | ok | ok | ok | 401 (DigiLocker only) | ok | yes |
 | `GET /notices/{token}` | | | | | | yes, 30/min (reads a cookie for `viewer`) |
 | `POST /notices/{token}/respond` | 403 | 403 | 403 | own notice, else 403 | 403 | no (401 without a session) |
 | `POST /students/me/enrolments/{id}/respond` | 403 | 403 | 403 | own, else 404 | 403 | no |
 | `GET /institutions/{id}/enrolments` (record filters) | any | region, else 404 | own, else 404 | 403 | affiliate, else 404 | no |
 | `GET /enrolments/{id}`, `GET /enrolments/{id}/history` | any | region, else 404 | own, else 404 | 403 | affiliate, else 404 | no |
-| `POST /flags/{id}/actions` (decisions) | any, per §A4.8 | region, else 404; per §A4.8 | 403 | 403 | 403 | no |
+| `POST /flags/{id}/actions` (decisions, `dry_run`) | any, per §A4.8 | region, else 404; per §A4.8 | 403 | 403 | 403 | no |
 | `GET`, `PUT /institutions/{id}/column-mapping` | any | GET region, PUT 403 | own | 403 | 403 | no |
 | `GET /approvals/{id}/versions` | any | region, else 404 | own, else 404 | 403 | affiliate, else 404 | no |
 | `POST /approvals/{id}/versions` | any | 403 | 403 | 403 | 403 | no |
-| `GET /institutions/{id}/completeness` | any | region, else 404 | own, else 404 | 403 | affiliate (no missing list), else 404 | no |
+| `GET /institutions/{id}/completeness` | any | region, else 404 | own, else 404 | 403 | affiliate (counts only), else 404 | no |
+| `GET /institutions/{id}/completeness.csv` | any | region, else 404 | own, else 404 | 403 | 403 | no |
 | `GET /completeness` | all | region | 403 | 403 | 403 | no |
 | `POST /completeness/refresh` | ok | 403 | 403 | 403 | 403 | no |
-| `GET /signals`, `GET /signals/{id}` | all | touching its region, else 404 | 403 | 403 | 403 | no |
-| `POST /signals/{id}/open-case`, `POST /signals/{id}/dismiss` | any | touching its region, else 404 (case only for an institution in its region) | 403 | 403 | 403 | no |
+| `GET /signals`, `GET /signals/{id}` | all | touching its region (members outside it counted, not listed), else 404 | 403 | 403 | 403 | no |
+| `POST /signals/{id}/open-case`, `POST /signals/{id}/dismiss` | any | touching its region, else 404 (cases only for institutions in its region) | 403 | 403 | 403 | no |
 | `POST /signals/run` | ok | 403 | 403 | 403 | 403 | no |
 | `GET /reports`, `GET /reports/{name}.{format}` | national | region | 403 | 403 | 403 | no |
-| `GET /university/graduates`, `/university/certificates/{id}`, `/attestation`, `/insert.pdf` | any | 403 | 403 | 403 | affiliates, else 404 | no |
+| `GET /university/graduates`, `/university/certificates/{id}`, `/issue`, `/block.pdf` | any | 403 | 403 | 403 | affiliates, else 404 | no |
 | `GET /verify/completion/{short_id}` (and the old `/verify/degree/{short_id}`) | | | | | | yes, 60/min shared with the verifier routes |
 | `/dashboard/summary`, `/institutions*` | as section B, with the officer-only keys of §A4.20 | | | | | |
 
@@ -3416,22 +3461,20 @@ export type OfficerAction = Exclude<CaseAction, "COLLEGE_RESPONSE" | "SYSTEM_NOT
 export type DecisionAction = Extract<CaseAction, "UPHOLD" | "CORRECT" | "WITHDRAW">;
 export type CaseScope = "RECORD" | "MULTI_RECORD" | "INSTITUTION";
 export type UpholdReason =
-  | "EVIDENCE_SUPPORTS_CLAIM" | "PERMITTED_DUAL_PROGRAMME" | "APPROVAL_VERSION_COVERS" | "NAME_VARIANT_ACCEPTED"
-  | "DISPUTE_NOT_SUPPORTED" | "SOURCE_RECORD_LATE" | "OTHER";
-export type CorrectReason =
-  | "DATA_ENTRY_ERROR" | "WRONG_ROUTE_OR_CATEGORY" | "WRONG_YEAR_OR_DATE" | "IDENTITY_DETAILS" | "ELIGIBILITY_MARKER" | "OTHER";
+  | "DOCUMENTS_SUPPORT_CLAIM" | "SOURCE_RECORD_WRONG" | "NAME_VARIANT" | "PERMITTED_DUAL_PROGRAMME"
+  | "APPROVAL_VERSION_COVERS" | "STUDENT_ANSWER_MISTAKEN" | "MISSING_NOW_UPLOADED" | "OTHER";
+export type CorrectReason = "UPLOAD_ERROR" | "DOCUMENTS_SHOW_OTHER_VALUE" | "WRONG_SEAT_CATEGORY" | "OTHER";
 export type WithdrawReason =
-  | "NEVER_JOINED" | "IDENTITY_MISUSE" | "ADMITTED_BEYOND_INTAKE" | "NOT_ELIGIBLE_FOR_SEAT" | "DUPLICATE_RECORD" | "OTHER";
-export type DocsReason =
-  | "ADMISSION_DOCUMENTS" | "IDENTITY_DOCUMENTS" | "SEAT_DOCUMENTS" | "ACADEMIC_RECORDS" | "MISSING_STUDENTS" | "OTHER";
-export type EscalateReason = "NEEDS_AICTE_DECISION" | "SPANS_REGIONS" | "POSSIBLE_FRAUD" | "OTHER";
-export type ReopenReason = "NEW_EVIDENCE" | "DECISION_ERROR" | "OTHER";
-export type ReasonCode = UpholdReason | CorrectReason | WithdrawReason | DocsReason | EscalateReason | ReopenReason;
+  | "STUDENT_NEVER_JOINED" | "NO_JOINING_EVIDENCE" | "BEYOND_APPROVED_INTAKE" | "NOT_ELIGIBLE_FOR_SEAT"
+  | "DUPLICATE_RECORD" | "NO_RESPONSE" | "OTHER";
+export type EscalateReason = "NEEDS_AICTE_DECISION" | "POLICY_QUESTION" | "SPANS_REGIONS" | "REPEATED_PATTERN" | "OTHER";
+export type ReasonCode = UpholdReason | CorrectReason | WithdrawReason | EscalateReason;
+export type DocsKind = "ADMISSION" | "JOINING" | "IDENTITY" | "ELIGIBILITY" | "CREDITS" | "OTHER";
 /** Replaces the Week 3 CredentialKind. */
 export type CredentialKind = "ENROLMENT" | "COMPLETION";
 /** Replaces the Week 3 RevokedReasonCode. */
 export type RevokedReasonCode =
-  | "ENROLMENT_WITHDRAWN" | "ENROLMENT_TRANSFERRED" | "WITHDRAWN_BY_DECISION" | "DISPUTED" | "ADMIN" | "FLAG_CONFIRMED";
+  | "ENROLMENT_WITHDRAWN" | "ENROLMENT_TRANSFERRED" | "CLAIM_WITHDRAWN" | "STUDENT_DISPUTE" | "ADMIN" | "FLAG_CONFIRMED";
 /** Replaces the Week 3 AccessedWhat. */
 export type AccessedWhat = "RECORD" | "EXPORT" | "COMPLETION" | "NOTICE" | "CREDENTIAL" | "PROOF";
 /** Replaces the A2.23 CheckSource. */
@@ -3443,7 +3486,7 @@ export type DeadlineState = "NOT_DUE" | "ON_TIME" | "LATE" | "OVERDUE";
 export type SignalType = "GHOST_RING" | "ANOMALY";
 export type SignalStatus = "NEW" | "CASE_OPENED" | "DISMISSED";
 export type VersionSource = "UPLOAD" | "DECISION" | "SEED";
-export type NoticeViewer = "SIGNED_OUT" | "HOLDER" | "SOMEONE_ELSE" | "NEEDS_CLAIM";
+export type NoticeMatch = "MATCH" | "SOMEONE_ELSE" | "CLAIM_NEEDED";
 export type CaseAgeBucket = "UNDER_7_DAYS" | "DAYS_7_TO_30" | "OVER_30_DAYS";
 export type ReportName =
   | "by-state" | "by-institution-type" | "cases-by-type-and-outcome" | "countersign-coverage" | "completeness" | "summary";
@@ -3461,7 +3504,7 @@ export const UPLOAD_COLUMNS = [
 // ---------- evidence rows and the record ----------
 /** Replaces the A3.27 CheckDetail. */
 export interface CheckDetail {
-  summary: string; basis: string;
+  summary: string; finding?: string | null; source_line?: string; basis: string;
   source_unavailable?: boolean; source_error?: string; needs_review?: boolean;
   name_score?: number; dob_match?: boolean; apaar_last4?: string;
   approval_id?: string; approval_version?: number; seat_code?: string; seat_type?: SeatType;
@@ -3478,13 +3521,14 @@ export interface CheckDetail {
 }
 export interface RowResolution {
   outcome: "UPHELD"; case_id: string; case_action_seq: number; reason_code: UpholdReason; at: string; by: ActorRef;
+  line: string;
 }
 export interface EvidenceRow {
-  type: CheckType; state: EvidenceState; summary: string;
+  type: CheckType; state: EvidenceState; finding: string | null; source_line: string; summary: string;
   supplied_by: string; observed_at: string | null; independent: boolean; resolved: RowResolution | null;
   source: CheckSource; checked_at: string | null; attempts: number; detail: CheckDetail;
 }
-export interface EvidenceRowBrief { type: CheckType; state: EvidenceState; independent: boolean; resolved: boolean }
+export interface EvidenceRowBrief { type: CheckType; state: EvidenceState; finding: string | null; independent: boolean; resolved: boolean }
 export interface RecordFields {
   record_status: RecordStatus | null; status_reason: string | null; next_step: string | null; record_status_at: string | null;
 }
@@ -3528,6 +3572,7 @@ export interface EnrolmentDetail extends RecordFields {
   notices: EnrolmentNotice[];
   resend: ResendState;
   credentials: CredentialRef[];
+  versions: EnrolmentVersion[];
   history_count: number;
 }
 export interface FieldChange { field: string; before: unknown; after: unknown }
@@ -3556,6 +3601,7 @@ export interface StudentEnrolment {
   academic_year: string; year_of_study: number; status: EnrolmentStatus;
   record_status: RecordStatus | null; status_reason: string | null; next_step: string | null;
   checks: EvidenceRowBrief[]; response: NoticeResponse | null; can_respond: boolean; claimed: boolean;
+  decision: { outcome: "UPHELD" | "CORRECTED" | "WITHDRAWN" | "ESCALATED"; reason_code: ReasonCode | null; at: string } | null;
 }
 /** Replaces the A3.27 StudentMe. */
 export interface StudentMe {
@@ -3573,11 +3619,12 @@ export interface NoticePublic {
   response: NoticeResponse | null; responded_at: string | null;
   previous_response: NoticeResponse | null; changed_at: string | null; can_change_until: string | null;
   consent_text: string; notice_version: string;
-  viewer: NoticeViewer; can_answer: boolean; sign_in_url: string; claim_url: string | null;
+  viewer: { signed_in: boolean; name: string | null; match: NoticeMatch | null };
+  can_answer: boolean; sign_in_url: string; claim_url: string | null;
 }
 export interface PendingClaim { name: string; birthdate: string; next: string }
 export interface ClaimRequest { provisional_id: string }
-export interface ClaimResult { user: User; next: string; claimed: { student_id: string; enrolments: number } }
+export interface ClaimResult { user: User; next: string; claimed: { student_id: string; enrolments: StudentEnrolment[] } }
 
 // ---------- uploads ----------
 /** Replaces the A2.23 UploadCounts. */
@@ -3602,7 +3649,7 @@ export interface ColumnMapping {
   institution_id: string; mapping: Record<string, UploadColumn>; updated_at: string | null;
   updated_by: { id: string; name: string } | null; columns: { column: UploadColumn; required: boolean }[];
 }
-export interface ColumnMappingPut { mapping: Record<string, UploadColumn> }
+export interface ColumnMappingPut { mapping: Record<string, UploadColumn>; headers?: string[] }
 export interface HeaderUnmappedDetails {
   unknown_headers: string[]; missing_columns: UploadColumn[]; suggestions: { header: string; column: UploadColumn }[];
 }
@@ -3617,17 +3664,22 @@ export interface ApprovalVersionCreate { approved_intake: number; effective_from
 export interface ApprovalVersionCreated extends ApprovalVersions {
   effects: { seats_added: number; seats_removed: number; seated: number; flags_refreshed: number; records_changed: number };
 }
-export interface MissingStudent { id_masked: string; programme_code: string; joined_on: string; route: AdmissionRoute }
+export interface MissingStudent {
+  name: string; roll_no: string | null; programme_code: string; joined_on: string; round: number | null;
+  route: AdmissionRoute; apaar_masked: string | null;
+}
 export interface Completeness {
   academic_year: string; joined: number; uploaded_and_joined: number; missing: number; uploaded_not_joined: number;
-  completeness_pct: number | null; deadline: string; first_upload_at: string | null; deadline_state: DeadlineState;
+  completeness_pct: number | null; published: boolean;
+  deadline: string; first_upload_at: string | null; deadline_state: DeadlineState;
   computed_at: string | null; source_unavailable: boolean; case: { id: string; status: FlagStatus } | null;
   missing_students?: MissingStudent[];
 }
 export interface InstitutionCompleteness extends Completeness { institution: InstitutionRef }
 export interface CompletenessRow {
   institution: InstitutionRef; joined: number; uploaded_and_joined: number; missing: number;
-  completeness_pct: number | null; deadline_state: DeadlineState; first_upload_at: string | null; case_status: FlagStatus | null;
+  completeness_pct: number | null; published: boolean; deadline_state: DeadlineState; first_upload_at: string | null;
+  case_status: FlagStatus | null;
 }
 export interface CompletenessPage extends Page<CompletenessRow> {
   totals: { joined: number; uploaded_and_joined: number; missing: number; completeness_pct: number | null;
@@ -3698,7 +3750,7 @@ export interface CaseHistoryItem {
   seq: number; at: string; action: CaseAction; from_status: FlagStatus | null; to_status: FlagStatus | null;
   actor: ActorRef | null; note: string | null; due_date: string | null;
   assignee: { id: string; name: string } | null; attachments: CaseAttachment[];
-  reason_code: ReasonCode | null;
+  reason_code: ReasonCode | null; docs_kind: DocsKind | null; approval_version: number | null;
   correction: { enrolment_id: string; changes: FieldChange[] } | null;
   withdrawn_enrolment_ids: string[];
 }
@@ -3708,15 +3760,24 @@ export type CorrectableField =
 /** Replaces the A3.27 CaseActionRequest. */
 export interface CaseActionRequest {
   action: OfficerAction; reason_code?: ReasonCode; note?: string;
-  due_date?: string | null; assignee_id?: string | null;
-  enrolment_ids?: string[];
-  enrolment_id?: string; fields?: Partial<Record<CorrectableField, string | number | boolean | null>>;
+  docs_kind?: DocsKind; due_date?: string | null; assignee_id?: string | null;
+  withdrawn_enrolment_ids?: string[];
+  correction?: { enrolment_id?: string; fields: Partial<Record<CorrectableField, string | number | boolean | null>> };
+  approval_version?: number;
+  dry_run?: boolean;
 }
 export interface DecisionEffects {
+  case_status: FlagStatus;
   records: { enrolment_id: string; status: EnrolmentStatus; record_status: RecordStatus | null; status_reason: string | null }[];
-  versions_written: number; rows_resolved: number; rows_rerun: number;
-  seats_released: number; seats_assigned: number; attestations_revoked: number; attestations_issued: number;
+  version: number | null; changes: FieldChange[];
+  rows_resolved: number; rows_rerun: number;
+  seats_released: { enrolment_id: string; seat_code: string }[];
+  seats_assigned: { enrolment_id: string; seat_code: string }[];
+  attestations_revoked: { enrolment_id: string; credential_id: string; short_id: string }[];
+  attestations_issued: { enrolment_id: string; credential_id: string; short_id: string }[];
+  approval: { version: number; approved_intake: number; cohort_year: string; programme_code: string } | null;
 }
+export interface DryRunResult { dry_run: true; effects: DecisionEffects }
 /** Replaces the A3.27 FlagRow. */
 export interface FlagRow {
   id: string; type: FlagType; severity: Severity; status: FlagStatus;
@@ -3741,6 +3802,8 @@ export interface FlagDetail extends FlagRow {
   related_enrolments: RelatedEnrolmentRow[];
   related_hidden: number;
   outstanding_enrolment_ids: string[];
+  approval: { id: string; current_version: number; approved_intake: number; covers: boolean } | null;
+  missing_students: MissingStudent[];
   history: CaseHistoryItem[];
   allowed_actions: OfficerAction[];
   can_respond: boolean;
@@ -3750,14 +3813,15 @@ export interface CaseActionResult extends FlagDetail { effects: DecisionEffects 
 // ---------- signals ----------
 export interface SignalRow {
   id: string; type: SignalType; academic_year: string; status: SignalStatus; summary: string;
-  member_count: number; score: number | null;
+  member_count: number; members_hidden: number; score: number | null;
   institutions: { id: string; name: string; aicte_permanent_id: string; state_code: string; region: Region }[];
+  institutions_hidden: number;
   rule: string; cases: { id: string; institution_id: string; status: FlagStatus }[];
   created_at: string; updated_at: string;
 }
 export interface SignalFeature {
   name: "admission_growth" | "nri_share" | "management_share" | "contradiction_rate" | "contact_sharing_rate";
-  label: string; value: number; peer_median: number; robust_z: number; stands_out: boolean;
+  value: number; peer_low: number; peer_high: number; peer_median: number; robust_z: number; stands_out: boolean;
 }
 export interface SignalMember {
   enrolment_id: string; student: { id: string; name: string; apaar_masked: string | null; provisional_id: string | null };
@@ -3774,7 +3838,8 @@ export interface SignalListQuery {
   page?: number; page_size?: number; academic_year?: string; type?: SignalType; status?: SignalStatus;
   institution_id?: string; state?: string; sort?: "newest" | "score";
 }
-export interface SignalOpenCase { institution_id?: string; note: string }
+export interface SignalOpenCase { institution_ids?: string[]; note: string; severity?: Severity }
+export interface SignalOpenCaseResult { cases: FlagRow[]; signal: SignalDetail }
 export interface SignalDismiss { note: string }
 export interface SignalRun {
   academic_year: string; rings: number; anomalies: number; created: number; updated: number; duration_ms: number;
@@ -3827,7 +3892,10 @@ export interface MyDataExport {
     id: string; institution_name: string; programme_name: string; academic_year: string; year_of_study: number;
     admission_route: AdmissionRoute; category: Category; status: EnrolmentStatus; status_date: string; admission_date: string;
     seat_code: string | null; record_status: RecordStatus | null; status_reason: string | null;
-    checks: { type: CheckType; state: EvidenceState; summary: string; supplied_by: string; observed_at: string | null; checked_at: string | null }[];
+    checks: {
+      type: CheckType; state: EvidenceState; finding: string | null; source_line: string; summary: string;
+      supplied_by: string; observed_at: string | null; checked_at: string | null;
+    }[];
     flags: { type: FlagType; status: FlagStatus; summary: string; created_at: string }[];
     history: Omit<EnrolmentVersion, "actor">[];
   }[];
@@ -3914,7 +3982,7 @@ The id token is a JWT signed HS256 with the client secret (`DIGILOCKER_CLIENT_SE
   - `reporting_deadline`: `{"2026-27": "2026-09-30"}` (mirrors `rules.yaml`).
   - `uploads`: `[{"file", "aicte_id", "academic_year", "submitted_at"}]` for every initial and update file; the seed sets each SEED batch's `created_at` (the wire `uploaded_at`) to `submitted_at`, the only business time a SEED batch carries. Most initial files are submitted before the deadline; `late_colleges` (submitted after it) and `overdue_colleges` (no file at all for the year) list the planted ones by AICTE id.
   - `demo_digilocker_accounts`: `[{"role", "digilocker_id", "name", "dob", "apaar_id", "file", "row_no"}]` with roles `DEMO_STUDENT` (Ravi Kumar Sharma), `SECOND_DEMO_NOTICE`, `PROVISIONAL_CLAIM` (a refused-consent ABC College CSE first-year with an email address and a joining record, who becomes COUNTERSIGNED after claiming), `SOMEONE_ELSE` (an account that matches no notice the demo opens) and `SAMPLE_CARD` (the student of the sample card).
-  - `sample_card`: `{"file", "row_no"}`, the deck's sample record: an ABC College B.Tech CSE 2026-27 first-year with a linked APAAR, a seat under approval v2, no joining record, credits not yet due, and a planted No in `notice_replies.jsonl`.
+  - `sample_card`: `{"file", "row_no"}`, the deck's sample record: an ABC College B.Tech CSE 2026-27 first-year with a linked APAAR (Identity Confirmed), a seat under approval v2 (Seat Confirmed), no line in the joining record (the demo runs after the 30 Sep deadline, so Joining record reads Contradicted, "State admission authority · {date checked}"), credits Not yet due, and a planted No in `notice_replies.jsonl` (Student Contradicted, "I never joined"); the record reads Disputed, priority.
   - `perf` (only with `--perf N`): `{"institutions_file", "file", "rows"}` (below).
 - `notice_replies.jsonl`: unchanged in shape; the `SAMPLE_CARD` row answers NO with the comment "I never joined this college.".
 - `ground_truth.json`:
