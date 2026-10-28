@@ -36,8 +36,22 @@ def test_generator_is_deterministic_and_regional():
     seq_b = [b.indian_name("marathi", "M") for _ in range(20)]
     assert seq_a == seq_b
     surnames = {n.split()[-1] for n in seq_a}
-    assert surnames & {"Patil", "Deshmukh", "Jadhav", "Kulkarni", "Joshi", "Shinde", "Pawar",
-                       "More", "Gaikwad", "Bhosale", "Chavan", "Sawant", "Kadam", "Mane"}
+    assert surnames & {
+        "Patil",
+        "Deshmukh",
+        "Jadhav",
+        "Kulkarni",
+        "Joshi",
+        "Shinde",
+        "Pawar",
+        "More",
+        "Gaikwad",
+        "Bhosale",
+        "Chavan",
+        "Sawant",
+        "Kadam",
+        "Mane",
+    }
     assert all(len(n.split()) >= 2 for n in seq_a)
     bengali = a.indian_name("bengali", "F")
     assert bengali.split()[-1] in names.load_data("names.json")["groups"]["bengali"]["surnames"]

@@ -191,8 +191,15 @@ class InstitutionBuilder:
     # -- institutions -----------------------------------------------------
 
     def fixed_institution(
-        self, aicte_id: str, name: str, itype: str, state: str, university: str,
-        city: str, year: int, programmes: list[tuple[str, int]],
+        self,
+        aicte_id: str,
+        name: str,
+        itype: str,
+        state: str,
+        university: str,
+        city: str,
+        year: int,
+        programmes: list[tuple[str, int]],
     ) -> dict:
         self.used_ids.add(aicte_id)
         self.used_names.add(name)
@@ -247,12 +254,24 @@ class InstitutionBuilder:
         n = self.cfg.size.institutions
         out = [
             self.fixed_institution(
-                ABC_ID, "ABC College of Engineering", "PRIVATE_SELF_FINANCED", "MH", "MSTU",
-                "Pune", 2004, ABC_PROGRAMMES,
+                ABC_ID,
+                "ABC College of Engineering",
+                "PRIVATE_SELF_FINANCED",
+                "MH",
+                "MSTU",
+                "Pune",
+                2004,
+                ABC_PROGRAMMES,
             ),
             self.fixed_institution(
-                XYZ_ID, "XYZ Institute of Technology", "PRIVATE_SELF_FINANCED", "TN", "TNTU",
-                "Coimbatore", 1998, XYZ_PROGRAMMES,
+                XYZ_ID,
+                "XYZ Institute of Technology",
+                "PRIVATE_SELF_FINANCED",
+                "TN",
+                "TNTU",
+                "Coimbatore",
+                1998,
+                XYZ_PROGRAMMES,
             ),
             # A deemed university with an ODL wing, so a legal dual enrolment always exists.
             self.random_institution("KA", "DEEMED", force_odl=True),
