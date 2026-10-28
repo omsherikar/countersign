@@ -4,7 +4,7 @@ import * as React from "react";
 import { Flag } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { t } from "@/lib/copy";
-import { fillPct, institutionAdmitted } from "@/lib/counts";
+import { institutionAdmitted } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { useInstitution } from "@/lib/queries";
 import { REGION_NAME } from "@/lib/roles";
@@ -50,17 +50,12 @@ function useHashTab(allowed: readonly Tab[]): [Tab, (t: Tab) => void] {
 function HeaderFigures({ d, academicYear }: { d: Detail; academicYear: string }) {
   const admitted = institutionAdmitted(d);
   const approved = d.programmes.reduce((a, p) => a + p.approval.approved_intake, 0) || d.approved_seats;
-  const fill = fillPct(admitted, approved);
+  const intake = t("app.hint.intake", { academic_year: academicYear });
   const cells: { label: string; value: string; hint?: string; tone?: string }[] = [
-    { label: t("kpi.approved_seats"), value: formatCount(approved), hint: t("app.hint.intake", { academic_year: academicYear }) },
-    {
-      label: t("col.admitted"),
-      value: formatCount(admitted),
-      hint: fill !== null ? t("app.hint.fill", { pct: fill }) : undefined,
-      tone: admitted > approved ? "text-check-pending-ink" : undefined,
-    },
-    { label: t("app.on_roll"), value: formatCount(d.enrolments), hint: t("app.hint.all_years") },
-    { label: t("kpi.flags_open"), value: formatCount(d.flags_open), tone: d.flags_open > 0 ? "text-check-fail-ink" : "text-ink-muted" },
+    { label: t("kpi.approved_seats"), value: formatCount(approved), hint: intake },
+    { label: t("kpi.admitted"), value: formatCount(admitted), hint: intake },
+    { label: t("kpi.enrolments"), value: formatCount(d.enrolments), hint: t("app.hint.all_years") },
+    { label: t("kpi.flags_open"), value: formatCount(d.flags_open), tone: d.flags_open > 0 ? undefined : "text-ink-muted" },
   ];
   return (
     <dl className="mt-4 grid grid-cols-2 border-y border-rule bg-paper-raised sm:grid-cols-4" style={{ fontVariantNumeric: "lining-nums proportional-nums" }}>

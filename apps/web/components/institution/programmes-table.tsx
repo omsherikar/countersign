@@ -144,7 +144,7 @@ export function ProgrammesTable({
                   <td>{tk(`level.${p.level}`)}</td>
                   <td>{tk(`shift.${p.shift}`)}</td>
                   <td className="num">{formatCount(p.approval.approved_intake)}</td>
-                  <td className={cn("num font-medium", p.enrolments > p.approval.approved_intake && "text-check-pending-ink")}>
+                  <td className="num font-medium">
                     {formatCount(p.enrolments)}
                   </td>
                   <td className="num">{formatCount(seatedOf(p))}</td>

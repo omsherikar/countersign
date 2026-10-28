@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { t, tk } from "@/lib/copy";
-import { admittedOf, fillPct } from "@/lib/counts";
+import { admittedOf } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { useInstitutions, useRegions, useStates } from "@/lib/queries";
 import { REGION_NAME } from "@/lib/roles";
@@ -44,25 +44,11 @@ function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmi
     { key: "approved_seats", label: t("col.approved_seats"), num: true, sort: "approved_seats", tip: t("app.hint.intake", { academic_year: academicYear }) },
   );
   if (withAdmitted) cols.push({ key: "admitted", label: t("col.admitted"), num: true, tip: t("col.admitted_tip", { academic_year: academicYear }) });
-  cols.push({ key: "enrolments", label: t("app.on_roll"), num: true, sort: "enrolments", tip: `${t("app.on_roll_tip")}. ${t("table.sort_tip")}` });
+  cols.push({ key: "enrolments", label: t("col.enrolments"), num: true, sort: "enrolments", tip: t("col.enrolments_tip", { academic_year: academicYear }) });
   if (variant !== "university") {
     cols.push({ key: "flags_open", label: t("col.flags_open"), num: true }, { key: "integrity", label: t("col.integrity"), num: true });
   }
   return cols;
-}
-
-/** Admitted, with the fill against approved seats on hover; over the intake reads in the caution ink. */
-function AdmittedCell({ admitted, approved }: { admitted: number | null; approved: number }) {
-  if (admitted === null) return <td className="num" />;
-  const fill = fillPct(admitted, approved);
-  return (
-    <td
-      className={cn("num font-medium", admitted > approved && "text-check-pending-ink")}
-      title={fill !== null ? t("app.hint.fill", { pct: fill }) : undefined}
-    >
-      {formatCount(admitted)}
-    </td>
-  );
 }
 
 /**
@@ -242,11 +228,11 @@ export function InstitutionsTable({
                 </td>
                 <td className="num">{formatCount(r.programmes)}</td>
                 <td className="num">{formatCount(r.approved_seats)}</td>
-                {withAdmitted && <AdmittedCell admitted={admittedOf(r)} approved={r.approved_seats} />}
+                {withAdmitted && <td className="num font-medium">{admittedOf(r) === null ? "" : formatCount(admittedOf(r))}</td>}
                 <td className="num">{formatCount(r.enrolments)}</td>
                 {variant !== "university" && (
                   <>
-                    <td className={cn("num", r.flags_open > 0 ? "font-medium text-check-fail-ink" : "text-ink-muted")}>
+                    <td className={cn("num", r.flags_open > 0 ? "font-semibold text-ink" : "text-ink-muted")}>
                       {formatCount(r.flags_open)}
                     </td>
                     <td className="num">{r.integrity_index === null ? <NotComputed /> : Math.round(r.integrity_index)}</td>

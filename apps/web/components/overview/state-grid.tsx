@@ -124,8 +124,8 @@ export function RegionTable({ summary, regions }: { summary: DashboardSummary; r
                 {t("col.admitted")}
               </th>
             )}
-            <th scope="col" className="num" title={t("app.on_roll_tip")}>
-              {t("app.on_roll")}
+            <th scope="col" className="num" title={t("col.enrolments_tip", { academic_year: summary.academic_year })}>
+              {t("col.enrolments")}
             </th>
             <th scope="col" className="num">
               {t("col.flags_open")}
@@ -140,7 +140,7 @@ export function RegionTable({ summary, regions }: { summary: DashboardSummary; r
               <td className="num">{formatCount(r.approved_seats)}</td>
               {withAdmitted && <td className="num">{formatCount(admittedOf(r) ?? 0)}</td>}
               <td className="num">{formatCount(r.enrolments)}</td>
-              <td className={r.flags_open > 0 ? "num font-medium text-check-fail-ink" : "num text-ink-muted"}>{formatCount(r.flags_open)}</td>
+              <td className={r.flags_open > 0 ? "num font-semibold" : "num text-ink-muted"}>{formatCount(r.flags_open)}</td>
             </tr>
           ))}
         </tbody>

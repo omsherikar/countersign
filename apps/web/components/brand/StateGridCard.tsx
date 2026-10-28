@@ -61,9 +61,8 @@ export interface StateGridCardProps extends Omit<React.HTMLAttributes<HTMLDivEle
  */
 export function StateGridCard({ row, integrityIndex = null, selected = false, onSelect, className, ...rest }: StateGridCardProps) {
   const step = integrityIndex === null ? null : indexStep(integrityIndex);
-  // Fill is admitted (one intake) over approved seats (the same intake), never students on roll over seats.
+  // Approved seats and admitted are one intake, shown as two counts (never a percentage); the roll covers every year.
   const admitted = typeof row.admitted === "number" ? row.admitted : null;
-  const fill = admitted !== null && row.approved_seats > 0 ? Math.round((admitted / row.approved_seats) * 100) : null;
   const Tag: "button" | "div" = onSelect ? "button" : "div";
   return (
     <Tag
@@ -94,17 +93,16 @@ export function StateGridCard({ row, integrityIndex = null, selected = false, on
         <dd className="text-right">{INDIAN.format(row.approved_seats)}</dd>
         {admitted !== null && (
           <>
-            <dt className="text-ink-muted">{t("col.admitted")}</dt>
-            <dd className="text-right" title={fill !== null ? t("app.hint.fill", { pct: fill }) : undefined}>
-              {INDIAN.format(admitted)}
-              {fill !== null && <span className="ml-1 text-ink-muted">({fill}%)</span>}
-            </dd>
+            <dt className="text-ink-muted">{t("kpi.admitted")}</dt>
+            <dd className="text-right">{INDIAN.format(admitted)}</dd>
           </>
         )}
-        <dt className="text-ink-muted">{t("app.on_roll")}</dt>
+        <dt className="text-ink-muted" title={t("app.hint.all_years")}>
+          {t("kpi.enrolments")}
+        </dt>
         <dd className="text-right">{INDIAN.format(row.enrolments)}</dd>
         <dt className="text-ink-muted">{t("kpi.flags_open")}</dt>
-        <dd className={cn("text-right", row.flags_open > 0 ? "font-medium text-check-fail-ink" : "text-ink-muted")}>
+        <dd className={cn("text-right", row.flags_open > 0 ? "font-semibold text-ink" : "text-ink-muted")}>
           {INDIAN.format(row.flags_open)}
         </dd>
         {integrityIndex !== null && (

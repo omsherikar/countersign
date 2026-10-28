@@ -17,11 +17,11 @@ const COLUMNS: { name: string; notes: string }[] = [
   { name: "passport_no", notes: t("rowerr.PASSPORT_REQUIRED") + "." },
   { name: "programme_code", notes: "An approved programme of your college, e.g. CSE." },
   { name: "academic_year", notes: "e.g. 2026-27." },
-  { name: "year_of_study", notes: t("rowerr.YEAR_INVALID") + "." },
-  { name: "admission_route", notes: t("rowerr.ROUTE_INVALID") + "." },
+  { name: "year_of_study", notes: t("rowerr.YEAR_OF_STUDY_INVALID", { max: 6 }) + "." },
+  { name: "admission_route", notes: t("rowerr.BAD_ENUM.admission_route") + "." },
   { name: "counselling_ref", notes: "Allotment reference for counselling admissions, e.g. MHCET-2026-R1-004512." },
   { name: "category", notes: "General, EWS, OBC, SC, ST or Other." },
-  { name: "consent_status", notes: t("rowerr.CONSENT_INVALID") + "." },
+  { name: "consent_status", notes: t("rowerr.BAD_ENUM.consent_status") + "." },
 ];
 
 export default function CollegeUploadPage() {

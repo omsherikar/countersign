@@ -4,21 +4,20 @@
  * `admitted`, the ACTIVE enrolments of that intake. `enrolments` is every
  * student on roll across all years of study and is never divided by seats.
  *
+ * `admitted` counts every route into the intake, supernumerary ones too, so
+ * it may exceed approved seats without any excess (contract errata 3): the
+ * two are shown side by side as counts, never as a percentage, and the
+ * EXCESS_ADMISSION and QUOTA_BREACH flags carry any excess.
+ *
  * `admitted` arrives with the Week 2 api. Until a response carries it these
  * helpers return null and the pages show seats and students on roll under
- * distinct labels, with no percentage.
+ * their own labels.
  */
 
 /** `admitted` when the response carries it, else null. */
 export function admittedOf(row: { admitted?: unknown } | null | undefined): number | null {
   const value = row?.admitted;
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-/** Whole-number fill, admitted / approved seats; null when either side is missing or seats are 0. */
-export function fillPct(admitted: number | null, approved: number | null | undefined): number | null {
-  if (admitted === null || approved === null || approved === undefined || approved <= 0) return null;
-  return Math.round((admitted / approved) * 100);
 }
 
 /**
