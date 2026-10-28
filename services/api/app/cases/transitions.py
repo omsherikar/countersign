@@ -1,0 +1,136 @@
+"""The flag transition table (API_CONTRACT §A3.9, D25). Pure: no database, no I/O.
+
+Each cell maps (status, action) to the status after the action and the roles that may take
+it. A pair that is not in the table is not possible from that status for anyone (409); a
+pair in the table that the caller's role is not listed for is a 403.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from app.core.errors import ApiError
+from app.models.enums import CaseActionKind, FlagStatus, UserRole
+
+CLEAR = CaseActionKind.CLEAR
+REQUEST_DOCS = CaseActionKind.REQUEST_DOCS
+ESCALATE = CaseActionKind.ESCALATE
+CONFIRM = CaseActionKind.CONFIRM
+NOTE = CaseActionKind.NOTE
+ASSIGN = CaseActionKind.ASSIGN
+REOPEN = CaseActionKind.REOPEN
+COLLEGE_RESPONSE = CaseActionKind.COLLEGE_RESPONSE
+SYSTEM_NOTE = CaseActionKind.SYSTEM_NOTE
+
+# the order of the action bar and of `allowed_actions`
+OFFICER_ACTIONS: tuple[CaseActionKind, ...] = (
+    CLEAR,
+    REQUEST_DOCS,
+    ESCALATE,
+    CONFIRM,
+    NOTE,
+    ASSIGN,
+    REOPEN,
+)
+# notes the college reads; the rest stay with officers (ASSIGN has no note)
+NOTE_SHOWN_TO_COLLEGE: frozenset[CaseActionKind] = frozenset(
+    {CLEAR, REQUEST_DOCS, CONFIRM, COLLEGE_RESPONSE, SYSTEM_NOTE}
+)
+NOTE_INTERNAL: frozenset[CaseActionKind] = frozenset({ESCALATE, NOTE, REOPEN})
+
+_A = frozenset({UserRole.AICTE_ADMIN})
+_AR = frozenset({UserRole.AICTE_ADMIN, UserRole.RO_OFFICER})
+_I = frozenset({UserRole.INSTITUTION})
+
+_OPEN, _DOCS, _ESC, _CLEARED, _CONFIRMED = (
+    FlagStatus.OPEN,
+    FlagStatus.DOCS_REQUESTED,
+    FlagStatus.ESCALATED,
+    FlagStatus.CLEARED,
+    FlagStatus.CONFIRMED,
+)
+
+
+Cell = tuple[FlagStatus, frozenset[UserRole]]
+
+
+def _undecided(status: FlagStatus) -> dict[tuple[FlagStatus, CaseActionKind], Cell]:
+    return {
+        (status, REQUEST_DOCS): (_DOCS, _AR),
+        (status, ESCALATE): (_ESC, _AR),
+        (status, CLEAR): (_CLEARED, _AR),
+        (status, CONFIRM): (_CONFIRMED, _AR),
+        (status, NOTE): (status, _AR),
+        (status, ASSIGN): (status, _AR),
+    }
+
+
+TABLE: Mapping[tuple[FlagStatus, CaseActionKind], Cell] = {
+    **_undecided(_OPEN),
+    **_undecided(_DOCS),
+    (_DOCS, COLLEGE_RESPONSE): (_DOCS, _I),
+    # an escalation means AICTE takes over; the regional office can still add notes
+    (_ESC, REQUEST_DOCS): (_DOCS, _A),
+    (_ESC, CLEAR): (_CLEARED, _A),
+    (_ESC, CONFIRM): (_CONFIRMED, _A),
+    (_ESC, NOTE): (_ESC, _AR),
+    (_ESC, ASSIGN): (_ESC, _A),
+    # decided flags are final; only AICTE reopens them
+    (_CLEARED, NOTE): (_CLEARED, _AR),
+    (_CLEARED, REOPEN): (_OPEN, _A),
+    (_CONFIRMED, NOTE): (_CONFIRMED, _AR),
+    (_CONFIRMED, REOPEN): (_OPEN, _A),
+}
+
+STATUS_WORDS = {
+    _OPEN: "open",
+    _DOCS: "waiting for documents",
+    _ESC: "escalated",
+    _CLEARED: "cleared",
+    _CONFIRMED: "confirmed",
+}
+
+
+def target(status: FlagStatus, action: CaseActionKind) -> FlagStatus | None:
+    """The status after the action, or None when the table has no such cell."""
+    cell = TABLE.get((status, action))
+    return cell[0] if cell else None
+
+
+def allowed_actions(role: UserRole, status: FlagStatus) -> tuple[CaseActionKind, ...]:
+    """The officer actions the role may take from this status, in OFFICER_ACTIONS order."""
+    return tuple(
+        action
+        for action in OFFICER_ACTIONS
+        if (cell := TABLE.get((status, action))) is not None and role in cell[1]
+    )
+
+
+def check(role: UserRole, status: FlagStatus, action: CaseActionKind) -> FlagStatus:
+    """The new status, or 409 when nobody may act so from this status, or 403 for the role."""
+    cell = TABLE.get((status, action))
+    if cell is None:
+        raise ApiError(
+            409,
+            "FLAG_TRANSITION_INVALID",
+            f"This action is not possible while the flag is {STATUS_WORDS[status]}.",
+            {
+                "status": status.value,
+                "action": action.value,
+                "allowed_actions": [a.value for a in allowed_actions(role, status)],
+            },
+        )
+    new_status, roles = cell
+    if role not in roles:
+        raise ApiError(
+            403,
+            "FORBIDDEN",
+            "Your role cannot access this resource.",
+            {"required_roles": sorted(r.value for r in roles)},
+        )
+    return new_status
+
+
+def note_required(action: CaseActionKind) -> bool:
+    """Every officer action needs a note except ASSIGN."""
+    return action is not ASSIGN

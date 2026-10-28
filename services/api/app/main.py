@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -22,21 +23,32 @@ from app.db.session import dispose_engine, get_engine
 from app.routers import (
     admin,
     auth,
+    cases,
     dashboard,
     enrolments,
     flags,
     healthz,
     institutions,
     meta,
+    privacy,
     students,
     uploads,
+    users,
 )
 
 log = logging.getLogger("countersign.api")
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
-# The one route that takes a form instead of JSON: the file upload (API_CONTRACT §A2.1).
+# The routes that take a form instead of JSON: the file upload (API_CONTRACT §A2.1) and a
+# college's response to a document request (§A3.1).
 MULTIPART_ROUTES = {("POST", "/uploads")}
+MULTIPART_PATTERNS = (("POST", re.compile(r"^/flags/[^/]+/response$")),)
+
+
+def takes_form(method: str, path: str) -> bool:
+    if (method, path) in MULTIPART_ROUTES:
+        return True
+    return any(method == m and pattern.match(path) for m, pattern in MULTIPART_PATTERNS)
 
 
 def run_migrations() -> None:
@@ -98,7 +110,7 @@ def create_app() -> FastAPI:
         started = time.perf_counter()
         if request.method in MUTATING and _has_body(request):
             content_type = request.headers.get("content-type", "")
-            multipart = (request.method, request.url.path) in MULTIPART_ROUTES
+            multipart = takes_form(request.method, request.url.path)
             expected = "multipart/form-data" if multipart else "application/json"
             if not content_type.lower().startswith(expected):
                 response = envelope(
@@ -124,16 +136,22 @@ def create_app() -> FastAPI:
         )
         return response
 
-    app.include_router(healthz.router)
-    app.include_router(auth.router)
-    app.include_router(dashboard.router)
-    app.include_router(institutions.router)
-    app.include_router(enrolments.router)
-    app.include_router(flags.router)
-    app.include_router(uploads.router)
-    app.include_router(students.router)
-    app.include_router(meta.router)
-    app.include_router(admin.router)
+    for router in (
+        healthz,
+        auth,
+        privacy,
+        dashboard,
+        institutions,
+        enrolments,
+        flags,
+        cases,
+        users,
+        uploads,
+        students,
+        meta,
+        admin,
+    ):
+        app.include_router(router.router)
     return app
 
 

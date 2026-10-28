@@ -2,8 +2,10 @@
 
 `raise_flag` is an upsert by `dedupe_key`. A new flag opens OPEN; an existing one gets the
 new evidence, the union of related enrolments and the higher severity, and keeps its
-status, assignee and opening time. `refresh_seat_flags` recomputes EXCESS_ADMISSION and
-QUOTA_BREACH from the ledger once per batch, with the final numbers.
+status, assignee and opening time; when it was already cleared or confirmed, its case
+history gains a system note saying the evidence changed after the decision.
+`refresh_seat_flags` recomputes EXCESS_ADMISSION and QUOTA_BREACH from the ledger once per
+batch, with the final numbers.
 """
 
 from __future__ import annotations
@@ -178,6 +180,11 @@ async def raise_flag(
                 changed = True
         if changed:
             await session.flush()
+            if flag.status in (FlagStatus.CLEARED, FlagStatus.CONFIRMED):
+                # the decision stays; the history says the evidence moved after it
+                from app.cases.service import EVIDENCE_UPDATED_NOTE, add_system_note
+
+                await add_system_note(session, flag, EVIDENCE_UPDATED_NOTE)
             entries.append(
                 AuditEntry(
                     action=AuditAction.UPDATE,
