@@ -214,9 +214,15 @@ async def load_flag(flag_id: uuid.UUID) -> Flag:
 
 
 async def add_credential(student_id: uuid.UUID, enrolment_id: uuid.UUID) -> uuid.UUID:
-    """A stored credential row standing in for an issued enrolment proof."""
+    """A stored credential row standing in for an issued enrolment proof; an earlier live
+    one for the same enrolment is revoked first, as there is one live proof per enrolment."""
     n = next(_serial)
     async with session_factory()() as session:
+        await session.execute(
+            update(Credential)
+            .where(Credential.enrolment_id == enrolment_id, Credential.revoked.is_(False))
+            .values(revoked=True, revoked_reason="ADMIN")
+        )
         credential = Credential(
             student_id=student_id,
             enrolment_id=enrolment_id,

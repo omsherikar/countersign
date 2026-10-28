@@ -30,6 +30,7 @@ from app.routers import (
     healthz,
     institutions,
     meta,
+    privacy,
     students,
     uploads,
     users,
@@ -138,6 +139,7 @@ def create_app() -> FastAPI:
     for router in (
         healthz,
         auth,
+        privacy,
         dashboard,
         institutions,
         enrolments,
