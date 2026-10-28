@@ -37,7 +37,7 @@ Same id, new placeholders
 
 Same id, new text: `check.status.PENDING` (Pending), `check.na_reason.STUDYING`, `strip.score_pending` (pending, Student left out of the count), `source.will_retry`, `kpi.enrolments` (Students on roll), `col.enrolments` (On roll), `col.admitted_tip`, `flag.INVALID_APAAR.name` (APAAR not verified), `flag.NAME_MISMATCH.name` (Name or date of birth mismatch), `flag.DUPLICATE_WITHIN_UPLOAD.name` (Duplicate within institution), `flag.LATE_REFILL.rule`, `upload.kind.INITIAL` and `upload.kind.UPDATE` (display words; the server sets the kind), `upload.max`, `upload.declaration`, `upload.errors_heading`, `upload.errors_none`, `upload.errors_next`, `upload.done_note`, `college.no_upload_yet`.
 
-New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.clear`, `kpi.clear_value`, `kpi.clear_tip`, `app.hint.intake`, `app.hint.all_years`, `app.all_years_line`, `col.enrolments_tip`, `col.mode`, `mode.*`, `gender.*`, `strip.segment_tip`, `strip.segment_tip_full`, `check.pending.*`, `check.na_reason.IDENTITY`, `check.attempts`, `check.never`, `check.detail.*` (§15, reference), `upload_stage.*`, `upload_source.*`, the new `upload.*`, `field.*` and `rowerr.*` rows (§7), `last_upload.line`, `col.file`, `col.uploaded_by`, `col.kind`, `col.upload_source`, `col.rows`, `col.accepted`, `col.with_errors`, `col.with_warnings`, `col.row`, `col.row_level`, `col.column`, `col.problem`, `col.value`, the flag summary variants in §5, `err.FILE_TOO_LARGE`, `err.TOO_MANY_ROWS`, `err.UNSUPPORTED_FILE_TYPE`, `err.UPLOAD_HEADER_INVALID`, `err.UPLOAD_HEADER_DUPLICATE`, `err.UPLOAD_EMPTY`, `err.UPLOAD_IN_PROGRESS`, `err.NOT_FOUND_upload`, `err.NOT_FOUND_enrolment`, `err.NOT_FOUND_flag`, `empty.cases_filtered`, `empty.clear_filters`, `empty.flags_by_type`, `empty.flags_enrolment`, `empty.related`, `empty.checks`, `empty.enrolments_filtered`, `student.check_student_pending`, and every id in §16 to §19 (`enrolment.*`, `recheck.*`, `flags.*`, `flag.*`, `flags_by_type.*`, `section.flags_by_type`, `table.count.flags_any`, `table.count.flags_one` and their `col.*`).
+New ids: `kpi.admitted`, `kpi.flags_open_tip`, `kpi.countersigned_tip`, `kpi.clear`, `kpi.clear_value`, `kpi.clear_tip`, `app.hint.intake`, `app.hint.all_years`, `app.all_years_line`, `col.enrolments_tip`, `col.mode`, `mode.*`, `gender.*`, `strip.segment_tip`, `strip.segment_tip_full`, `check.pending.*`, `check.na_reason.IDENTITY`, `check.attempts`, `check.never`, `check.detail.*` (§15, reference), `upload_stage.*`, `upload_source.*`, the new `upload.*`, `field.*` and `rowerr.*` rows (§7), `last_upload.line`, `col.file`, `col.uploaded_by`, `col.kind`, `col.upload_source`, `col.rows`, `col.accepted`, `col.with_errors`, `col.with_warnings`, `col.row`, `col.row_level`, `col.column`, `col.problem`, `col.value`, the flag summary variants in §5, `err.FILE_TOO_LARGE`, `err.TOO_MANY_ROWS`, `err.UNSUPPORTED_FILE_TYPE`, `err.UPLOAD_HEADER_INVALID`, `err.UPLOAD_HEADER_DUPLICATE`, `err.UPLOAD_EMPTY`, `err.UPLOAD_IN_PROGRESS`, `err.NOT_FOUND_upload`, `err.NOT_FOUND_enrolment`, `err.NOT_FOUND_flag`, `empty.cases_filtered`, `empty.clear_filters`, `enrolments.filter.*`, `table.count.flags_one_any`, `tab.flags_count`, `flags.more`, `empty.flags_by_type`, `empty.flags_enrolment`, `empty.related`, `empty.checks`, `empty.enrolments_filtered`, `student.check_student_pending`, and every id in §16 to §19 (`enrolment.*`, `recheck.*`, `flags.*`, `flag.*`, `flags_by_type.*`, `section.flags_by_type`, `table.count.flags_any`, `table.count.flags_one` and their `col.*`).
 
 ## 1. Brand and shell
 
@@ -991,6 +991,18 @@ Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/
 | flags.sort_tip | Most severe first, then oldest first |
 | table.count.flags_any | {total} flags in {institutions} institutions |
 | table.count.flags_one | {total} open flags |
+| table.count.flags_one_any | {total} flags |
+| tab.flags_count | Flags ({n}) |
+| flags.more | +{n} |
+| enrolments.filter.check | Check |
+| enrolments.filter.result | Result |
+| enrolments.filter.any | Any |
+| enrolments.filter.flagged | Flags |
+| enrolments.filter.flagged_yes | With open flags |
+| enrolments.filter.flagged_no | No open flags |
+| enrolments.filter.seated | Seat |
+| enrolments.filter.seated_yes | Holds a seat |
+| enrolments.filter.seated_no | Unseated |
 | col.severity | Severity |
 | col.flag_type | Type |
 | col.institution | Institution |
@@ -1013,7 +1025,7 @@ Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/
 | flag.readonly_officer | Read only for now. Clearing, requesting documents, escalating and confirming open in Week 3. |
 | flag.readonly_college | Read only. An officer reviews every flag. If they ask for documents, you will be able to respond here from Week 3. |
 
-Count line: with the status filter on Open use [table.count.flags]; with any other status filter use `table.count.flags_any`; on one institution's Flags tab and on `/college/flags` use `table.count.flags_one`. `{institutions}` is the response's `institutions`. The Evidence cell prints `summary` verbatim on one line, truncated, with the full sentence on focus and hover. Opened prints the `created_at` date. The Assignee column is hidden while every `assignee` is null. History shows one line, [case.history.opened] with the `created_at` time. `flag.related_hidden` shows when `related_hidden` is above 0. `flag.chip` is the accessible name of a flag chip in an enrolment row.
+Count line: with the status filter on Open use [table.count.flags]; with any other status filter use `table.count.flags_any`; on one institution's Flags tab and on `/college/flags` use `table.count.flags_one`, or `table.count.flags_one_any` when the status filter is not Open. `{institutions}` is the response's `institutions`. The Evidence cell prints `summary` verbatim on one line, truncated, with the full sentence on focus and hover. Opened prints the `created_at` date. The Assignee column is hidden while every `assignee` is null. History shows one line, [case.history.opened] with the `created_at` time. `flag.related_hidden` shows when `related_hidden` is above 0. `flag.chip` is the accessible name of a flag chip in an enrolment row; after two chips the rest collapse into `flags.more`. The enrolments table's Result filter uses `check.status.*` words and its Check filter `check.*` words.
 
 ## 19. Dashboard flags
 

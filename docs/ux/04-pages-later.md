@@ -124,8 +124,8 @@ Week 1 columns with these changes (§A2.10):
 - Student is an `<a href>` to enrolment detail (W2-5).
 - Seat: `seat_code` in monospace, or "Unseated" in muted text when null.
 - Countersign: the live strip (W2-3).
-- Flags: one chip per unresolved flag in `flags[]`, most severe first, with the type name and severity word (accessible name [flag.chip]); at most two chips, then "+n". The 12 unseated ABC CSE first-years each show Excess admission.
-- New filters, in the URL with the `e_` prefix: Check (`check_type`), Result (`check_status`), Flags (`flagged`), Seat (`seated`). Result alone means "any check with this result"; Check and Result together mean "this check with this result"; Check alone is not sent. Empty with filters: [empty.enrolments_filtered].
+- Flags: one chip per unresolved flag in `flags[]`, most severe first, with the type name and severity word (accessible name [flag.chip]); at most two chips, then [flags.more]. The 12 unseated ABC CSE first-years each show Excess admission.
+- New filters, in the URL with the `e_` prefix (`enrolments.filter.*`): Check (`check_type`), Result (`check_status`), Flags (`flagged`), Seat (`seated`). Result alone means "any check with this result"; Check and Result together mean "this check with this result"; Check alone is not sent. Empty with filters: [empty.enrolments_filtered].
 
 ### W2-5. Enrolment detail `/aicte/enrolments/[id]`, `/ro/enrolments/[id]`, `/college/enrolments/[id]`, `/university/enrolments/[id]`
 
@@ -185,7 +185,7 @@ Replaced: the earlier drawer inside the enrolments table. A page has its own URL
 - [last_upload.line] from `last_upload` (null: [college.no_upload_yet]); officers may link it to the batch page.
 - Programmes table: Code, Programme, Level, Shift, Mode (`mode.*`), Approved, Admitted (`enrolments`, tooltip [col.admitted_tip]), Seated (`seated`), Unseated (`unseated`, amber chip when above 0). Pools line with real `assigned`.
 - Enrolments tab: W2-4. Seats tab: real holders and assigned dates, same shape as Week 1.
-- Flags tab, label "Flags ({flags_open})": `GET /flags?institution_id={id}&academic_year={year}&status=OPEN&sort=severity_desc`, the shared flags table without the Institution and State columns, count line [table.count.flags_one], empty [empty.flags_institution]. Hidden for the university.
+- Flags tab, label [tab.flags_count] with `flags_open`: `GET /flags?institution_id={id}&academic_year={year}&status=OPEN&sort=severity_desc`, the shared flags table without the Institution and State columns, count line [table.count.flags_one], empty [empty.flags_institution]. Hidden for the university.
 - Officers (AICTE officer, regional officer) get [recheck.institution] in the header, tooltip [recheck.institution_tip]: `POST /institutions/{id}/recheck {academic_year}` (§A2.13); the result line [recheck.institution_result] (plus [recheck.flags_raised]) appears in an `aria-live` region. This is the button for the demo moment "the source is back".
 
 `/college` (seat ledger):
