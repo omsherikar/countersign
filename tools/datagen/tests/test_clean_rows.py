@@ -1,9 +1,10 @@
 """Rows not referenced by ground truth must pass all five countersign checks."""
 
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 
 from datagen.config import load_rules
+from datagen.matching import name_key
 from datagen.students import Pools, round_half_up
 
 APAAR = re.compile(r"^[0-9]{12}$")
@@ -66,6 +67,8 @@ def test_clean_rows_match_every_registry(small):
                 assert c["name"] == row["name"] and c["dob"] == row["dob"]
                 assert c["institution_aicte_id"] == aid
                 assert c["programme"] == row["programme_code"]
+                # The api asks for the cohort's start year (2025 for a year-2 lateral).
+                assert c["year"] == 2026 - (int(row["year_of_study"]) - 1)
                 checked["admission"] += 1
             else:
                 assert row["counselling_ref"] == ""
@@ -85,6 +88,47 @@ def test_clean_rows_match_every_registry(small):
     assert checked["admission"] > 3000
     assert checked["studying"] > 2000
     assert checked["sii"] > 50
+
+
+def test_counselling_lookups_are_unambiguous(small):
+    """mockgov matches by name and date of birth inside state, year, programme and college;
+    one allotment per such date of birth means a lookup can only return the row's own
+    allotment_ref."""
+    keys = Counter(
+        (c["state"], c["year"], c["programme"], c["institution_aicte_id"], c["dob"])
+        for c in small.jsonl("counselling.jsonl")
+    )
+    assert max(keys.values()) == 1
+
+
+def test_students_without_apaar_have_no_lookalike(small):
+    """Duplicate rule A compares a student without an APAAR with every other student of the
+    college sharing its name_key. Only planted duplicate pairs may share one."""
+    gt = small.json("ground_truth.json")
+    pairs = defaultdict(set)
+    for rec in gt:
+        if rec["anomaly_type"] == "DUPLICATE_WITHIN_UPLOAD":
+            for r in rec["rows"]:
+                pairs[(r["file"], r["row_no"])].add(id(rec))
+    files = [f"uploads/{aid}_2026-27.csv" for aid in small.all_uploads()]
+    files += small.update_files()
+    by_key = defaultdict(list)
+    for file in files:
+        aid = file.split("/")[1].split("_")[0]
+        for i, row in enumerate(small.file(file), start=2):
+            if row["status"] in {"WITHDRAWN", "TRANSFERRED"}:
+                continue
+            usable = APAAR.fullmatch(row["apaar_id"]) and row["consent_status"] == "LINKED"
+            ident = row["apaar_id"] if usable else (file, i)
+            by_key[(aid, name_key(row["name"], row["dob"]))].append(
+                (ident, bool(usable), pairs.get((file, i), set()))
+            )
+    for key, members in by_key.items():
+        students = {m[0] for m in members}
+        if len(students) < 2 or all(m[1] for m in members):
+            continue
+        shared = set.intersection(*(m[2] for m in members))
+        assert shared and len(students) == 2, key
 
 
 def test_clean_programmes_stay_inside_seat_pools(small):

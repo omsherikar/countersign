@@ -101,6 +101,8 @@ class Planter:
         return inst, prog
 
     def copy_row(self, src: dict, inst: dict, prog: dict, **overrides) -> dict:
+        """The same person on a second row. Both rows share a DOB group so the identity
+        checks keep their dates of birth equal."""
         row = self.w.base_row(inst, prog, src["year_of_study"], src["_adm_year"])
         for key in (
             "apaar_id", "name", "dob", "gender", "mobile", "email", "address", "nationality",
@@ -109,6 +111,8 @@ class Planter:
             row[key] = src[key]
         row["admission_route"] = "MANAGEMENT"
         row["counselling_ref"] = ""
+        src["_dob_group"] = src["_dob_group"] or src["_seq"]
+        row["_dob_group"] = src["_dob_group"]
         row.update(overrides)
         return self.w.add_row(row)
 

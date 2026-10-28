@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import random
+import re
 from typing import Any
 
 from faker import Faker
@@ -16,6 +17,7 @@ from faker import Faker
 from . import geo
 from .config import Config
 from .institutions import InstitutionBuilder, approved_intake
+from .matching import name_key
 from .names import NameGenerator
 
 UPLOAD_COLUMNS = [
@@ -33,12 +35,18 @@ DEMO_ROLL = "MHCET-2026-004512"
 DEMO_ALLOTMENT = "MHCET-2026-R1-004512"
 
 COUNSELLED_ROUTES = {"COUNSELLING", "TFW", "LATERAL"}
+APAAR_DIGITS = re.compile(r"[0-9]{12}")
 EMAIL_DOMAINS = ["example.com", "example.net", "example.org", "mail.example"]
 CATEGORIES = (["GENERAL", "OBC", "SC", "ST", "EWS", "OTHER"], [40, 30, 12, 5, 10, 3])
 YEAR3_SHARE = 0.35
 # Admissions inside the window are dated up to LATE_DAYS before its last day; the final
 # LATE_DAYS are kept for the planted overflow rows, so they are always the last admitted.
 LATE_DAYS = 10
+
+
+def has_usable_apaar(row: dict) -> bool:
+    """True when the api keys the student on the APAAR (12 digits, consent LINKED)."""
+    return row["consent_status"] == "LINKED" and bool(APAAR_DIGITS.fullmatch(row["apaar_id"]))
 
 
 def round_half_up(x: float) -> int:
@@ -104,6 +112,9 @@ class World:
         self.counselling_seq: dict[str, int] = {}
         self.seq = 0
         self.y1_count: dict[tuple[str, str], int] = {}
+        # Rows that exist only in update files (late refills); they take part in the
+        # identity checks below and in the APAAR registry.
+        self.update_only_rows: list[dict] = []
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]
         self.scale = 1.0
@@ -219,6 +230,7 @@ class World:
             "_adm_year": admission_year,
             "_cohort_start": academic_year_start(self.cfg.academic_year) - (year_of_study - 1),
             "_late": False,
+            "_dob_group": None,
             "_group": group,
             "_roll_no": "",
             "_round": 0,
@@ -248,7 +260,9 @@ class World:
         if route in COUNSELLED_ROUTES:
             exam = geo.exam_for_state(inst["state_code"])
             rnd = self.rng.choices([1, 2, 3], weights=[60, 30, 10], k=1)[0]
-            roll, allotment = self.next_counselling(exam, row["_adm_year"], rnd)
+            # The api looks allotments up by the cohort's start year (2025 for a year-2
+            # lateral entrant of 2026-27), so the allotment is filed under that year.
+            roll, allotment = self.next_counselling(exam, row["_cohort_start"], rnd)
             row["_roll_no"] = roll
             row["_round"] = rnd
             row["counselling_ref"] = allotment
@@ -437,7 +451,71 @@ class World:
                 day = self.random_date(start, last_normal)
             row["admission_date"] = day.isoformat()
 
+    # -------------------------------------------------------------- identity
+
+    @staticmethod
+    def unit_of(row: dict) -> int:
+        """Rows planted to describe one student (or a renamed copy) share a DOB group."""
+        return row["_dob_group"] or row["_seq"]
+
+    def identity_conflicts(self) -> list[list[int]]:
+        """Groups of units whose dates of birth make a lookup or a duplicate rule misfire.
+
+        - Duplicate rule A compares a student without a usable APAAR with every other
+          student of the college sharing its name_key (DOB, first initial, metaphone of
+          the surname). Outside planted pairs no such neighbour may exist.
+        - mockgov finds a counselling allotment by name and DOB within state, year,
+          programme and college; one allotment per DOB there keeps the lookup exact.
+        """
+        blocks: dict[tuple, dict[int, bool]] = {}
+        allotments: dict[tuple, set[int]] = {}
+        for row in self.all_rows + self.update_only_rows:
+            unit = self.unit_of(row)
+            key = (row["_inst"], name_key(row["name"], row["dob"]))
+            units = blocks.setdefault(key, {})
+            units[unit] = units.get(unit, False) or not has_usable_apaar(row)
+            if row["_roll_no"]:
+                akey = (row["_inst"], row["programme_code"], row["_cohort_start"], row["dob"])
+                allotments.setdefault(akey, set()).add(unit)
+        out = [sorted(u) for u in blocks.values() if len(u) > 1 and any(u.values())]
+        out += [sorted(u) for u in allotments.values() if len(u) > 1]
+        return out
+
+    def resolve_identity_conflicts(self, max_passes: int = 20) -> int:
+        """Re-draw the DOB of every unit but one in each conflict until none is left. The
+        demo student's group never moves; planted groups move together."""
+        members: dict[int, list[dict]] = {}
+        for row in self.all_rows + self.update_only_rows:
+            members.setdefault(self.unit_of(row), []).append(row)
+
+        def rank(unit: int) -> tuple:
+            rows = members[unit]
+            fixed = any("DEMO_STUDENT" in r["_tags"] for r in rows)
+            return (not fixed, rows[0]["_dob_group"] is None, unit)
+
+        moved = 0
+        for _ in range(max_passes):
+            conflicts = self.identity_conflicts()
+            if not conflicts:
+                return moved
+            done: set[int] = set()
+            for group in conflicts:
+                keep, *rest = sorted(group, key=rank)
+                for unit in rest:
+                    if unit in done or rank(unit)[0] is False:
+                        continue
+                    done.add(unit)
+                    moved += 1
+                    old = dt.date.fromisoformat(members[unit][0]["dob"])
+                    new = old
+                    while new == old:
+                        new = dt.date(old.year, self.rng.randint(1, 12), self.rng.randint(1, 28))
+                    for row in members[unit]:
+                        row["dob"] = new.isoformat()
+        raise RuntimeError("could not separate look-alike students; try another seed")
+
     def finalise(self) -> None:
+        self.resolve_identity_conflicts()
         self.assign_admission_dates()
 
     # --------------------------------------------------------------- driver
@@ -522,7 +600,7 @@ class World:
             out.append(
                 {
                     "state": inst["state_code"],
-                    "year": row["_adm_year"],
+                    "year": row["_cohort_start"],
                     "name": row["name"],
                     "dob": row["dob"],
                     "roll_no": row["_roll_no"],
