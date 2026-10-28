@@ -376,14 +376,14 @@ Facts (`evidence.facts`, label: value, source, in this order)
 | | Unseated | {unseated} | Seat ledger |
 | | Most unseated at once (only when higher than Unseated) | {peak_unseated} | Seat ledger |
 | QUOTA_BREACH | Pool | {seat_type_word} | Seat ledger |
-| | Capacity | {capacity} | rules.yaml |
+| | Capacity | {capacity} | AICTE approval rules |
 | | Admitted via route | {admitted} ({route_words}) | College uploads |
 | | Unseated | {unseated} | Seat ledger |
-| | Rule percentage | {share}% of approved intake {approved} | rules.yaml |
+| | Rule percentage | {share}% of approved intake {approved} | AICTE approval rules |
 | LATE_REFILL | Seat | {seat_code} | Seat ledger |
 | | Released on | {released_date} | Seat ledger |
 | | Assigned on | {assigned_date} | College upload {filename}, row {row_no} |
-| | Last admission date | {cutoff_date} | rules.yaml cutoff_dates |
+| | Last admission date | {cutoff_date} | AICTE admission schedule |
 | INVALID_APAAR, not in registry | APAAR (masked) | XXXX XXXX {apaar_last4} | College upload |
 | | Registry reply | Not found | APAAR registry |
 | | Checked at | {checked_date} | APAAR registry |
@@ -422,7 +422,7 @@ Rule sources (`evidence.rule_source`, shown after "Rule:")
 |---|---|
 | flag.EXCESS_ADMISSION.rule | {rule_source}, the Regular pool's, e.g. "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))" |
 | flag.QUOTA_BREACH.rule | {rule_source}, the breached pool's, e.g. "APH 2024-27 cl. 2.8(b)" for NRI |
-| flag.LATE_REFILL.rule | Last admission date for {cohort_year} (rules.yaml cutoff_dates) |
+| flag.LATE_REFILL.rule | Last admission date for {cohort_year} (AICTE admission schedule) |
 | flag.INVALID_APAAR.rule | APAAR verification |
 | flag.NAME_MISMATCH.rule | APAAR verification |
 | flag.DUPLICATE_CROSS_INSTITUTION.rule | One active full-time enrolment per student |
@@ -433,7 +433,7 @@ Rule sources (`evidence.rule_source`, shown after "Rule:")
 | flag.GHOST_RING.rule | Contact graph analysis |
 | flag.ANOMALY.rule | Anomaly model, Week 4 |
 
-QUOTA_BREACH counts `{admitted}` (enrolments by route), because assigned seats can never exceed a pool's capacity. LATE_REFILL cites the last admission date in `rules.yaml` `cutoff_dates`, not APH cl. 6.13(f), which is the lateral-entry vacancy clause.
+QUOTA_BREACH counts `{admitted}` (enrolments by route), because assigned seats can never exceed a pool's capacity. LATE_REFILL cites the last admission date from the AICTE admission schedule (kept in `rules.yaml` `cutoff_dates`; evidence never names the file), not APH cl. 6.13(f), which is the lateral-entry vacancy clause.
 
 Rules for every template: no verdict words (never "fraud", "fake", "illegal"); claimed figure first, source figure second; the period in brackets; one sentence.
 
