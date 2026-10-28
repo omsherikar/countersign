@@ -37,6 +37,12 @@ class Shift(StrEnum):
     SECOND = "SECOND"
 
 
+class ProgrammeMode(StrEnum):
+    PHYSICAL = "PHYSICAL"
+    ODL = "ODL"
+    ONLINE = "ONLINE"
+
+
 class SeatType(StrEnum):
     REGULAR = "REGULAR"
     NRI = "NRI"
@@ -104,9 +110,32 @@ class UploadKind(StrEnum):
 class UploadStatus(StrEnum):
     QUEUED = "QUEUED"
     VALIDATING = "VALIDATING"
-    CHECKING = "CHECKING"
+    PROCESSING = "PROCESSING"
     DONE = "DONE"
     FAILED = "FAILED"
+
+
+class UploadStage(StrEnum):
+    PARSE = "PARSE"
+    VALIDATE = "VALIDATE"
+    FILE_DUPLICATES = "FILE_DUPLICATES"
+    UPSERT = "UPSERT"
+    LEDGER = "LEDGER"
+    CHECKS = "CHECKS"
+    DUPLICATES = "DUPLICATES"
+    FLAGS = "FLAGS"
+    DONE = "DONE"
+
+
+class UploadSource(StrEnum):
+    FILE = "FILE"
+    API = "API"
+    SEED = "SEED"
+
+
+class RowErrorLevel(StrEnum):
+    ERROR = "ERROR"
+    WARNING = "WARNING"
 
 
 class CheckType(StrEnum):

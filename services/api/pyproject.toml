@@ -21,6 +21,10 @@ dependencies = [
     "limits>=3.0",
     "pyyaml>=6.0",
     "rapidfuzz>=3.9",
+    "openpyxl>=3.1",
+    "python-multipart>=0.0.9",
+    "jellyfish>=1.0",
+    "indic-transliteration>=2.3",
 ]
 
 [dependency-groups]

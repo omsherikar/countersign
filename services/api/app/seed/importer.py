@@ -25,6 +25,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core import audit
+from app.core.cohort import cohort_year
 from app.core.crypto import (
     encrypt,
     hmac_bytes,
@@ -49,6 +50,8 @@ from app.models.enums import (
     ProgrammeLevel,
     Shift,
     UploadKind,
+    UploadSource,
+    UploadStage,
     UploadStatus,
     UserRole,
 )
@@ -507,10 +510,11 @@ async def _batch_for(
         filename=filename,
         kind=UploadKind.INITIAL,
         status=UploadStatus.DONE,
+        stage=UploadStage.DONE,
+        source=UploadSource.SEED,
         uploaded_by=owner,
         started_at=now,
         finished_at=now,
-        progress_pct=100,
     )
     session.add(batch)
     await session.flush()
@@ -542,6 +546,7 @@ async def import_upload(session: AsyncSession, path: Path, summary: Summary) -> 
         rows = list(csv.DictReader(fh))
     batch = await _batch_for(session, institution, file_year, path.name, summary)
 
+    today = datetime.now(UTC).date()
     students: dict[bytes | str, dict[str, Any]] = {}
     enrolment_rows: list[tuple[bytes | str, dict[str, Any]]] = []
     row_errors: list[dict[str, Any]] = []
@@ -564,14 +569,19 @@ async def import_upload(session: AsyncSession, path: Path, summary: Summary) -> 
         programme_id = programmes.get(code)
         if programme_id is None:
             raise SeedError(f"{path.name} row {index}: unknown programme_code {code!r}")
+        academic_year = (row.get("academic_year") or file_year).strip()
+        year_of_study = int(row.get("year_of_study") or 1)
         enrolment_rows.append(
             (
                 key,
                 {
                     "institution_id": institution.id,
                     "programme_id": programme_id,
-                    "academic_year": (row.get("academic_year") or file_year).strip(),
-                    "year_of_study": int(row.get("year_of_study") or 1),
+                    "academic_year": academic_year,
+                    "year_of_study": year_of_study,
+                    "cohort_year": cohort_year(academic_year, year_of_study),
+                    "admission_date": today,
+                    "status_date": today,
                     "admission_route": _enum(
                         AdmissionRoute, row.get("admission_route"), index, "admission_route"
                     ),
@@ -608,9 +618,12 @@ async def import_upload(session: AsyncSession, path: Path, summary: Summary) -> 
     if row_errors:
         await session.execute(insert(UploadRowError).values(row_errors))
     summary.bump("upload_row_errors", True, len(row_errors))
-    batch.rows_total = len(rows)
-    batch.rows_error = len(row_errors)
-    batch.rows_ok = len(rows) - len(row_errors)
+    batch.total_rows = len(rows)
+    batch.counts = {
+        "rows": len(rows),
+        "accepted": len(rows) - len(row_errors),
+        "errors": len(row_errors),
+    }
     summary.files.append(path.name)
 
     await audit.record(

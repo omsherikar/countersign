@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -79,3 +79,5 @@ class SeatEvent(Base):
     at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))
     actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     reason: Mapped[str | None] = mapped_column(String)
+    # business date: admission_date on ASSIGN, status_date on RELEASE (`at` is server time)
+    effective_date: Mapped[date | None]
