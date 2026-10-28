@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Bell, Link2, Wallet } from "lucide-react";
+import Link from "next/link";
+import { Bell, Check, Link2, Minus, Wallet, X } from "lucide-react";
 import { CHECK_ORDER } from "@/components/brand/CountersignScore";
 import { ConsentBadge } from "@/components/brand/ConsentBadge";
 import { EmptyState } from "@/components/brand/EmptyState";
@@ -9,12 +10,16 @@ import { MaskedApaar } from "@/components/brand/MaskedApaar";
 import { t, tk } from "@/lib/copy";
 import { formatDate } from "@/lib/format";
 import { useStudentMe } from "@/lib/queries";
-import type { StudentEnrolment } from "@/lib/types";
+import type { StudentCredentialBrief, StudentEnrolment } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
 import { CountersignStrip } from "@/components/common/ledger-bits";
+import { StatusWord, useNow } from "@/components/student/bits";
+import { groupNotices, homeLine, type NoticeGroup } from "@/components/student/notice-groups";
+import { ReplyWord } from "@/components/student/notices-page";
 
-function EnrolmentCard({ e }: { e: StudentEnrolment }) {
+function EnrolmentCard({ e, group }: { e: StudentEnrolment; group: NoticeGroup | undefined }) {
+  const line = homeLine(group, formatDate);
   const headingId = `enrolment-${e.id}`;
   return (
     <section aria-labelledby={headingId} className="border-l-2 border-rule-margin bg-paper-raised px-5 py-5 shadow-hairline">
@@ -32,26 +37,53 @@ function EnrolmentCard({ e }: { e: StudentEnrolment }) {
             <span className="text-md text-ink-muted">{t("student.strip_caption", { passes: e.countersign.score.passes, applicable: e.countersign.score.applicable })}</span>
           )}
         </div>
-        {e.countersign.checks.some((c) => c.type === "STUDENT" && c.status === "PENDING") && (
-          <p className="max-w-[60ch] text-md text-ink-muted">{t("student.check_student_pending")}</p>
-        )}
+        {line && e.status === "ACTIVE" && <p className="max-w-[60ch] text-md text-ink-muted">{line}</p>}
         <p className="text-md text-ink-muted">{CHECK_ORDER.map((c) => tk(`check.${c}`)).join(" · ")}</p>
       </div>
     </section>
   );
 }
 
-function Placeholder({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+/** A ruled section under the enrolment cards: its title links to the full page. */
+function Section({ icon, title, href, children }: { icon: React.ReactNode; title: string; href?: string; children: React.ReactNode }) {
   return (
     <section className="flex items-start gap-3 border-b border-rule py-4">
       <span className="mt-0.5 text-ink-faint" aria-hidden="true">
         {icon}
       </span>
-      <div>
-        <h2 className="font-sans text-md font-semibold">{title}</h2>
-        <p className="mt-0.5 text-md text-ink-muted">{text}</p>
+      <div className="min-w-0 flex-1">
+        <h2 className="font-sans text-md font-semibold">
+          {href ? (
+            <Link href={href} className="inline-flex min-h-11 items-center">
+              {title}
+            </Link>
+          ) : (
+            title
+          )}
+        </h2>
+        <div className="mt-0.5 text-md text-ink-muted">{children}</div>
       </div>
     </section>
+  );
+}
+
+function ProofLine({ c }: { c: StudentCredentialBrief }) {
+  const word =
+    c.status === "ACTIVE" ? (
+      <StatusWord tone="ok" icon={Check}>{t("wallet.status.active")}</StatusWord>
+    ) : c.status === "REVOKED" ? (
+      <StatusWord tone="neutral" icon={X}>{t("wallet.status.revoked")}</StatusWord>
+    ) : (
+      <StatusWord tone="neutral" icon={Minus}>{t("wallet.status.expired")}</StatusWord>
+    );
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="text-ink">{tk(`wallet.kind.${c.kind}`)}</span>
+      {word}
+      <span>
+        {c.institution_name}, {t("wallet.issued_on", { issued_date: formatDate(c.issued_at) })}
+      </span>
+    </p>
   );
 }
 
@@ -59,6 +91,9 @@ function Placeholder({ icon, title, text }: { icon: React.ReactNode; title: stri
 export function StudentHome() {
   const me = useStudentMe();
   const s = me.data;
+  const now = useNow();
+  const groups = React.useMemo(() => (s ? groupNotices(s.notices, s.enrolments, now) : []), [s, now]);
+  const newestProof = s?.credentials.slice().sort((a, b) => b.issued_at.localeCompare(a.issued_at))[0];
 
   return (
     <div className="text-md">
@@ -107,25 +142,35 @@ export function StudentHome() {
             {s.enrolments.length === 0 ? (
               <EmptyState title={t("empty.enrolments_student")} />
             ) : (
-              s.enrolments.map((e) => <EnrolmentCard key={e.id} e={e} />)
+              s.enrolments.map((e) => <EnrolmentCard key={e.id} e={e} group={groups.find((g) => g.enrolmentId === e.id)} />)
             )}
           </div>
 
           <div className="mb-8 border-t border-rule-strong">
-            <Placeholder icon={<Bell className="size-5" />} title={t("nav.notices")} text={t("empty.notices_student")} />
-            <Placeholder icon={<Wallet className="size-5" />} title={t("nav.wallet")} text={t("empty.credentials_student")} />
-            <Placeholder
-              icon={<Link2 className="size-5" />}
-              title={t("app.student.consent")}
-              text={t("app.student.consent_change", { tip: tk(`student.consent_${s.consent_status}`).replace(/\.$/, "") })}
-            />
+            <Section icon={<Bell className="size-5" />} title={t("nav.notices")} href="/student/notices">
+              {groups[0] ? (
+                <div className="flex flex-col gap-1">
+                  <p>
+                    {groups[0].institutionName}: {t("notices.claim", { programme_short: groups[0].programmeShort, academic_year: groups[0].academicYear })}
+                  </p>
+                  <div>
+                    <ReplyWord group={groups[0]} />
+                  </div>
+                </div>
+              ) : (
+                t("empty.notices_student")
+              )}
+            </Section>
+            <Section icon={<Wallet className="size-5" />} title={t("nav.wallet")} href="/student/wallet">
+              {newestProof ? <ProofLine c={newestProof} /> : t("empty.credentials_student")}
+            </Section>
+            <Section icon={<Link2 className="size-5" />} title={t("app.student.consent")}>
+              {t("student.consent_change", { tip: tk(`student.consent_${s.consent_status}`).replace(/\.$/, "") })}
+            </Section>
           </div>
 
           <p className="text-md text-ink-muted">
-            {t("privacy.student_line")}{" "}
-            <span className="text-ink-muted">
-              {t("privacy.how_link")} ({t("shell.coming", { n: 3 })})
-            </span>
+            {t("privacy.student_line")} <Link href="/student/privacy">{t("privacy.how_link")}</Link>
           </p>
         </>
       )}

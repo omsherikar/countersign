@@ -9,6 +9,7 @@ import { SEVERITY_RANK, UNRESOLVED, allFlags, openFlagCount, type StoredFlag } f
 import { enrolmentDetail, entryById, programmesFor, recheck, rollFor, seatsFor, studentMe, type RollEntry } from "@/lib/mock/roll";
 import { readBrowserToken, tokenFor, userFromToken, writeBrowserToken } from "@/lib/mock/session";
 import { allBatches, createUpload, errorsCsv, errorsOf, templateCsv } from "@/lib/mock/uploads";
+import { UNHANDLED, studentLoopDownload, studentLoopRequest } from "@/lib/mock/student-loop";
 import type {
   ChaosRequest,
   ChaosState,
@@ -460,6 +461,9 @@ export async function mockRequest(method: string, path: string, query?: Query, b
   }
   if (pathname === "/healthz") return HEALTH;
 
+  const loop = await studentLoopRequest(method, pathname, query, body);
+  if (loop !== UNHANDLED) return loop;
+
   const user = currentUser();
 
   if (pathname === "/me") return { user };
@@ -575,6 +579,8 @@ export async function mockUpload(path: string, form: FormData): Promise<unknown>
 /** File downloads in mock mode: errors.csv and the templates. */
 export async function mockDownload(path: string): Promise<{ blob: Blob; filename: string }> {
   await wait(150);
+  const file = await studentLoopDownload(path);
+  if (file) return file;
   const user = currentUser();
   if (path === "/uploads/template.csv" || path === "/uploads/template.xlsx") {
     requireRole(user, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION"]);

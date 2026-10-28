@@ -58,13 +58,13 @@ export const NAV: Record<Exclude<Role, "VERIFIER">, NavItem[]> = {
   ],
   STUDENT: [
     { label: "nav.my_enrolment", href: "/student", icon: UserRound, week: 1, available: true, exact: true },
-    { label: "nav.notices", href: "/student/notices", icon: Bell, week: 3, available: false },
-    { label: "nav.wallet", href: "/student/wallet", icon: Wallet, week: 3, available: false },
-    { label: "nav.privacy", href: "/student/privacy", icon: Shield, week: 3, available: false },
+    { label: "nav.notices", href: "/student/notices", icon: Bell, week: 3, available: true },
+    { label: "nav.wallet", href: "/student/wallet", icon: Wallet, week: 3, available: true },
+    { label: "nav.privacy", href: "/student/privacy", icon: Shield, week: 3, available: true },
   ],
   UNIVERSITY: [
     { label: "nav.affiliated", href: "/university", icon: Landmark, week: 1, available: true, alsoActive: ["/university/institutions", "/university/enrolments"] },
-    { label: "nav.degree_print", href: "/university/degrees", icon: Printer, week: 3, available: false },
+    { label: "nav.degree_print", href: "/university/degrees", icon: Printer, week: 3, available: true },
   ],
 };
 
