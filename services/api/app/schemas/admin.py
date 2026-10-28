@@ -31,6 +31,9 @@ class AuditRow(BaseModel):
     at: str
     actor_id: str | None
     actor_email: str | None
+    actor_role: str | None = None
+    # how a public page reached the entity (after.via), e.g. "verifier" or "notice-link"
+    via: str | None = None
     action: str
     entity_type: str
     entity_id: str | None

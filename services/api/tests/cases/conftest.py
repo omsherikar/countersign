@@ -19,6 +19,8 @@ import httpx
 import pytest
 from sqlalchemy import select, update
 
+from app.core import audit
+from app.core.audit import AuditEntry
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db.session import session_factory
@@ -26,7 +28,14 @@ from app.engine import evidence as ev
 from app.engine.flags import raise_flag
 from app.engine.suite import DefaultEngines
 from app.models.credential import Credential
-from app.models.enums import CredentialKind, FlagStatus, FlagType, Severity, UserRole
+from app.models.enums import (
+    AuditAction,
+    CredentialKind,
+    FlagStatus,
+    FlagType,
+    Severity,
+    UserRole,
+)
 from app.models.geo import University
 from app.models.user import User
 from app.models.verification import Flag
@@ -236,6 +245,23 @@ async def add_credential(student_id: uuid.UUID, enrolment_id: uuid.UUID) -> uuid
         session.add(credential)
         await session.commit()
         return credential.id
+
+
+async def read_entry(entity_type: str, entity_id, actor_id=None, after=None) -> None:
+    async with session_factory()() as session:
+        await audit.record_many(
+            session,
+            [
+                AuditEntry(
+                    action=AuditAction.READ,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    actor_id=actor_id,
+                    after=after,
+                )
+            ],
+        )
+        await session.commit()
 
 
 class FailingMailer:

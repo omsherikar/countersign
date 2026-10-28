@@ -56,6 +56,12 @@ async def audit_verify(session: SessionDep, _user: AdminUser) -> AuditVerify:
     return AuditVerify(ok=ok, length=length, first_broken_seq=first_broken, checked_at=_now())
 
 
+def _via(after: dict[str, Any] | None) -> str | None:
+    """How a public page reached the entity (`after.via`), when the entry says."""
+    via = after.get("via") if isinstance(after, dict) else None
+    return via if isinstance(via, str) else None
+
+
 @router.get("/audit", response_model=Page[AuditRow])
 async def audit_list(
     session: SessionDep,
@@ -63,12 +69,22 @@ async def audit_list(
     paging: Paging,
     actor_id: uuid.UUID | None = None,
     entity_type: Annotated[str | None, Query(max_length=64)] = None,
+    entity_id: uuid.UUID | None = None,
+    action: AuditAction | None = None,
+    seq_from: Annotated[int | None, Query(ge=1)] = None,
 ) -> Page[AuditRow]:
-    stmt = select(AuditLog, User.email).outerjoin(User, User.id == AuditLog.actor_id)
+    """Newest first. `seq_from=n` opens the list at entry n (entries with seq at most n)."""
+    stmt = select(AuditLog, User.email, User.role).outerjoin(User, User.id == AuditLog.actor_id)
     if actor_id:
         stmt = stmt.where(AuditLog.actor_id == actor_id)
     if entity_type:
         stmt = stmt.where(AuditLog.entity_type == entity_type)
+    if entity_id:
+        stmt = stmt.where(AuditLog.entity_id == entity_id)
+    if action:
+        stmt = stmt.where(AuditLog.action == action)
+    if seq_from:
+        stmt = stmt.where(AuditLog.seq <= seq_from)
     total = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (
         await session.execute(
@@ -81,13 +97,15 @@ async def audit_list(
             at=_iso(row.at),
             actor_id=str(row.actor_id) if row.actor_id else None,
             actor_email=email,
+            actor_role=role.value if role else None,
+            via=_via(row.after),
             action=row.action.value,
             entity_type=row.entity_type,
             entity_id=str(row.entity_id) if row.entity_id else None,
             hash=row.hash,
             prev_hash=row.prev_hash,
         )
-        for row, email in rows
+        for row, email, role in rows
     ]
     return Page(items=items, total=total, page=paging.page, page_size=paging.page_size)
 

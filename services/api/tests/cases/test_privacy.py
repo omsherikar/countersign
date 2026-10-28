@@ -11,14 +11,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import select, update
 
-from app.core import audit
-from app.core.audit import AuditEntry
 from app.credentials import holder
 from app.db.session import session_factory
 from app.models.audit import AuditLog
 from app.models.credential import Consent, Credential, CredentialPresentation, DataRequest
 from app.models.enums import (
-    AuditAction,
     ConsentPurpose,
     ConsentState,
     NoticeChannel,
@@ -26,7 +23,7 @@ from app.models.enums import (
 from app.models.verification import Notification
 from app.privacy import service as privacy
 from app.privacy.notice import WITHDRAW_TEXTS
-from tests.cases.conftest import RAVI_APAAR, add_credential, new_flag
+from tests.cases.conftest import RAVI_APAAR, add_credential, new_flag, read_entry
 
 
 async def give(student_id: uuid.UUID, purpose: ConsentPurpose) -> None:
@@ -49,23 +46,6 @@ async def clear_consents(student_id: uuid.UUID) -> None:
         ).scalars()
         for row in rows:
             await session.delete(row)
-        await session.commit()
-
-
-async def read_entry(entity_type: str, entity_id, actor_id=None, after=None) -> None:
-    async with session_factory()() as session:
-        await audit.record_many(
-            session,
-            [
-                AuditEntry(
-                    action=AuditAction.READ,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                    actor_id=actor_id,
-                    after=after,
-                )
-            ],
-        )
         await session.commit()
 
 
