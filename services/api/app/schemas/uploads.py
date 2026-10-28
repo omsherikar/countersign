@@ -22,6 +22,13 @@ class UploadCounts(BaseModel):
     unseated: int = 0
     flags_raised: int = 0
     flags_updated: int = 0
+    # enrolment versions the batch wrote (D42)
+    versions: int = 0
+
+
+class MappedColumn(BaseModel):
+    header: str
+    column: str
 
 
 class UploadSourceStat(BaseModel):

@@ -209,3 +209,4 @@ class UpsertResult:
     transferred: int = 0
     students_created: int = 0
     students_updated: int = 0
+    versions: int = 0  # enrolment versions written (D42)

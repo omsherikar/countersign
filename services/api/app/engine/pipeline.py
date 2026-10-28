@@ -426,7 +426,14 @@ class _BatchRun:
                 )
                 await self._write_issues(session, result.issues)
                 self.outcomes.extend(result.outcomes)
-                for key in ("created", "updated", "unchanged", "withdrawn", "transferred"):
+                for key in (
+                    "created",
+                    "updated",
+                    "unchanged",
+                    "withdrawn",
+                    "transferred",
+                    "versions",
+                ):
                     self.counts[key] += getattr(result, key)
 
             await self._chunk(work, done)
