@@ -16,10 +16,21 @@ async def test_notify_delivers_to_a_linked_id(client: AsyncClient, seeded: dict)
     assert len(body["inbox_id"]) == 3 + 26
 
 
-async def test_notify_unlinked_id(client: AsyncClient, seeded: dict) -> None:
+async def test_notify_unknown_id_is_404_and_stores_nothing(
+    client: AsyncClient, seeded: dict
+) -> None:
+    """The api reads a 404 as "no DigiLocker account" and marks that delivery FAILED."""
     response = await client.post("/digilocker/notify", json={**NOTICE, "apaar_id": "000000000000"})
-    assert response.status_code == 200
-    assert response.json() == {"delivered": False, "inbox_id": None, "reason": "APAAR_NOT_LINKED"}
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {
+            "code": "APAAR_NOT_LINKED",
+            "message": "No DigiLocker account is linked to this APAAR id.",
+            "details": {},
+        }
+    }
+    inbox = await client.get("/digilocker/inbox/000000000000")
+    assert inbox.json() == {"items": []}
 
 
 async def test_inbox_lists_newest_first(client: AsyncClient, seeded: dict) -> None:

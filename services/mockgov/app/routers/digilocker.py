@@ -1,11 +1,12 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Response
+from fastapi import APIRouter, Depends, Path
 from sqlalchemy import select
 
 from app.chaos import chaos_gate
 from app.db import SessionDep
+from app.errors import MockGovError
 from app.ids import inbox_id
 from app.models import ApaarRecord, DigiLockerMessage
 from app.schemas import (
@@ -20,16 +21,27 @@ router = APIRouter(
 )
 
 
-@router.post("/notify", response_model=DigiLockerNotifyResponse)
+class NoDigiLockerAccount(MockGovError):
+    def __init__(self) -> None:
+        super().__init__(
+            404, "APAAR_NOT_LINKED", "No DigiLocker account is linked to this APAAR id."
+        )
+
+
+@router.post(
+    "/notify",
+    response_model=DigiLockerNotifyResponse,
+    status_code=202,
+    responses={404: {"description": "No DigiLocker account is linked to this APAAR id."}},
+)
 async def notify(
     body: DigiLockerNotifyRequest,
-    response: Response,
     session: SessionDep,
 ) -> DigiLockerNotifyResponse:
-    """Drops a notice into the student's DigiLocker inbox. 202 when delivered, 200 when the
-    APAAR id is not linked to any DigiLocker account."""
+    """Drops a notice into the student's DigiLocker inbox: 202 when delivered, 404 when the
+    APAAR id has no DigiLocker account (the api then marks that delivery FAILED)."""
     if await session.get(ApaarRecord, body.apaar_id) is None:
-        return DigiLockerNotifyResponse(delivered=False, inbox_id=None, reason="APAAR_NOT_LINKED")
+        raise NoDigiLockerAccount()
 
     message = DigiLockerMessage(
         inbox_id=inbox_id(),
@@ -41,7 +53,6 @@ async def notify(
     )
     session.add(message)
     await session.commit()
-    response.status_code = 202
     return DigiLockerNotifyResponse(delivered=True, inbox_id=message.inbox_id)
 
 
