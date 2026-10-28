@@ -47,7 +47,7 @@ export function NavList({
                   >
                     <Icon className="size-4 shrink-0" aria-hidden="true" />
                     <span className="truncate">{label}</span>
-                    <span className="ml-auto pl-2 text-2xs text-ink-faint">Week {item.week}</span>
+                    <span className="ml-auto shrink-0 text-2xs text-ink-faint">Week {item.week}</span>
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side={vertical ? "right" : "bottom"}>{coming}</TooltipContent>
