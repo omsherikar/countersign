@@ -105,7 +105,95 @@ Officers read the same component, without the upload links, at `/aicte/uploads/[
 
 Replaced by the contract: `rows_total`, `rows_ok`, `rows_error` (now `counts.rows`, `.accepted`, `.errors`), per-source `{done, total, status}` (now `sources[].calls` and `.unavailable`), the `raw` column (now `value_masked`), the Checking status (now Processing with eight stages), and the error codes ROUTE_INVALID, YEAR_INVALID, CONSENT_INVALID (now BAD_ENUM per column and YEAR_OF_STUDY_INVALID). APAAR_FORMAT is a warning: the row is kept without its APAAR and the Identity check fails with an APAAR not verified flag.
 
-### W2-3. `/aicte/cases` and `/ro/cases` (case queue)
+### W2-3. Countersign strip, live
+
+One shared component. Input: the compact `countersign {score, checks: [{type, status}]}` from enrolment rows and `/students/me` (§A2.10, §A2.21), or the full `checks[]` from enrolment detail (§A2.11).
+
+```
+■ ■ ■ ▨ □  3 of 4
+```
+
+- Five segments in the order Identity, Admission, Seat, Studying, Student. PASS filled; FAIL filled with a cross; PENDING hollow; NA hatched grey. PENDING is never red.
+- Text: [strip.score]; [strip.score_pending] only when a check other than Student is pending (`{pending}` leaves Student out). `score: null` prints [strip.not_checked] beside five hollow grey segments.
+- The strip is one focusable control (one Tab stop per row). Hover, focus or tap opens a small popover listing the five checks: [strip.segment_tip] lines in lists, [strip.segment_tip_full] lines on enrolment detail. `aria-label` is [strip.aria]. All three use the pending words of copy deck §3: in lists a pending check other than Student reads "Pending" (lists carry no detail); Student reads "Notice not sent yet".
+- Week 2 truth: the Student check is pending for every active enrolment, so nobody reads "4 of 4". The demo student reads "3 of 4" (Identity, Admission and Seat countersigned, Studying n/a, Student pending).
+
+### W2-4. Enrolment tables (Enrolments tab, `/college/enrolments`)
+
+Week 1 columns with these changes (§A2.10):
+- Student is an `<a href>` to enrolment detail (W2-5).
+- Seat: `seat_code` in monospace, or "Unseated" in muted text when null.
+- Countersign: the live strip (W2-3).
+- Flags: one chip per unresolved flag in `flags[]`, most severe first, with the type name and severity word (accessible name [flag.chip]); at most two chips, then "+n". The 12 unseated ABC CSE first-years each show Excess admission.
+- New filters, in the URL with the `e_` prefix: Check (`check_type`), Result (`check_status`), Flags (`flagged`), Seat (`seated`). Result alone means "any check with this result"; Check and Result together mean "this check with this result"; Check alone is not sent. Empty with filters: [empty.enrolments_filtered].
+
+### W2-5. Enrolment detail `/aicte/enrolments/[id]`, `/ro/enrolments/[id]`, `/college/enrolments/[id]`, `/university/enrolments/[id]`
+
+Purpose: everything Countersign holds about one enrolment and which source agreed, in one place an officer can link to.
+
+```
+Overview / ABC College of Engineering / Enrolments / Ravi Kumar Sharma
+Ravi Kumar Sharma                                      XXXX XXXX 4417  [APAAR linked]
+B.Tech Computer Science and Engineering (CSE) · ABC College of Engineering
+■ ■ ■ ▨ □  Countersigned 3 of 4                                [Recheck pending checks]
+
+Student                            Enrolment
+Date of birth  21 Mar 2007         Intake           2026-27 approval
+Gender         Male                Year of study    1
+Mobile         XXXXXX4521          Admission route  Counselling, MHCET-2026-R1-004512
+Nationality    IN                  Category         General
+                                   Status           Active since 28 Oct 2026
+                                   Admitted on      2 Aug 2026
+                                   Mode             Physical
+                                   Source row       Row 2 of 1-ABC-0001_2026-27.csv
+
+Seat
+CSE-R-001 · Regular · 2026-27 approval · assigned 28 Oct 2026
+
+Countersign checks
+Check      Result               Source            Checked                 Detail
+Identity   Countersigned        APAAR registry    28 Oct 2026, 15:32 IST  Name and date of birth match the APAAR registry (similarity 100 of 100).
+Admission  Countersigned        Counselling list  28 Oct 2026, 15:32 IST  Found in the Maharashtra counselling allotments for CSE (2026), round 1.
+Seat       Countersigned        Seat ledger       28 Oct 2026, 15:32 IST  Holds seat CSE-R-001 (Regular, 2026-27 approval).
+Studying   n/a                  ABC credits       28 Oct 2026, 15:32 IST  First year, no result yet.
+Student    Notice not sent yet  Student reply     28 Oct 2026, 15:32 IST  Notice not sent yet.
+
+Flags on this enrolment
+Medium  Duplicate within institution  Open  Rows 2 and 133 of 1-ABC-0001_2026-27.csv describe the same student.  28 Oct 2026
+Viewing student records is logged.
+```
+
+Data, `GET /enrolments/{id}` (§A2.11):
+- Routes are flat and thin over one shared component (pass `basePath` and the crumb root). Breadcrumbs: officers "Overview / <institution> / Enrolments / <name>"; registrar "Seat ledger / Enrolments / <name>"; university "Affiliated institutions / <institution> / <name>". Page title [enrolment.title].
+- Header: `student.name`, `apaar_masked` or the provisional id, consent badge, `programme.name` and `code`, institution link, the strip from `countersign` with [enrolment.score_label].
+- Student block: `dob`, `gender` (`gender.*`), `mobile_masked` as sent (not shown to the university; a null leaves the line out), `nationality`.
+- Enrolment block: [enrolment.intake_value] from `cohort_year`, `year_of_study`, route word plus `counselling_ref`, category word, [enrolment.status_value], `admission_date`, `programme.mode` (`mode.*`), [enrolment.source_row] from `upload` (null: [enrolment.source_row_none]).
+- Seat: [enrolment.seat_value] from `seat`; null prints [enrolment.unseated] and [enrolment.unseated_flag] linked to that flag (the SEAT check's `detail.flag_type`).
+- Checks table: the five `checks` rows: Check (`check.*`), Result (deck §3 words), Source (`source.*`), Checked (`checked_at`, null prints [check.never]), Detail (`detail.summary` verbatim, plus [check.attempts] in small text when `attempts` is above 0). `checks: []` prints [empty.checks].
+- Recheck: [recheck.enrolment] for AICTE officer, regional officer and registrar, shown only when a check other than Student is PENDING; `POST /enrolments/{id}/recheck` (§A2.12); the result appears in an `aria-live="polite"` region with the `recheck.*` lines, then the page refetches. 429 shows [err.RATE_LIMITED] with a countdown.
+- Flags: `flags` (every status), severity chip, type name, status word, `summary` verbatim, `created_at` date. Rows link to flag detail for officers and the registrar; the university sees them as plain text (it cannot open `/flags`). Empty: [empty.flags_enrolment].
+- Footer [privacy.read_logged]; the api writes a READ audit entry on every open.
+
+States: skeleton while loading; 404 [err.NOT_FOUND_enrolment] with "Back to overview".
+
+Replaced: the earlier drawer inside the enrolments table. A page has its own URL, so a flag can link to an enrolment and Back works.
+
+### W2-6. Institution detail and the seat ledger, Week 2
+
+`/aicte/institutions/[id]`, `/ro/institutions/[id]`, `/university/institutions/[id]` (§A2.20):
+- Header figures, in this order: Approved seats and Admitted (both hinted [app.hint.intake]), Students on roll (hinted [app.hint.all_years]), Open flags (`flags_open`; hidden for the university).
+- [last_upload.line] from `last_upload` (null: [college.no_upload_yet]); officers may link it to the batch page.
+- Programmes table: Code, Programme, Level, Shift, Mode (`mode.*`), Approved, Admitted (`enrolments`, tooltip [col.admitted_tip]), Seated (`seated`), Unseated (`unseated`, amber chip when above 0). Pools line with real `assigned`.
+- Enrolments tab: W2-4. Seats tab: real holders and assigned dates, same shape as Week 1.
+- Flags tab, label "Flags ({flags_open})": `GET /flags?institution_id={id}&academic_year={year}&status=OPEN&sort=severity_desc`, the shared flags table without the Institution and State columns, count line [table.count.flags_one], empty [empty.flags_institution]. Hidden for the university.
+- Officers (AICTE officer, regional officer) get [recheck.institution] in the header, tooltip [recheck.institution_tip]: `POST /institutions/{id}/recheck {academic_year}` (§A2.13); the result line [recheck.institution_result] (plus [recheck.flags_raised]) appears in an `aria-live` region. This is the button for the demo moment "the source is back".
+
+`/college` (seat ledger):
+- Tiles, all about one intake: Approved seats, Admitted, Seated, Unseated (sums over `programmes[]`), then the line [app.all_years_line] with `enrolments`.
+- Flags: the five most severe open flags from `GET /flags?status=OPEN&page_size=5`, summaries verbatim, with [flags.see_all] to `/college/flags`; empty [empty.flags_college].
+- [last_upload.line] linked to the batch page, and a link [upload.upload_again] to `/college/upload`.
+
+### W2-7. `/aicte/cases` and `/ro/cases` (case queue)
 
 ```
 Cases                               37 open flags in 9 institutions
@@ -122,7 +210,7 @@ Columns: Severity (word), Type (human name from copy deck `flag.<TYPE>.name`), I
 Keyboard: `j`/`k`, `Enter`. Row is a link to `/aicte/cases/{id}`.
 Empty: [empty.cases] "No open flags. Flags appear here after uploads are checked."
 
-### W2-4. `/aicte/cases/[flagId]` and `/ro/cases/[flagId]` (flag detail)
+### W2-8. `/aicte/cases/[flagId]` and `/ro/cases/[flagId]` (flag detail)
 
 ```
 Overview / Cases / Excess admission, ABC College of Engineering
@@ -154,10 +242,6 @@ Data: `GET /flags/{id}` (proposed: flag fields, `evidence {summary, facts[{label
 Action sheets (all require a note): [case.clear_confirm], [case.request_docs_prompt], [case.escalate_prompt], [case.confirm_confirm]. The Confirm sheet repeats "Nothing is deleted. The enrolment keeps its status; the case record and your note are what change."
 Institution view `/college/flags/[flagId]` shows the same evidence and history, no action bar, plus "Respond" (note + files) when status is Documents requested.
 Cross-institution duplicates: the officer sees both institutions; the registrar sees "another institution in Maharashtra" (no name).
-
-### W2-5. Enrolment detail drawer (inside enrolments tables)
-
-Opened from the Student cell from Week 2. Shows: masked identity, the five checks as rows (Check, Status word, Source, Checked at, Detail summary), the seat, and the flags on this enrolment. Status words: Countersigned, Not countersigned, Awaiting source, n/a. `Esc` closes; focus returns to the row.
 
 ## Week 3
 
