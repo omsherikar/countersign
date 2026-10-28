@@ -195,17 +195,56 @@ async def record_read(
 
 
 async def verify_chain(session: AsyncSession) -> tuple[bool, int, int | None]:
-    """Walk the chain in seq order. Returns (ok, length, first_broken_seq)."""
+    """Walk the chain in seq order. Returns (ok, length, first_broken_seq).
+
+    Reads plain column tuples in large chunks rather than ORM objects: the chain holds a
+    READ entry for every record view, so it grows by the hundred thousand and the walk has
+    to stay quick enough for the admin page.
+    """
     length = 0
     expected_prev: str | None = None
     first_broken: int | None = None
-    result = await session.stream(
-        select(AuditLog).order_by(AuditLog.seq).execution_options(yield_per=500)
+    columns = (
+        AuditLog.seq,
+        AuditLog.at,
+        AuditLog.actor_id,
+        AuditLog.action,
+        AuditLog.entity_type,
+        AuditLog.entity_id,
+        AuditLog.before,
+        AuditLog.after,
+        AuditLog.prev_hash,
+        AuditLog.hash,
     )
-    async for row in result.scalars():
+    result = await session.stream(
+        select(*columns).order_by(AuditLog.seq).execution_options(yield_per=5000)
+    )
+    async for (
+        seq,
+        at,
+        actor_id,
+        action,
+        entity_type,
+        entity_id,
+        before,
+        after,
+        prev,
+        digest,
+    ) in result:
         length += 1
         if first_broken is None:
-            if row.prev_hash != expected_prev or hash_of_row(row) != row.hash:
-                first_broken = row.seq
-        expected_prev = row.hash
+            recomputed = compute_hash(
+                prev,
+                seq=seq,
+                at=at,
+                actor_id=actor_id,
+                action=action.value if isinstance(action, AuditAction) else str(action),
+                entity_type=entity_type,
+                entity_id=entity_id,
+                before=before,
+                after=after,
+            )
+            if prev != expected_prev or recomputed != digest:
+                first_broken = seq
+        expected_prev = digest
     return first_broken is None, length, first_broken
