@@ -11,15 +11,23 @@ from app.models.credential import (
     SigningKey,
 )
 from app.models.geo import Region, State, University
-from app.models.institution import Approval, Institution, Programme
+from app.models.institution import (
+    Approval,
+    ApprovalVersion,
+    Institution,
+    InstitutionColumnMapping,
+    Programme,
+)
 from app.models.seat import Seat, SeatEvent, SeatPool
-from app.models.student import Enrolment, Student
+from app.models.signal import Signal
+from app.models.student import Enrolment, EnrolmentVersion, Student
 from app.models.upload import UploadBatch, UploadRowError
 from app.models.user import User
 from app.models.verification import CaseAction, CaseAttachment, Check, Flag, Notification
 
 __all__ = [
     "Approval",
+    "ApprovalVersion",
     "AuditLog",
     "CaseAction",
     "CaseAttachment",
@@ -29,9 +37,11 @@ __all__ = [
     "CredentialPresentation",
     "DataRequest",
     "Enrolment",
+    "EnrolmentVersion",
     "Flag",
     "HolderKey",
     "Institution",
+    "InstitutionColumnMapping",
     "InstitutionScore",
     "Notification",
     "Programme",
@@ -39,6 +49,7 @@ __all__ = [
     "Seat",
     "SeatEvent",
     "SeatPool",
+    "Signal",
     "SigningKey",
     "State",
     "Student",

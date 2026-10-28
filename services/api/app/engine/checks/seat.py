@@ -22,7 +22,7 @@ def seat_flag_type(seat_type: SeatType) -> FlagType:
 def decide(subject: CheckSubject) -> CheckOutcome:
     if subject.seat_code and subject.seat_type and subject.seat_in_cohort_approval:
         detail = ev.seat_holds(subject.seat_code, subject.seat_type, subject.cohort_year)
-        return CheckOutcome(type=CHECK, status=CheckStatus.PASS, source=SOURCE, detail=detail)
+        return CheckOutcome(type=CHECK, status=CheckStatus.CONFIRMED, source=SOURCE, detail=detail)
     target = subject.target_seat_type
     flag_type = seat_flag_type(target)
     detail = ev.seat_missing(
@@ -32,7 +32,7 @@ def decide(subject: CheckSubject) -> CheckOutcome:
         flag_type,
         seat_flag_key(subject.programme_id, subject.cohort_year, target),
     )
-    return CheckOutcome(type=CHECK, status=CheckStatus.FAIL, source=SOURCE, detail=detail)
+    return CheckOutcome(type=CHECK, status=CheckStatus.CONTRADICTED, source=SOURCE, detail=detail)
 
 
 async def evaluate(

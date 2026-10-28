@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     ForeignKey,
     Index,
     Integer,
@@ -18,7 +20,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, Timestamps, UUIDPk
 from app.models._types import pg_enum
-from app.models.enums import AdmissionRoute, Category, ConsentStatus, EnrolmentStatus, Gender
+from app.models.enums import (
+    AdmissionRoute,
+    Category,
+    ConsentStatus,
+    EnrolmentStatus,
+    Gender,
+    RecordStatus,
+)
 
 
 class Student(UUIDPk, Timestamps, Base):
@@ -72,6 +81,12 @@ class Enrolment(UUIDPk, Timestamps, Base):
             unique=True,
             postgresql_where=text("seat_id IS NOT NULL"),
         ),
+        Index(
+            "ix_enrolments_institution_year_record_status",
+            "institution_id",
+            "academic_year",
+            "record_status",
+        ),
     )
 
     student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("students.id"), nullable=False)
@@ -103,8 +118,42 @@ class Enrolment(UUIDPk, Timestamps, Base):
     status_date: Mapped[date] = mapped_column(nullable=False, server_default=text("CURRENT_DATE"))
     # why the uploaded APAAR was unusable, e.g. "has 11 digits, expected 12"; never the digits
     apaar_problem: Mapped[str | None] = mapped_column(String)
+    # the record's status (D35), kept current by app.engine.status.refresh_record_status
+    record_status: Mapped[RecordStatus] = mapped_column(
+        pg_enum(RecordStatus, "enrolments_record_status"),
+        nullable=False,
+        default=RecordStatus.AWAITING_EVIDENCE,
+        server_default=RecordStatus.AWAITING_EVIDENCE.value,
+    )
+    # one sentence each: the row or case that decided the status, and what happens next
+    status_reason: Mapped[str | None] = mapped_column(String)
+    next_step: Mapped[str | None] = mapped_column(String)
+    # when record_status last changed
+    record_status_at: Mapped[datetime | None]
+    # markers the college reported for category eligibility (D41): tfw_income_certified,
+    # nri_sponsored, ciwg
+    eligibility: Mapped[dict[str, Any]] = mapped_column(
+        nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
 
     student: Mapped[Student] = relationship(back_populates="enrolments")
     institution: Mapped[Institution] = relationship()  # noqa: F821
     programme: Mapped[Programme] = relationship()  # noqa: F821
     seat: Mapped[Seat | None] = relationship(foreign_keys=[seat_id])  # noqa: F821
+
+
+class EnrolmentVersion(UUIDPk, Base):
+    """One change to an enrolment (D42): {field: [before, after]}, what made it and who."""
+
+    __tablename__ = "enrolment_versions"
+    __table_args__ = (UniqueConstraint("enrolment_id", "version"),)
+
+    enrolment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("enrolments.id"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    changes: Mapped[dict[str, Any]] = mapped_column(nullable=False, default=dict)
+    # UPLOAD, DECISION or SEED (app.models.enums.EnrolmentVersionSource)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("upload_batches.id"))
+    case_action_seq: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("case_actions.seq"))
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))

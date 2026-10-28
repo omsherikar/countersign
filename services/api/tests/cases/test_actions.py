@@ -17,14 +17,16 @@ from app.models.verification import CaseAction
 from tests.cases.conftest import FailingMailer, load_flag, new_flag, set_status
 
 PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
-OFFICER_ACTIONS = ["CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "NOTE", "ASSIGN", "REOPEN"]
+OFFICER_ACTIONS = ["UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN", "REOPEN"]
 # what the table allows each officer role from each status (None: nobody, 409)
 ALLOWED = {
-    "OPEN": {"A": {"CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "NOTE", "ASSIGN"}},
-    "DOCS_REQUESTED": {"A": {"CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "NOTE", "ASSIGN"}},
-    "ESCALATED": {"A": {"CLEAR", "REQUEST_DOCS", "CONFIRM", "NOTE", "ASSIGN"}, "R": {"NOTE"}},
-    "CLEARED": {"A": {"NOTE", "REOPEN"}, "R": {"NOTE"}},
-    "CONFIRMED": {"A": {"NOTE", "REOPEN"}, "R": {"NOTE"}},
+    "OPEN": {"A": {"UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN"}},
+    "DOCS_REQUESTED": {"A": {"UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN"}},
+    "ESCALATED": {"A": {"UPHOLD", "REQUEST_DOCS", "WITHDRAW", "NOTE", "ASSIGN"}, "R": {"NOTE"}},
+    "UPHELD": {"A": {"NOTE", "REOPEN"}, "R": {"NOTE"}},
+    "WITHDRAWN": {"A": {"NOTE", "REOPEN"}, "R": {"NOTE"}},
+    # no officer action leads here yet
+    "CORRECTED": {"A": set()},
 }
 for _row in ALLOWED.values():
     _row.setdefault("R", _row["A"])
@@ -104,7 +106,7 @@ async def test_every_cell_for_every_role(cw, logins, mailbox, case_files) -> Non
             response = await respond(client, flag_id)
             assert response.status_code == code, f"response from {status.value}: {response.text}"
             seen += 1
-    assert seen == 5 * (7 * 7 + 7)
+    assert seen == len(FlagStatus) * (7 * 7 + 7)
     async with session_factory()() as session:
         assert (await verify_chain(session))[0]
 
@@ -127,9 +129,9 @@ async def test_outcomes_of_each_action(cw, logins, mailbox) -> None:
     assert detail["history"][-1]["due_date"] == due.isoformat()
 
     cleared = (
-        await admin.post(f"/flags/{flag_id}/actions", json={"action": "CLEAR", "note": "Fine."})
+        await admin.post(f"/flags/{flag_id}/actions", json={"action": "UPHOLD", "note": "Fine."})
     ).json()
-    assert cleared["status"] == "CLEARED" and cleared["allowed_actions"] == ["NOTE", "REOPEN"]
+    assert cleared["status"] == "UPHELD" and cleared["allowed_actions"] == ["NOTE", "REOPEN"]
     assert (await load_flag(flag_id)).resolved_at is not None
 
     reopened = (
@@ -144,7 +146,7 @@ async def test_outcomes_of_each_action(cw, logins, mailbox) -> None:
         await admin.post(f"/flags/{flag_id}/actions", json={"action": "NOTE", "note": "Hmm."})
     ).json()
     assert noted["status"] == "OPEN"
-    assert [h["action"] for h in noted["history"]] == ["REQUEST_DOCS", "CLEAR", "REOPEN", "NOTE"]
+    assert [h["action"] for h in noted["history"]] == ["REQUEST_DOCS", "UPHOLD", "REOPEN", "NOTE"]
 
     async with session_factory()() as session:
         rows = (
@@ -159,7 +161,7 @@ async def test_outcomes_of_each_action(cw, logins, mailbox) -> None:
             .scalars()
             .all()
         )
-    assert [r.after["action"] for r in rows] == ["REQUEST_DOCS", "CLEAR", "REOPEN", "NOTE"]
+    assert [r.after["action"] for r in rows] == ["REQUEST_DOCS", "UPHOLD", "REOPEN", "NOTE"]
     assert rows[0].after["due_date"] == due.isoformat()
     assert all(r.actor_id == cw.users["admin@aicte.demo"] for r in rows)
     # the note text never reaches the audit log
@@ -177,12 +179,12 @@ async def test_field_rules_come_after_scope_and_status(cw, logins, mailbox) -> N
         fields = error["details"].get("fields") or [{"field": "", "message": ""}]
         return response.status_code, fields[0]["field"], fields[0]["message"]
 
-    assert field_of(await admin.post(url, json={"action": "CLEAR"})) == (
+    assert field_of(await admin.post(url, json={"action": "UPHOLD"})) == (
         422,
         "note",
         "Add a note before you continue.",
     )
-    assert field_of(await admin.post(url, json={"action": "CLEAR", "note": "   "}))[1] == "note"
+    assert field_of(await admin.post(url, json={"action": "UPHOLD", "note": "   "}))[1] == "note"
     shape = await admin.post(url, json={"action": "SYSTEM_NOTE", "note": "x"})
     assert shape.status_code == 422 and field_of(shape)[1] == "action"
     long = await admin.post(url, json={"action": "NOTE", "note": "x" * 2001})
@@ -197,8 +199,8 @@ async def test_field_rules_come_after_scope_and_status(cw, logins, mailbox) -> N
         "/flags/00000000-0000-4000-8000-000000000000/actions", json={"action": "NOTE"}
     )
     assert missing.status_code == 404 and missing.json()["error"]["message"] == "Flag not found."
-    await set_status(flag_id, FlagStatus.CLEARED)
-    assert (await admin.post(url, json={"action": "CLEAR"})).status_code == 409
+    await set_status(flag_id, FlagStatus.UPHELD)
+    assert (await admin.post(url, json={"action": "UPHOLD"})).status_code == 409
     assert (await west.post(url, json={"action": "REOPEN"})).status_code == 403
     await set_status(flag_id, FlagStatus.OPEN)
 
@@ -310,10 +312,10 @@ async def test_detail_tells_each_role_what_it_can_do(cw, logins) -> None:
     west = (await (await logins("ro.west@aicte.demo")).get(f"/flags/{flag_id}")).json()
     assert west["can_respond"] is False
     assert west["allowed_actions"] == [
-        "CLEAR",
+        "UPHOLD",
         "REQUEST_DOCS",
         "ESCALATE",
-        "CONFIRM",
+        "WITHDRAW",
         "NOTE",
         "ASSIGN",
     ]
@@ -373,7 +375,7 @@ async def test_status_filter_takes_docs_requested(cw, logins) -> None:
 async def test_actions_write_one_row_each(cw, logins, mailbox) -> None:
     admin = await logins("admin@aicte.demo")
     flag_id = await new_flag(cw)
-    for action in ("NOTE", "ESCALATE", "NOTE", "CONFIRM", "REOPEN"):
+    for action in ("NOTE", "ESCALATE", "NOTE", "WITHDRAW", "REOPEN"):
         response = await admin.post(f"/flags/{flag_id}/actions", json=body(action))
         assert response.status_code == 200, response.text
     async with session_factory()() as session:

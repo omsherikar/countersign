@@ -97,10 +97,10 @@ async def test_the_seed_sends_notices_then_applies_the_replies(db, monkeypatch):
     ravi = await enrolment_at("1-ABC-0001_2026-27.csv", 2)
     assert (await student_check(ravi)).detail["notice_state"] == "SENT"  # left for the demo
     priya = await enrolment_at("1-ABC-0001_2026-27.csv", 3)
-    assert (await student_check(priya)).status is CheckStatus.PASS
+    assert (await student_check(priya)).status is CheckStatus.CONFIRMED
     sneha = await enrolment_at("1-ABC-0001_2026-27.csv", 5)
     denied = await student_check(sneha)
-    assert denied.status is CheckStatus.FAIL and denied.detail["channel"] == "DIGILOCKER"
+    assert denied.status is CheckStatus.CONTRADICTED and denied.detail["channel"] == "DIGILOCKER"
     async with session_factory()() as s:
         flag = (
             await s.execute(select(Flag).where(Flag.dedupe_key == f"STUDENT_DENIED:{sneha.id}"))

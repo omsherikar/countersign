@@ -30,6 +30,7 @@ from app.core.config import get_settings
 from app.db.session import session_factory
 from app.engine.contracts import (
     CHUNK_SIZE,
+    RECHECK_STATES,
     ChecksResult,
     EngineSuite,
     FlagTally,
@@ -50,7 +51,6 @@ from app.engine.upload.upsert import upsert_rows
 from app.engine.upload.validate import file_duplicates, load_context, validate_rows
 from app.models.enums import (
     AuditAction,
-    CheckStatus,
     CheckType,
     EnrolmentStatus,
     RowErrorLevel,
@@ -466,7 +466,8 @@ class _BatchRun:
         self._end()
 
     async def _check_set(self) -> list[uuid.UUID]:
-        """Created and updated ACTIVE, newly seated, never checked, or still PENDING (§4.4)."""
+        """Created and updated ACTIVE, newly seated, never checked, or still PENDING or
+        SOURCE_UNAVAILABLE (§4.4)."""
         batch_ids = self._batch_enrolments()
         active = [o.enrolment_id for o in self.outcomes if o.status is EnrolmentStatus.ACTIVE]
         wanted = {
@@ -483,7 +484,7 @@ class _BatchRun:
                 )
                 pending = select(Check.enrolment_id).where(
                     Check.enrolment_id.in_(part),
-                    Check.status == CheckStatus.PENDING,
+                    Check.status.in_(RECHECK_STATES),
                     Check.type != CheckType.STUDENT,
                 )
                 wanted.update((await session.execute(unchecked)).scalars())

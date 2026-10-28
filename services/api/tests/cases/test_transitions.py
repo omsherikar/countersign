@@ -13,14 +13,14 @@ OPEN, DOCS, ESC, CLEARED, CONFIRMED = (
     FlagStatus.OPEN,
     FlagStatus.DOCS_REQUESTED,
     FlagStatus.ESCALATED,
-    FlagStatus.CLEARED,
-    FlagStatus.CONFIRMED,
+    FlagStatus.UPHELD,
+    FlagStatus.WITHDRAWN,
 )
 ACTIONS = [
     "REQUEST_DOCS",
     "ESCALATE",
-    "CLEAR",
-    "CONFIRM",
+    "UPHOLD",
+    "WITHDRAW",
     "NOTE",
     "ASSIGN",
     "REOPEN",
@@ -77,11 +77,11 @@ def test_table_has_no_cell_the_contract_lacks() -> None:
 
 def test_allowed_actions_follow_the_action_bar_order() -> None:
     order = [a.value for a in transitions.OFFICER_ACTIONS]
-    assert order == ["CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "NOTE", "ASSIGN", "REOPEN"]
+    assert order == ["UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN", "REOPEN"]
     words = lambda role, status: [a.value for a in transitions.allowed_actions(role, status)]  # noqa: E731
-    assert words(A, OPEN) == ["CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "NOTE", "ASSIGN"]
-    assert words(R, DOCS) == ["CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "NOTE", "ASSIGN"]
-    assert words(A, ESC) == ["CLEAR", "REQUEST_DOCS", "CONFIRM", "NOTE", "ASSIGN"]
+    assert words(A, OPEN) == ["UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN"]
+    assert words(R, DOCS) == ["UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN"]
+    assert words(A, ESC) == ["UPHOLD", "REQUEST_DOCS", "WITHDRAW", "NOTE", "ASSIGN"]
     assert words(R, ESC) == ["NOTE"]
     assert words(A, CLEARED) == ["NOTE", "REOPEN"]
     assert words(R, CONFIRMED) == ["NOTE"]
@@ -92,11 +92,11 @@ def test_allowed_actions_follow_the_action_bar_order() -> None:
 
 def test_the_409_names_the_status_in_words_and_what_is_allowed() -> None:
     with pytest.raises(ApiError) as caught:
-        transitions.check(A, CLEARED, CaseActionKind.CLEAR)
+        transitions.check(A, CLEARED, CaseActionKind.UPHOLD)
     assert caught.value.message == "This action is not possible while the flag is cleared."
     assert caught.value.details == {
-        "status": "CLEARED",
-        "action": "CLEAR",
+        "status": "UPHELD",
+        "action": "UPHOLD",
         "allowed_actions": ["NOTE", "REOPEN"],
     }
     with pytest.raises(ApiError) as caught:

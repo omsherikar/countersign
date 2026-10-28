@@ -37,7 +37,7 @@ async def test_stages_in_pipeline_order(world, session, gov) -> None:
     )
     assert (len(ledger.seated), len(ledger.unseated)) == (120, 12)
     assert checks.enrolments == 132
-    assert checks.statuses["SEAT"] == {"PASS": 120, "FAIL": 12}
+    assert checks.statuses["SEAT"] == {"CONFIRMED": 120, "CONTRADICTED": 12}
     assert dupes.within == 0
     assert tally.created == 1
     [flag] = (

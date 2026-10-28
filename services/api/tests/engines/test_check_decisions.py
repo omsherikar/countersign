@@ -82,14 +82,19 @@ def subject(**overrides) -> CheckSubject:
 @pytest.mark.parametrize(
     ("result", "status", "flag", "severity"),
     [
-        (ApaarResult(exists=False, name_score=0, dob_match=False), "FAIL", "INVALID_APAAR", "HIGH"),
+        (
+            ApaarResult(exists=False, name_score=0, dob_match=False),
+            "CONTRADICTED",
+            "INVALID_APAAR",
+            "HIGH",
+        ),
         (
             ApaarResult(exists=True, name_score=100, dob_match=False),
-            "FAIL",
+            "CONTRADICTED",
             "NAME_MISMATCH",
             "MEDIUM",
         ),
-        (ApaarResult(exists=True, name_score=90, dob_match=True), "PASS", None, None),
+        (ApaarResult(exists=True, name_score=90, dob_match=True), "CONFIRMED", None, None),
         (
             ApaarResult(exists=True, name_score=89, dob_match=True),
             "PENDING",
@@ -104,7 +109,7 @@ def subject(**overrides) -> CheckSubject:
         ),
         (
             ApaarResult(exists=True, name_score=74, dob_match=True),
-            "FAIL",
+            "CONTRADICTED",
             "NAME_MISMATCH",
             "MEDIUM",
         ),
@@ -141,17 +146,17 @@ async def test_identity_without_a_call() -> None:
     intl = await identity.evaluate(
         subject(admission_route=AdmissionRoute.INTERNATIONAL, apaar_id=None), gov, GATE
     )
-    assert intl.status is CheckStatus.NA and intl.calls == ()
+    assert intl.status is CheckStatus.NOT_APPLICABLE and intl.calls == ()
     assert intl.detail["summary"].startswith("International student")
     refused = await identity.evaluate(
         subject(apaar_id=None, apaar_last4=None, consent_status=ConsentStatus.REFUSED), gov, GATE
     )
-    assert refused.status is CheckStatus.NA
+    assert refused.status is CheckStatus.NOT_APPLICABLE
     assert refused.detail == {"summary": "APAAR not linked; admission is not blocked."}
     malformed = await identity.evaluate(
         subject(apaar_id=None, apaar_problem="has 11 digits, expected 12"), gov, GATE
     )
-    assert malformed.status is CheckStatus.FAIL
+    assert malformed.status is CheckStatus.CONTRADICTED
     [intent] = malformed.flags
     assert (intent.type, intent.severity) == (FlagType.INVALID_APAAR, Severity.MEDIUM)
     assert intent.evidence["summary"] == (
@@ -174,7 +179,7 @@ async def test_identity_against_the_registry() -> None:
     gov = adapters()
     gov.apaar.registry["123456784417"] = {"name": "Ravi Kumar Sharma", "dob": date(2007, 3, 21)}
     outcome = await identity.evaluate(subject(), gov, GATE)
-    assert outcome.status is CheckStatus.PASS
+    assert outcome.status is CheckStatus.CONFIRMED
     assert outcome.detail == {
         "summary": "Name and date of birth match the APAAR registry (similarity 100 of 100).",
         "name_score": 100,
@@ -230,15 +235,15 @@ async def test_counselling_list() -> None:
     }
     gov.counselling.allotments.append(row)
     found = await admission.evaluate(subject(), gov, GATE)
-    assert found.status is CheckStatus.PASS and found.source == "COUNSELLING"
+    assert found.status is CheckStatus.CONFIRMED and found.source == "COUNSELLING"
     assert found.detail["summary"] == (
         "Found in the Maharashtra counselling allotments for CSE (2026), round 1."
     )
     assert found.detail["ref_mismatch"] is False
     differs = await admission.evaluate(subject(counselling_ref="MHCET-2026-R1-999999"), gov, GATE)
-    assert differs.status is CheckStatus.PASS and differs.detail["ref_mismatch"] is True
+    assert differs.status is CheckStatus.CONFIRMED and differs.detail["ref_mismatch"] is True
     missing = await admission.evaluate(subject(name_normalised="someone else"), gov, GATE)
-    assert missing.status is CheckStatus.FAIL
+    assert missing.status is CheckStatus.CONTRADICTED
     assert missing.detail["summary"] == (
         "Not found in the Maharashtra counselling allotments for CSE (2026)."
     )
@@ -258,14 +263,16 @@ async def test_lateral_and_tfw_use_the_counselling_list() -> None:
 async def test_seat_type_rules() -> None:
     gov = adapters()
     held = await admission.evaluate(subject(admission_route=AdmissionRoute.MANAGEMENT), gov, GATE)
-    assert held.status is CheckStatus.PASS and held.source == "SEAT_LEDGER" and held.calls == ()
+    assert (
+        held.status is CheckStatus.CONFIRMED and held.source == "SEAT_LEDGER" and held.calls == ()
+    )
     assert held.detail["summary"] == (
         "Management admission is allowed for CSE and holds a Regular seat."
     )
     no_seat = await admission.evaluate(
         subject(admission_route=AdmissionRoute.SPOT, seat_code=None, seat_type=None), gov, GATE
     )
-    assert no_seat.status is CheckStatus.FAIL
+    assert no_seat.status is CheckStatus.CONTRADICTED
     assert no_seat.detail["summary"] == "Spot admission has no Regular seat in CSE (2026-27)."
     no_pool = await admission.evaluate(
         subject(
@@ -300,10 +307,10 @@ async def test_study_in_india() -> None:
         consent_status=ConsentStatus.INTERNATIONAL,
     )
     ok = await admission.evaluate(subject(**intl), gov, GATE)
-    assert ok.status is CheckStatus.PASS and ok.source == "SII"
+    assert ok.status is CheckStatus.CONFIRMED and ok.source == "SII"
     assert ok.detail["summary"] == "Study in India confirms this admission to CSE (2026-27)."
     other = await admission.evaluate(subject(**{**intl, "programme_code": "IT"}), gov, GATE)
-    assert other.status is CheckStatus.FAIL
+    assert other.status is CheckStatus.CONTRADICTED
     gov.sii.down = True
     assert (await admission.evaluate(subject(**intl), gov, GATE)).status is CheckStatus.PENDING
 
@@ -313,10 +320,10 @@ async def test_study_in_india() -> None:
 
 def test_seat_decision() -> None:
     held = seat.decide(subject())
-    assert held.status is CheckStatus.PASS
+    assert held.status is CheckStatus.CONFIRMED
     assert held.detail["summary"] == "Holds seat CSE-R-001 (Regular, 2026-27 approval)."
     other_year = seat.decide(subject(seat_in_cohort_approval=False))
-    assert other_year.status is CheckStatus.FAIL
+    assert other_year.status is CheckStatus.CONTRADICTED
     missing = seat.decide(subject(seat_code=None, seat_type=None))
     assert missing.detail["flag_type"] == "EXCESS_ADMISSION"
     assert missing.detail["flag_dedupe_key"] == f"EXCESS_ADMISSION:{P_ID}:2026-27:REGULAR"
@@ -341,13 +348,13 @@ def _abc(gov, apaar="123456784417", **years) -> None:
 async def test_studying_first_year_and_no_apaar() -> None:
     gov = adapters()
     first = await studying.evaluate(subject(), gov, GATE)
-    assert first.status is CheckStatus.NA and first.calls == ()
+    assert first.status is CheckStatus.NOT_APPLICABLE and first.calls == ()
     assert first.detail == {"summary": "First year, no result yet."}
     second = subject(year_of_study=2, cohort_year="2025-26", apaar_id=None)
     no_apaar = await studying.evaluate(second, gov, GATE)
     assert no_apaar.detail == {"summary": "APAAR not linked; ABC credits cannot be checked."}
     unknown = await studying.evaluate(dataclasses.replace(second, apaar_id="999"), gov, GATE)
-    assert unknown.status is CheckStatus.NA and unknown.calls == ("ABC",)
+    assert unknown.status is CheckStatus.NOT_APPLICABLE and unknown.calls == ("ABC",)
     assert unknown.detail["summary"] == "ABC has no record of this APAAR; see the Identity check."
 
 
@@ -355,7 +362,7 @@ async def test_studying_second_year_with_two_zero_credit_semesters_fails() -> No
     gov = adapters()
     _abc(gov, **{"2025_26": [(1, 0), (2, 0)]})
     outcome = await studying.evaluate(subject(year_of_study=2, cohort_year="2025-26"), gov, GATE)
-    assert outcome.status is CheckStatus.FAIL
+    assert outcome.status is CheckStatus.CONTRADICTED
     assert outcome.detail["summary"] == (
         "No credits recorded in ABC for 2 of 2 semesters since admission."
     )
@@ -371,7 +378,7 @@ async def test_studying_counts_semesters_since_admission() -> None:
     _abc(gov, **{"2024_25": [(1, 22), (2, 24)], "2025_26": [(3, 20), (4, 21)]})
     third = subject(year_of_study=3, cohort_year="2024-25")
     ok = await studying.evaluate(third, gov, GATE)
-    assert ok.status is CheckStatus.PASS
+    assert ok.status is CheckStatus.CONFIRMED
     assert ok.calls == ("ABC", "ABC")
     assert ok.detail["summary"] == "Credits recorded in ABC for all 4 semesters since admission."
     _abc(gov, **{"2024_25": [(1, 22), (2, 24)], "2025_26": [(3, 20)]})
@@ -389,18 +396,18 @@ async def test_studying_lateral_entrant_counts_from_year_two() -> None:
     _abc(gov, **{"2025_26": [(1, 22), (2, 24)]})
     second = subject(year_of_study=2, cohort_year="2025-26", admission_route=AdmissionRoute.LATERAL)
     joined = await studying.evaluate(second, gov, GATE)
-    assert joined.status is CheckStatus.NA and joined.calls == ()
+    assert joined.status is CheckStatus.NOT_APPLICABLE and joined.calls == ()
     assert joined.detail == {
         "summary": "Joined in year 2 as a lateral entrant; no completed year to check yet."
     }
     no_apaar = await studying.evaluate(dataclasses.replace(second, apaar_id=None), gov, GATE)
-    assert no_apaar.status is CheckStatus.NA and no_apaar.detail == joined.detail
+    assert no_apaar.status is CheckStatus.NOT_APPLICABLE and no_apaar.detail == joined.detail
 
     # year 3: only year 2 (2025-26, semesters 3 and 4) is asked for; year 1 was elsewhere
     third = subject(year_of_study=3, cohort_year="2024-25", admission_route=AdmissionRoute.LATERAL)
     _abc(gov, **{"2025_26": [(3, 20), (4, 21)]})
     ok = await studying.evaluate(third, gov, GATE)
-    assert ok.status is CheckStatus.PASS and ok.calls == ("ABC",)
+    assert ok.status is CheckStatus.CONFIRMED and ok.calls == ("ABC",)
     assert ok.detail["summary"] == "Credits recorded in ABC for all 2 semesters since admission."
     assert ok.detail["semesters"] == [
         {"academic_year": "2025-26", "sem": 3, "credits": 20},
@@ -408,7 +415,7 @@ async def test_studying_lateral_entrant_counts_from_year_two() -> None:
     ]
     _abc(gov, **{"2025_26": [(3, 0), (4, 0)]})
     idle = await studying.evaluate(third, gov, GATE)
-    assert idle.status is CheckStatus.FAIL
+    assert idle.status is CheckStatus.CONTRADICTED
     assert idle.detail["summary"] == (
         "No credits recorded in ABC for 2 of 2 semesters since admission."
     )

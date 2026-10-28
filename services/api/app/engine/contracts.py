@@ -33,6 +33,19 @@ UNRESOLVED_FLAG_STATUSES: tuple[FlagStatus, ...] = (
     FlagStatus.DOCS_REQUESTED,
     FlagStatus.ESCALATED,
 )
+# states a recheck or the next upload asks the source about again
+RECHECK_STATES: tuple[CheckStatus, ...] = (CheckStatus.PENDING, CheckStatus.SOURCE_UNAVAILABLE)
+# states with nothing to count yet: the score leaves them out of "applicable"
+NOT_COUNTED_STATES: tuple[CheckStatus, ...] = (
+    CheckStatus.NOT_APPLICABLE,
+    CheckStatus.NOT_YET_DUE,
+)
+# an officer's outcome closed the case
+DECIDED_FLAG_STATUSES: tuple[FlagStatus, ...] = (
+    FlagStatus.UPHELD,
+    FlagStatus.WITHDRAWN,
+    FlagStatus.CORRECTED,
+)
 
 NameVerdict = Literal["MATCH", "REVIEW", "NO_MATCH"]
 NameMethod = Literal["EXACT", "INITIALS", "FUZZY"]

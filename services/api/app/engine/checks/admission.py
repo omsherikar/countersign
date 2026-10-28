@@ -25,7 +25,7 @@ def admission_check_for(subject: CheckSubject) -> str:
 def decide_counselling(subject: CheckSubject, result: CounsellingResult) -> CheckOutcome:
     cohort_start = start_year(subject.cohort_year)
     if result.found:
-        status = CheckStatus.PASS
+        status = CheckStatus.CONFIRMED
         detail = ev.admission_counselling_found(
             state_name=subject.state_name,
             programme_code=subject.programme_code,
@@ -35,7 +35,7 @@ def decide_counselling(subject: CheckSubject, result: CounsellingResult) -> Chec
             counselling_ref=subject.counselling_ref,
         )
     else:
-        status = CheckStatus.FAIL
+        status = CheckStatus.CONTRADICTED
         detail = ev.admission_counselling_not_found(
             state_name=subject.state_name,
             programme_code=subject.programme_code,
@@ -53,14 +53,14 @@ def decide_seat_rules(subject: CheckSubject) -> CheckOutcome:
     target = subject.target_seat_type
     if not subject.target_capacity:
         status, detail = (
-            CheckStatus.FAIL,
+            CheckStatus.CONTRADICTED,
             ev.admission_seat_rules_no_pool(route, code, year, target),
         )
     elif subject.seat_in_cohort_approval and subject.seat_type is target:
-        status, detail = CheckStatus.PASS, ev.admission_seat_rules_pass(route, code, target)
+        status, detail = CheckStatus.CONFIRMED, ev.admission_seat_rules_pass(route, code, target)
     else:
         status, detail = (
-            CheckStatus.FAIL,
+            CheckStatus.CONTRADICTED,
             ev.admission_seat_rules_no_seat(route, code, year, target),
         )
     return CheckOutcome(type=CHECK, status=status, source="SEAT_LEDGER", detail=detail)
@@ -74,10 +74,10 @@ def decide_sii(subject: CheckSubject, result: SiiResult) -> CheckOutcome:
         and result.academic_year == subject.cohort_year
     )
     if confirmed:
-        status = CheckStatus.PASS
+        status = CheckStatus.CONFIRMED
         detail = ev.admission_sii_confirms(subject.programme_code, subject.cohort_year)
     else:
-        status, detail = CheckStatus.FAIL, ev.admission_sii_no_match()
+        status, detail = CheckStatus.CONTRADICTED, ev.admission_sii_no_match()
     return CheckOutcome(type=CHECK, status=status, source="SII", detail=detail, calls=("SII",))
 
 
@@ -91,7 +91,7 @@ async def evaluate(
         if not subject.passport_no:
             return CheckOutcome(
                 type=CHECK,
-                status=CheckStatus.FAIL,
+                status=CheckStatus.CONTRADICTED,
                 source="SII",
                 detail=ev.admission_sii_no_match(),
             )

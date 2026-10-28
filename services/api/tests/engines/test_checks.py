@@ -72,18 +72,18 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     assert result.calls == {"APAAR": 1, "COUNSELLING": 1}
     assert result.unavailable == {}
     assert result.statuses == {
-        "IDENTITY": {"PASS": 1},
-        "ADMISSION": {"PASS": 1},
-        "SEAT": {"PASS": 1},
-        "STUDYING": {"NA": 1},
+        "IDENTITY": {"CONFIRMED": 1},
+        "ADMISSION": {"CONFIRMED": 1},
+        "SEAT": {"CONFIRMED": 1},
+        "STUDYING": {"NOT_APPLICABLE": 1},
         "STUDENT": {"PENDING": 1},
     }
     checks = await _checks(session, enrolment.id)
     assert {t: c.status for t, c in checks.items()} == {
-        CheckType.IDENTITY: CheckStatus.PASS,
-        CheckType.ADMISSION: CheckStatus.PASS,
-        CheckType.SEAT: CheckStatus.PASS,
-        CheckType.STUDYING: CheckStatus.NA,
+        CheckType.IDENTITY: CheckStatus.CONFIRMED,
+        CheckType.ADMISSION: CheckStatus.CONFIRMED,
+        CheckType.SEAT: CheckStatus.CONFIRMED,
+        CheckType.STUDYING: CheckStatus.NOT_APPLICABLE,
         CheckType.STUDENT: CheckStatus.PENDING,
     }
     assert countersign(checks.values())["score"] == {"passes": 3, "applicable": 4}
@@ -100,10 +100,10 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     assert [a.after for a in audits] == [
         {
             "checks": {
-                "IDENTITY": "PASS",
-                "ADMISSION": "PASS",
-                "SEAT": "PASS",
-                "STUDYING": "NA",
+                "IDENTITY": "CONFIRMED",
+                "ADMISSION": "CONFIRMED",
+                "SEAT": "CONFIRMED",
+                "STUDYING": "NOT_APPLICABLE",
                 "STUDENT": "PENDING",
             }
         }
@@ -123,7 +123,7 @@ async def test_unseated_enrolment_fails_seat_and_points_at_the_flag(world, sessi
     _, cse, enrolment = await _ravi(world, gov)
     await run_checks(session, [enrolment.id], gov)
     seat = (await _checks(session, enrolment.id))[CheckType.SEAT]
-    assert seat.status is CheckStatus.FAIL
+    assert seat.status is CheckStatus.CONTRADICTED
     assert seat.detail["flag_dedupe_key"] == f"EXCESS_ADMISSION:{cse.id}:2026-27:REGULAR"
     assert seat.detail["summary"] == (
         "No Regular seat is free in CSE (2026-27); see the Excess admission flag."
@@ -141,7 +141,7 @@ async def test_second_year_with_zero_credits_fails_studying(world, session, gov)
     result = await run_checks(session, [enrolment.id], gov)
     assert result.calls["ABC"] == 1
     studying = (await _checks(session, enrolment.id))[CheckType.STUDYING]
-    assert studying.status is CheckStatus.FAIL
+    assert studying.status is CheckStatus.CONTRADICTED
     assert studying.detail["missing"] == 2 and studying.detail["expected"] == 2
     [flag] = (
         (await session.execute(select(Flag).where(Flag.type == FlagType.NO_ACADEMIC_ACTIVITY)))
@@ -178,7 +178,7 @@ async def test_apaar_down_leaves_identity_pending_and_recheck_passes(world, sess
     recovered = await recheck_pending(session, [enrolment.id], gov)
     assert (recovered.rechecked, recovered.now_pass, recovered.still_pending) == (1, 1, 0)
     checks = await _checks(session, enrolment.id)
-    assert checks[CheckType.IDENTITY].status is CheckStatus.PASS
+    assert checks[CheckType.IDENTITY].status is CheckStatus.CONFIRMED
     assert checks[CheckType.IDENTITY].detail["summary"].startswith("Name and date of birth match")
     assert checks[CheckType.IDENTITY].attempts == 2  # outages met, not evaluations
     assert checks[CheckType.STUDENT].status is CheckStatus.PENDING  # never rechecked here
@@ -270,5 +270,5 @@ async def test_admission_route_rules_through_run_checks(world, session, gov) -> 
     await assign_seats(session, [mgmt.id], actor_id=None)
     await run_checks(session, [mgmt.id], gov)
     admission = (await _checks(session, mgmt.id))[CheckType.ADMISSION]
-    assert admission.status is CheckStatus.PASS
+    assert admission.status is CheckStatus.CONFIRMED
     assert admission.source == "SEAT_LEDGER"

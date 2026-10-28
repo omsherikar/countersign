@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field, field_validator
 from app.schemas.common import IdName, InstitutionRef, ProgrammeRef
 from app.schemas.institutions import RelatedEnrolmentRow
 
-OfficerAction = Literal["CLEAR", "REQUEST_DOCS", "ESCALATE", "CONFIRM", "NOTE", "ASSIGN", "REOPEN"]
+OfficerAction = Literal[
+    "UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN", "REOPEN"
+]
 
 
 class FlagRow(BaseModel):

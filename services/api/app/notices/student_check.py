@@ -176,13 +176,13 @@ def _status_and_detail(subject: CheckSubject, now: datetime) -> tuple[CheckStatu
         notice = min(no, key=_answered_at)
         when = fmt_day(_answered_at(notice))
         summary = f"Denied by the student on {when} ({CHANNEL_WORDS[notice.channel]})."
-        return _decided(CheckStatus.FAIL, "DENIED", summary, notice)
+        return _decided(CheckStatus.CONTRADICTED, "DENIED", summary, notice)
     yes = [n for n in notices if n.response is NoticeResponse.YES]
     if yes:
         notice = min(yes, key=_answered_at)
         when = fmt_day(_answered_at(notice))
         summary = f"Confirmed by the student on {when} ({CHANNEL_WORDS[notice.channel]})."
-        return _decided(CheckStatus.PASS, "CONFIRMED", summary, notice)
+        return _decided(CheckStatus.CONFIRMED, "CONFIRMED", summary, notice)
 
     delivered = [n for n in notices if n.delivery_status is NoticeDelivery.SENT]
     if not delivered:

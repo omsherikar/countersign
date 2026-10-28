@@ -37,7 +37,8 @@ from app.notices.mailer import MailMessage
 EVIDENCE_UPDATED_NOTE = "Evidence updated after the decision."
 NOTE_MAX = 2000
 DUE_MAX_DAYS = 90
-CONFIRM_REASON = "FLAG_CONFIRMED"
+# the revocation reason code when an officer withdraws the claim (its wire value is unchanged)
+WITHDRAW_REASON = "FLAG_CONFIRMED"
 
 NOTE_REQUIRED = "Add a note before you continue."
 NOTE_TOO_LONG = "Write at most 2,000 characters."
@@ -218,7 +219,7 @@ async def apply_action(
     elif action is CaseActionKind.ESCALATE:
         if assignee is not None:
             flag.assignee_id = assignee
-    elif action in (CaseActionKind.CLEAR, CaseActionKind.CONFIRM):
+    elif action in (CaseActionKind.UPHOLD, CaseActionKind.WITHDRAW):
         flag.resolved_at = now
     elif action is CaseActionKind.ASSIGN:
         flag.assignee_id = assignee
@@ -256,13 +257,13 @@ async def apply_action(
     # the note is never written to the audit log
     await audit.record(session, user.id, AuditAction.UPDATE, "flag", flag.id, after=after)
 
-    if action is CaseActionKind.CLEAR:
+    if action is CaseActionKind.UPHOLD:
         for enrolment_id in dict.fromkeys([flag.enrolment_id, *flag.related_enrolment_ids]):
             if enrolment_id is not None:
                 await credentials.issue_if_eligible(session, enrolment_id)
-    elif action is CaseActionKind.CONFIRM and flag.enrolment_id is not None:
+    elif action is CaseActionKind.WITHDRAW and flag.enrolment_id is not None:
         # nothing on the enrolment, its seat or its checks changes; its proofs are revoked
-        await credentials.revoke_for_enrolment(session, flag.enrolment_id, CONFIRM_REASON, user.id)
+        await credentials.revoke_for_enrolment(session, flag.enrolment_id, WITHDRAW_REASON, user.id)
 
     messages: list[MailMessage] = []
     if action is CaseActionKind.REQUEST_DOCS:

@@ -1,8 +1,8 @@
 """Countersign score (docs/ENGINES.md section 11, DECISIONS D18, D21).
 
-applicable = checks whose status is not NA; passes = PASS. PENDING counts as applicable
-and not as a pass, shown as "n of m". An enrolment with no check rows has no score and is
-left out of both dashboard percentages.
+applicable = checks that are neither NOT_APPLICABLE nor NOT_YET_DUE; passes = CONFIRMED.
+PENDING and SOURCE_UNAVAILABLE count as applicable and not as a pass, shown as "n of m".
+An enrolment with no check rows has no score and is left out of both dashboard percentages.
 """
 
 from __future__ import annotations
@@ -13,11 +13,12 @@ from typing import Any, Protocol
 from sqlalchemy import and_, func, select
 from sqlalchemy.sql import Subquery
 
-from app.engine.contracts import CHECK_ORDER
+from app.engine.contracts import CHECK_ORDER, NOT_COUNTED_STATES
 from app.models.enums import CheckStatus, CheckType
 from app.models.verification import Check
 
 _ORDER = {t.value: i for i, t in enumerate(CHECK_ORDER)}
+_NOT_COUNTED = {s.value for s in NOT_COUNTED_STATES}
 
 
 class _CheckLike(Protocol):
@@ -34,8 +35,8 @@ def score(statuses: Iterable[CheckStatus | str]) -> tuple[int, int] | None:
     values = [_value(s) for s in statuses]
     if not values:
         return None
-    applicable = sum(1 for v in values if v != CheckStatus.NA.value)
-    passes = sum(1 for v in values if v == CheckStatus.PASS.value)
+    applicable = sum(1 for v in values if v not in _NOT_COUNTED)
+    passes = sum(1 for v in values if v == CheckStatus.CONFIRMED.value)
     return passes, applicable
 
 
@@ -46,7 +47,7 @@ def is_countersigned(statuses: Iterable[CheckStatus | str]) -> bool:
 
 def is_clear(statuses: Iterable[CheckStatus | str]) -> bool:
     values = [_value(s) for s in statuses]
-    return bool(values) and CheckStatus.FAIL.value not in values
+    return bool(values) and CheckStatus.CONTRADICTED.value not in values
 
 
 def countersign_from_pairs(
@@ -70,9 +71,9 @@ def countersign(checks: Iterable[_CheckLike]) -> dict[str, Any]:
 
 def countersign_state_sq(name: str = "countersign_state") -> Subquery:
     """Per enrolment with at least one check: `countersigned` and `clear` booleans."""
-    applicable = func.count().filter(Check.status != CheckStatus.NA)
-    passes = func.count().filter(Check.status == CheckStatus.PASS)
-    fails = func.count().filter(Check.status == CheckStatus.FAIL)
+    applicable = func.count().filter(Check.status.not_in(NOT_COUNTED_STATES))
+    passes = func.count().filter(Check.status == CheckStatus.CONFIRMED)
+    fails = func.count().filter(Check.status == CheckStatus.CONTRADICTED)
     return (
         select(
             Check.enrolment_id.label("enrolment_id"),

@@ -76,7 +76,7 @@ async def test_a_done_batch_gets_one_notice_per_channel_per_active_enrolment(wor
             Check(
                 enrolment_id=both.id,
                 type=CheckType.IDENTITY,
-                status=CheckStatus.FAIL,
+                status=CheckStatus.CONTRADICTED,
                 source="APAAR",
                 detail={"summary": "APAAR ending 0001 is not in the APAAR registry."},
             )
@@ -446,7 +446,7 @@ async def test_an_inline_upload_sends_its_notices(world, mailer, clients, tmp_pa
             await s.execute(select(Check.status).where(Check.type == CheckType.IDENTITY))
         ).scalar_one()
     # the in-memory registry is empty, so Identity fails; the notice goes out regardless
-    assert identity is CheckStatus.FAIL
+    assert identity is CheckStatus.CONTRADICTED
     assert [(n.channel, n.delivery_status, n.last_error) for n in rows] == [
         (EMAIL, NoticeDelivery.SENT, None),
         (DIGILOCKER, NoticeDelivery.FAILED, "No DigiLocker account."),

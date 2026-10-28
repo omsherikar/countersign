@@ -52,7 +52,7 @@ def decide(
     if all(not r.apaar_id_known for r in results):
         return CheckOutcome(
             type=CHECK,
-            status=CheckStatus.NA,
+            status=CheckStatus.NOT_APPLICABLE,
             source=SOURCE,
             detail=ev.studying_unknown_apaar(),
             calls=calls,
@@ -67,7 +67,7 @@ def decide(
     missing = detail["missing"]
     if missing == 0:
         return CheckOutcome(
-            type=CHECK, status=CheckStatus.PASS, source=SOURCE, detail=detail, calls=calls
+            type=CHECK, status=CheckStatus.CONFIRMED, source=SOURCE, detail=detail, calls=calls
         )
     if missing == 1:
         return CheckOutcome(
@@ -86,7 +86,7 @@ def decide(
     )
     return CheckOutcome(
         type=CHECK,
-        status=CheckStatus.FAIL,
+        status=CheckStatus.CONTRADICTED,
         source=SOURCE,
         detail=detail,
         flags=(flag,),
@@ -99,16 +99,25 @@ async def evaluate(
 ) -> CheckOutcome:
     if subject.year_of_study <= 1:
         return CheckOutcome(
-            type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_first_year()
+            type=CHECK,
+            status=CheckStatus.NOT_APPLICABLE,
+            source=SOURCE,
+            detail=ev.studying_first_year(),
         )
     years = completed_years(subject)
     if not years:  # a year-2 lateral entrant
         return CheckOutcome(
-            type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_lateral_entry()
+            type=CHECK,
+            status=CheckStatus.NOT_APPLICABLE,
+            source=SOURCE,
+            detail=ev.studying_lateral_entry(),
         )
     if not subject.apaar_id:
         return CheckOutcome(
-            type=CHECK, status=CheckStatus.NA, source=SOURCE, detail=ev.studying_no_apaar()
+            type=CHECK,
+            status=CheckStatus.NOT_APPLICABLE,
+            source=SOURCE,
+            detail=ev.studying_no_apaar(),
         )
     apaar_id = subject.apaar_id
     results: list[AbcResult] = []

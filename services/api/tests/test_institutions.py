@@ -242,10 +242,10 @@ async def test_enrolments(admin, registrar_abc, registrar_xyz, student):
     assert ravi["uploaded_at"].endswith("Z")
     assert ravi["countersign"]["score"] == {"passes": 3, "applicable": 4}
     assert [c["status"] for c in ravi["countersign"]["checks"]] == [
-        "PASS",
-        "PASS",
-        "PASS",
-        "NA",
+        "CONFIRMED",
+        "CONFIRMED",
+        "CONFIRMED",
+        "NOT_APPLICABLE",
         "PENDING",
     ]
     assert ravi["flags"] == []

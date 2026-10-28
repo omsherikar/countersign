@@ -17,10 +17,10 @@ async def test_students_me(student, admin, registrar_abc):
     assert enrolment["countersign"] == {
         "score": {"passes": 3, "applicable": 4},
         "checks": [
-            {"type": "IDENTITY", "status": "PASS"},
-            {"type": "ADMISSION", "status": "PASS"},
-            {"type": "SEAT", "status": "PASS"},
-            {"type": "STUDYING", "status": "NA"},
+            {"type": "IDENTITY", "status": "CONFIRMED"},
+            {"type": "ADMISSION", "status": "CONFIRMED"},
+            {"type": "SEAT", "status": "CONFIRMED"},
+            {"type": "STUDYING", "status": "NOT_APPLICABLE"},
             {"type": "STUDENT", "status": "PENDING"},
         ],
     }

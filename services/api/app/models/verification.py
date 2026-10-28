@@ -55,6 +55,15 @@ class Check(UUIDPk, Timestamps, Base):
     source: Mapped[str] = mapped_column(String, nullable=False)
     checked_at: Mapped[datetime | None]
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # provenance (D34): who supplied the fact, when it answered, and whether that source is
+    # independent of the college that made the claim; empty when no source answered
+    supplied_by: Mapped[str] = mapped_column(String, nullable=False, default="", server_default="")
+    observed_at: Mapped[datetime | None]
+    independent: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    # set when an officer decided the case behind a CONTRADICTED row: {outcome, by, at} (R2)
+    resolved: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 class Flag(UUIDPk, Timestamps, Base):
@@ -116,6 +125,13 @@ class CaseAction(Base):
     to_status: Mapped[FlagStatus | None] = mapped_column(pg_enum(FlagStatus, "flags_status"))
     due_date: Mapped[date | None]
     assignee_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # the reason code every outcome carries (D43), the fields a CORRECT changed, and the
+    # enrolments a WITHDRAW took out of the active counts
+    reason_code: Mapped[str | None] = mapped_column(String)
+    correction: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    withdrawn_enrolment_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, default=list, server_default=text("'{}'::uuid[]")
+    )
 
 
 class CaseAttachment(UUIDPk, Base):

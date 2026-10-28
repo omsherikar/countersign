@@ -154,7 +154,7 @@ async def test_reupload_is_idempotent_and_rechecks_only_pending(world, tmp_path)
     async with session_factory()() as session:
         for index, eid in enumerate(ids[:4]):
             for check_type in CheckType:
-                status = CheckStatus.PASS
+                status = CheckStatus.CONFIRMED
                 if index == 1 and check_type is CheckType.IDENTITY:
                     status = CheckStatus.PENDING  # a source was down: retried
                 if check_type is CheckType.STUDENT:

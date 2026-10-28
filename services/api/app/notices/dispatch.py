@@ -581,7 +581,7 @@ async def issue_due_proofs(session: AsyncSession, enrolment_ids: Sequence[uuid.U
                 .where(
                     Check.enrolment_id.in_(list(chunk)),
                     Check.type == CheckType.STUDENT,
-                    Check.status == CheckStatus.PASS,
+                    Check.status == CheckStatus.CONFIRMED,
                 )
                 .order_by(Check.enrolment_id)
             )

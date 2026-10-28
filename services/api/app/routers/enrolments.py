@@ -17,9 +17,9 @@ from app.core.errors import not_found
 from app.core.ratelimit import limiter
 from app.credentials import holder
 from app.engine.checks import RECHECKABLE, recheck_pending
-from app.engine.contracts import CHECK_ORDER
+from app.engine.contracts import CHECK_ORDER, RECHECK_STATES
 from app.engine.score import countersign
-from app.models.enums import CheckStatus, SeatEventKind, UserRole
+from app.models.enums import SeatEventKind, UserRole
 from app.models.geo import Region, State
 from app.models.institution import Approval, Institution, Programme
 from app.models.seat import Seat, SeatEvent, SeatPool
@@ -214,12 +214,13 @@ async def enrolment_recheck(
     user: RecheckUser,
     adapters: Adapters,
 ) -> EnrolmentRecheck:
-    """Re-run this enrolment's PENDING checks except STUDENT, synchronously."""
+    """Re-run this enrolment's PENDING and SOURCE_UNAVAILABLE checks except STUDENT,
+    synchronously."""
     enrolment, *_ = await _scoped(session, user, enrolment_id)
     before = {
         c.type: c.status
         for c in await _checks(session, enrolment.id)
-        if c.status is CheckStatus.PENDING and c.type in RECHECKABLE
+        if c.status in RECHECK_STATES and c.type in RECHECKABLE
     }
     result = await recheck_pending(
         session,

@@ -48,7 +48,7 @@ def decide(subject: CheckSubject, result: ApaarResult) -> CheckOutcome:
             Severity.HIGH,
             ev.invalid_apaar_not_found(last4, subject.checked_on, related),
         )
-        return _outcome(CheckStatus.FAIL, ev.identity_not_found(last4), [flag], calls)
+        return _outcome(CheckStatus.CONTRADICTED, ev.identity_not_found(last4), [flag], calls)
     if thresholds.dob_must_match and not result.dob_match:
         flag = flag_intent(
             subject,
@@ -63,9 +63,11 @@ def decide(subject: CheckSubject, result: ApaarResult) -> CheckOutcome:
             ),
         )
         detail = ev.identity_dob_mismatch(result.name_score, last4)
-        return _outcome(CheckStatus.FAIL, detail, [flag], calls)
+        return _outcome(CheckStatus.CONTRADICTED, detail, [flag], calls)
     if result.name_score >= thresholds.pass_threshold:
-        return _outcome(CheckStatus.PASS, ev.identity_pass(result.name_score, last4), (), calls)
+        return _outcome(
+            CheckStatus.CONFIRMED, ev.identity_pass(result.name_score, last4), (), calls
+        )
     review = result.name_score >= thresholds.review_threshold
     flag = flag_intent(
         subject,
@@ -84,7 +86,7 @@ def decide(subject: CheckSubject, result: ApaarResult) -> CheckOutcome:
             CheckStatus.PENDING, ev.identity_review(result.name_score, last4), [flag], calls
         )
     return _outcome(
-        CheckStatus.FAIL, ev.identity_name_differs(result.name_score, last4), [flag], calls
+        CheckStatus.CONTRADICTED, ev.identity_name_differs(result.name_score, last4), [flag], calls
     )
 
 
@@ -95,7 +97,7 @@ async def evaluate(
         subject.admission_route is AdmissionRoute.INTERNATIONAL
         or subject.consent_status is ConsentStatus.INTERNATIONAL
     ):
-        return _outcome(CheckStatus.NA, ev.identity_international())
+        return _outcome(CheckStatus.NOT_APPLICABLE, ev.identity_international())
     if subject.apaar_problem:
         flag = flag_intent(
             subject,
@@ -108,9 +110,11 @@ async def evaluate(
                 [subject.enrolment_id],
             ),
         )
-        return _outcome(CheckStatus.FAIL, ev.identity_malformed(subject.apaar_problem), [flag])
+        return _outcome(
+            CheckStatus.CONTRADICTED, ev.identity_malformed(subject.apaar_problem), [flag]
+        )
     if not subject.apaar_id:
-        return _outcome(CheckStatus.NA, ev.identity_no_apaar())
+        return _outcome(CheckStatus.NOT_APPLICABLE, ev.identity_no_apaar())
     apaar_id = subject.apaar_id
     result = await call_source(
         gate, SOURCE, lambda: adapters.apaar.verify(apaar_id, subject.name_normalised, subject.dob)

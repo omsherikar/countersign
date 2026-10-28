@@ -28,7 +28,7 @@ from jwcrypto.jws import JWS
 from sd_jwt.verifier import SDJWTVerifier
 
 SHARE_SECONDS = 600  # a key binding older than a share's 10 minutes has expired
-KINDS = {"countersign:enrolment:v1": "ENROLMENT", "countersign:degree:v1": "DEGREE"}
+KINDS = {"countersign:enrolment:v1": "ENROLMENT", "countersign:degree:v1": "COMPLETION"}
 
 
 class NotValid(Exception):
