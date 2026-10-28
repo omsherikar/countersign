@@ -225,7 +225,7 @@ async def test_enrolments(admin, registrar_abc, registrar_xyz, student):
     assert ravi["seat_code"] is None and ravi["status"] == "ACTIVE"
     assert ravi["uploaded_at"].endswith("Z")
     assert ravi["countersign"] == {"score": None, "checks": []} and ravi["flags"] == []
-    assert ravi["upload_batch_id"] is None and ravi["source_row_no"] == 2
+    assert ravi["upload_batch_id"] is not None and ravi["source_row_no"] == 2
     assert "email" not in ravi["student"] and "apaar_id" not in ravi["student"]
 
     refused = next(e for e in body["items"] if e["student"]["name"] == "Suresh Pawar")

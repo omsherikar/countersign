@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import logging
 import sys
+import time
 from pathlib import Path
 
 from app.core.config import get_settings
@@ -33,11 +34,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _run(source: Path, reset: bool) -> str:
+    started = time.perf_counter()
     try:
         summary = await import_directory(session_factory(), source, reset=reset)
     finally:
         await dispose_engine()
-    return summary.table()
+    elapsed = time.perf_counter() - started
+    rows = sum(int(u.counts.get("rows", 0)) for u in summary.uploads)
+    files = sum(1 for u in summary.uploads if u.status != "SKIPPED")
+    return f"{summary.table()}\n\nseeded {files} upload files, {rows} rows, in {elapsed:.1f} s"
 
 
 def main(argv: list[str] | None = None) -> int:

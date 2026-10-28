@@ -39,7 +39,7 @@ async def test_audit_list_and_verify(admin):
     assert row["at"].endswith("Z") and len(row["hash"]) == 64
 
     seed_rows = (await admin.get("/admin/audit", params={"entity_type": "upload_file"})).json()
-    assert seed_rows["total"] == 3
+    assert seed_rows["total"] == 4  # three initial files and one update file
     assert all(r["action"] == "SEED" and r["actor_id"] is None for r in seed_rows["items"])
 
     me = (await admin.get("/me")).json()["user"]

@@ -32,7 +32,8 @@ async def test_national_summary(admin):
         "flags_open": 0,
     }
     other_year = (await admin.get("/dashboard/summary", params={"academic_year": "2025-26"})).json()
-    assert other_year["kpis"]["enrolments"] == 0 and other_year["kpis"]["approved_seats"] == 0
+    # 2025-26 approvals exist for the lateral entrants' cohort; nobody is on that year's roll
+    assert other_year["kpis"]["enrolments"] == 0 and other_year["kpis"]["approved_seats"] == 220
     assert other_year["kpis"]["institutions"] == 3
 
 
