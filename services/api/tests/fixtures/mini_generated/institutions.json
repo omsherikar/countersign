@@ -1,0 +1,92 @@
+{
+  "regions": [
+    {"code": "WEST", "name": "Western", "hq_city": "Mumbai"},
+    {"code": "SOUTH", "name": "Southern", "hq_city": "Chennai"},
+    {"code": "SOUTH_WEST", "name": "South-Western", "hq_city": "Bengaluru"}
+  ],
+  "states": [
+    {"code": "MH", "name": "Maharashtra", "region": "WEST"},
+    {"code": "TN", "name": "Tamil Nadu", "region": "SOUTH"},
+    {"code": "KA", "name": "Karnataka", "region": "SOUTH_WEST"}
+  ],
+  "universities": [
+    {"code": "MSTU", "name": "Maharashtra State Technical University", "state_code": "MH"},
+    {"code": "ATU", "name": "Anna Technical University", "state_code": "TN"},
+    {"code": "VTU", "name": "Visvesvaraya Technological University", "state_code": "KA"}
+  ],
+  "institutions": [
+    {
+      "aicte_permanent_id": "1-ABC-0001",
+      "name": "ABC College of Engineering",
+      "type": "PRIVATE_SELF_FINANCED",
+      "state_code": "MH",
+      "university_code": "MSTU",
+      "address_city": "Pune",
+      "established_year": 2004,
+      "programmes": [
+        {
+          "code": "CSE",
+          "name": "B.Tech Computer Science and Engineering",
+          "level": "UG",
+          "discipline": "ENGINEERING",
+          "shift": "FIRST",
+          "approvals": [{"academic_year": "2026-27", "approved_intake": 120}]
+        },
+        {
+          "code": "MBA",
+          "name": "Master of Business Administration",
+          "level": "PG",
+          "discipline": "MANAGEMENT",
+          "shift": "FIRST",
+          "approvals": [{"academic_year": "2026-27", "approved_intake": 60}]
+        }
+      ]
+    },
+    {
+      "aicte_permanent_id": "1-XYZ-0002",
+      "name": "XYZ Institute of Technology",
+      "type": "GOVERNMENT_AIDED",
+      "state_code": "TN",
+      "university_code": "ATU",
+      "address_city": "Chennai",
+      "established_year": 1998,
+      "programmes": [
+        {
+          "code": "ECE",
+          "name": "B.E. Electronics and Communication Engineering",
+          "level": "UG",
+          "discipline": "ENGINEERING",
+          "shift": "FIRST",
+          "approvals": [{"academic_year": "2026-27", "approved_intake": 60}]
+        },
+        {
+          "code": "MCA",
+          "name": "Master of Computer Applications",
+          "level": "PG",
+          "discipline": "COMPUTER_APPLICATIONS",
+          "shift": "FIRST",
+          "approvals": [{"academic_year": "2026-27", "approved_intake": 30}]
+        }
+      ]
+    },
+    {
+      "aicte_permanent_id": "1-PQR-0003",
+      "name": "PQR Polytechnic",
+      "type": "GOVERNMENT",
+      "state_code": "KA",
+      "university_code": "VTU",
+      "address_city": "Mysuru",
+      "established_year": 1985,
+      "programmes": [
+        {
+          "code": "DME",
+          "name": "Diploma in Mechanical Engineering",
+          "level": "DIPLOMA",
+          "discipline": "ENGINEERING",
+          "shift": "FIRST",
+          "approvals": [{"academic_year": "2026-27", "approved_intake": 40}]
+        }
+      ]
+    }
+  ]
+}

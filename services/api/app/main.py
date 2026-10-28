@@ -1,0 +1,132 @@
+"""App factory: settings, logging, middleware, error envelope, routers, startup migration."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.adapters.factory import build_adapters
+from app.core.config import get_settings
+from app.core.errors import envelope, install_error_handlers
+from app.core.logging import configure_logging
+from app.core.ratelimit import limiter
+from app.db.session import dispose_engine, get_engine
+from app.routers import admin, auth, dashboard, healthz, institutions, meta, students
+
+log = logging.getLogger("countersign.api")
+
+MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def run_migrations() -> None:
+    """`alembic upgrade head` in a worker thread (alembic env.py owns its own event loop)."""
+    from alembic.config import Config
+
+    from alembic import command
+
+    cfg = Config(str(Path(__file__).resolve().parent.parent / "alembic.ini"))
+    cfg.set_main_option("script_location", str(Path(__file__).resolve().parent.parent / "alembic"))
+    cfg.attributes["configure_logger"] = False  # keep the app's JSON logging in place
+    command.upgrade(cfg, "head")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    if settings.auto_migrate:
+        await asyncio.to_thread(run_migrations)
+        log.info("migrations applied")
+    get_engine()
+    app.state.adapters = build_adapters(settings)
+    log.info("api ready", extra={"adapter": settings.gov_adapter, "version": settings.api_version})
+    try:
+        yield
+    finally:
+        adapters = getattr(app.state, "adapters", None)
+        if adapters is not None:
+            await adapters.aclose()
+        await dispose_engine()
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    app = FastAPI(
+        title="Countersign API",
+        version=settings.api_version,
+        lifespan=lifespan,
+        docs_url="/docs",
+        redoc_url=None,
+    )
+    app.state.limiter = limiter
+    install_error_handlers(app)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.middleware("http")
+    async def request_context(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        request.state.request_id = request_id
+        started = time.perf_counter()
+        if request.method in MUTATING and _has_body(request):
+            content_type = request.headers.get("content-type", "")
+            if not content_type.lower().startswith("application/json"):
+                response = envelope(
+                    415,
+                    "UNSUPPORTED_MEDIA_TYPE",
+                    "Request bodies must be application/json.",
+                    {"content_type": content_type or None},
+                )
+                response.headers["x-request-id"] = request_id
+                return response
+        response = await call_next(request)
+        response.headers["x-request-id"] = request_id
+        log.info(
+            "request",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+                "user_id": str(getattr(request.state, "user_id", "")) or None,
+            },
+        )
+        return response
+
+    app.include_router(healthz.router)
+    app.include_router(auth.router)
+    app.include_router(dashboard.router)
+    app.include_router(institutions.router)
+    app.include_router(students.router)
+    app.include_router(meta.router)
+    app.include_router(admin.router)
+    return app
+
+
+def _has_body(request: Request) -> bool:
+    length = request.headers.get("content-length")
+    if length is not None:
+        try:
+            return int(length) > 0
+        except ValueError:
+            return True
+    return "transfer-encoding" in request.headers
+
+
+app = create_app()

@@ -1,0 +1,16 @@
+{
+  "size": "mini",
+  "seed": 42,
+  "generated_at": "2026-10-28T00:00:00Z",
+  "counts": {
+    "regions": 3,
+    "states": 3,
+    "universities": 3,
+    "institutions": 3,
+    "programmes": 5,
+    "approvals": 5,
+    "users": 7,
+    "upload_rows": 41,
+    "distinct_students": 40
+  }
+}
