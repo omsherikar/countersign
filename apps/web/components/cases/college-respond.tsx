@@ -121,7 +121,7 @@ export function CollegeRespond({ flag }: { flag: FlagDetail }) {
 
   const noteHint = `${ids}-note-hint`;
   const noteErr = `${ids}-note-error`;
-  const filesHint = `${ids}-files`;
+  const filesHint = `${ids}-files-label`;
   const countId = `${ids}-count`;
   const busy = respond.isPending;
 
