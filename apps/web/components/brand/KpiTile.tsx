@@ -46,7 +46,7 @@ export function KpiTile({ label, value, unit, hint, tone = "default", format = f
         {display}
         {unit && isNumber && <span className="ml-0.5 text-base font-normal text-ink-muted">{unit}</span>}
       </span>
-      {hint && <span className="truncate text-xs text-ink-muted">{hint}</span>}
+      {hint && <span className="line-clamp-2 text-xs text-ink-muted">{hint}</span>}
     </div>
   );
 }
