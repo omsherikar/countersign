@@ -29,6 +29,8 @@ interface Column {
   num?: boolean;
   sort?: InstitutionListSort;
   tip?: string;
+  /** Extra classes on the head and body cells, e.g. a breakpoint. */
+  cls?: string;
 }
 
 function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmitted: boolean): Column[] {
@@ -40,7 +42,7 @@ function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmi
   if (variant === "aicte") cols.push({ key: "region", label: t("col.region") });
   cols.push(
     { key: "type", label: t("col.type") },
-    { key: "programmes", label: t("col.programmes"), num: true },
+    { key: "programmes", label: t("col.programmes"), num: true, cls: "hidden 2xl:table-cell" },
     { key: "approved_seats", label: t("col.approved_seats"), num: true, sort: "approved_seats", tip: t("app.hint.intake", { academic_year: academicYear }) },
   );
   if (withAdmitted) cols.push({ key: "admitted", label: t("col.admitted"), num: true, tip: t("col.admitted_tip", { academic_year: academicYear }) });
@@ -167,7 +169,7 @@ export function InstitutionsTable({
                 const active = c.sort && sort === c.sort;
                 const ariaSort = active ? (order === "asc" ? "ascending" : "descending") : c.sort ? "none" : undefined;
                 return (
-                  <th key={c.key} scope="col" className={cn(c.num && "num")} aria-sort={ariaSort} title={c.tip}>
+                  <th key={c.key} scope="col" className={cn(c.num && "num", c.cls)} aria-sort={ariaSort} title={c.tip}>
                     {c.sort ? (
                       <button
                         type="button"
@@ -238,7 +240,7 @@ export function InstitutionsTable({
                 <td>
                   <TypeChip type={r.type} />
                 </td>
-                <td className="num">{formatCount(r.programmes)}</td>
+                <td className="num hidden 2xl:table-cell">{formatCount(r.programmes)}</td>
                 <td className="num">{formatCount(r.approved_seats)}</td>
                 {withAdmitted && <td className="num font-medium">{admittedOf(r) === null ? "" : formatCount(admittedOf(r))}</td>}
                 <td className="num">{formatCount(r.enrolments)}</td>
