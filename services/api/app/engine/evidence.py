@@ -47,10 +47,10 @@ FLAG_NAMES = {
     FlagType.EXCESS_ADMISSION: "Excess admission",
     FlagType.QUOTA_BREACH: "Quota breach",
     FlagType.LATE_REFILL: "Late refill",
-    FlagType.INVALID_APAAR: "APAAR not found",
-    FlagType.NAME_MISMATCH: "Name mismatch",
+    FlagType.INVALID_APAAR: "APAAR not verified",
+    FlagType.NAME_MISMATCH: "Name or date of birth mismatch",
     FlagType.DUPLICATE_CROSS_INSTITUTION: "Duplicate across institutions",
-    FlagType.DUPLICATE_WITHIN_UPLOAD: "Duplicate in upload",
+    FlagType.DUPLICATE_WITHIN_UPLOAD: "Duplicate within institution",
     FlagType.DUAL_ENROLMENT_ALLOWED: "Dual enrolment (allowed)",
     FlagType.NO_ACADEMIC_ACTIVITY: "No academic activity",
     FlagType.STUDENT_DENIED: "Student denied",
@@ -158,10 +158,9 @@ def identity_malformed(problem: str) -> dict[str, Any]:
 
 
 def identity_not_found(apaar_last4: str | None) -> dict[str, Any]:
+    """The registry has no such id, so it returned no name score and no date check."""
     return {
         "summary": f"APAAR ending {apaar_last4} is not in the APAAR registry.",
-        "name_score": 0,
-        "dob_match": False,
         "apaar_last4": apaar_last4,
     }
 
@@ -460,8 +459,7 @@ def no_academic_activity(
     related: Iterable[uuid.UUID | str],
 ) -> dict[str, Any]:
     missing = sum(1 for s in semesters if s.credits <= 0)
-    years = [s.academic_year for s in semesters]
-    span = years[0] if years[0] == years[-1] else f"{years[0]} to {years[-1]}"
+    span = f"{semesters[0].academic_year} to {semesters[-1].academic_year}"
     return _evidence(
         f"No credits recorded in ABC for {missing} semesters while enrolled in year "
         f"{year_of_study}.",

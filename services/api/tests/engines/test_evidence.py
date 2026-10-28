@@ -39,9 +39,10 @@ def test_identity_sentences() -> None:
     assert ev.identity_malformed("has 11 digits, expected 12")["summary"] == (
         "APAAR as uploaded has 11 digits, expected 12; the enrolment was kept without it."
     )
-    assert ev.identity_not_found("4417")["summary"] == (
-        "APAAR ending 4417 is not in the APAAR registry."
-    )
+    assert ev.identity_not_found("4417") == {
+        "summary": "APAAR ending 4417 is not in the APAAR registry.",
+        "apaar_last4": "4417",
+    }
     assert ev.identity_dob_mismatch(100, "4417")["summary"] == (
         "Date of birth on upload does not match the APAAR registry."
     )
@@ -305,7 +306,7 @@ def test_no_academic_activity_evidence() -> None:
         "No credits recorded in ABC for 2 semesters while enrolled in year 2."
     )
     assert _facts(evidence) == {
-        "Semesters checked": "2 (2025-26)",
+        "Semesters checked": "2 (2025-26 to 2025-26)",
         "Credits found": "Sem 1: 0, Sem 2: 0",
         "Last ABC entry": "30 Jun 2026",
     }
