@@ -1,6 +1,6 @@
 # Later pages (Weeks 2 to 4)
 
-Lower fidelity than `03-pages-week1.md`: purpose, sketch, elements with their expected data, states and the key copy. Shared rules from `03-pages-week1.md` §0 apply. Week 2 pages read the endpoints and fields of `API_CONTRACT.md` Addendum 2 (§A2.x below); where an earlier proposal here differed, the contract replaced it. Week 3 pages read the endpoints of DECISIONS D23 to D33, written out in API_CONTRACT Addendum 3. Endpoints marked (proposed) in Week 4 are not in the contract yet.
+Lower fidelity than `03-pages-week1.md`: purpose, sketch, elements with their expected data, states and the key copy. Shared rules from `03-pages-week1.md` §0 apply. Week 2 pages read the endpoints and fields of `API_CONTRACT.md` Addendum 2 (§A2.x below); where an earlier proposal here differed, the contract replaced it. Week 3 pages read the endpoints of DECISIONS D23 to D33, written out in API_CONTRACT Addendum 3. Week 4 pages read DECISIONS D34 to D49 and the frozen scope (the SIH deck); endpoints and fields marked (pending) are not in the contract yet.
 
 ## Week 2
 
@@ -726,32 +726,577 @@ Data: the enrolment's notices on `GET /enrolments/{id}` (channel, `delivery_stat
 
 ## Week 4
 
-### W4-1. `/aicte/institutions/[id]/score` and `/college/score` ("why this score")
+Week 4 pages follow the frozen scope (the SIH deck) and DECISIONS D34 to D49 with rules R1 to R6. API_CONTRACT Addendum 4 is being written alongside: endpoints and fields marked (pending) are named here so the pages can be built, and the contract wins wherever it differs. Copy ids refer to `05-copy-deck.md` §21 to §29 and the sections it rewrote (§6, §11, §15, §17).
+
+Every Week 4 page, besides the shared rules of `03-pages-week1.md` §0:
+- A record's status and a row's evidence state are always a word with its icon. Colour is a second cue, never the only one, and the page reads the same in greyscale.
+- One contradiction visibly outranks any number of confirmations: the record's status is the largest mark on the card, above the rows, and a Contradicted row is never visually smaller than a Confirmed one.
+- No score anywhere: no strip, no "n of 5", no percentage for one record. Percentages appear only as shares of a population (dashboard tiles, completeness, reports).
+- APAAR is printed exactly as sent (`XXXX XXXX 4417`), never composed in the browser; a provisional ID prints with its label.
+- Signals appear only on officer pages (AICTE officer, regional officer). No `/college/*`, `/university/*`, `/student/*` or public page requests a signal or names one.
+- Every decision sheet names every consequence before the officer submits.
+- Loading: content-shaped skeletons, [shell.loading_slow] after 3 s. Error: the page's error card with [err.retry] and the `Ref:` line; one failed panel never blanks the page. Empty: the deck's empty line and the one action that fills it.
+- Phone width 390 px: one column, 16 px side gutters, body text 16 px, targets at least 44 px, primary buttons full width and 48 px tall, no horizontal page scroll (a wide table scrolls inside its own container with its first column sticky), nothing hover-only.
+
+Proposed for DESIGN.md §3.2 and §5 (its owner decides; the words above hold whatever the hues):
+
+| Mark | Hue | Icon |
+|---|---|---|
+| Confirmed | ok | `Check` |
+| Contradicted | alert | `X` |
+| Pending | caution | `Clock` |
+| Not yet due | neutral | `CalendarClock` |
+| Not applicable | neutral, dotted | `Minus` |
+| Source unavailable | caution | `CloudOff` |
+| Countersigned | ok | `BadgeCheck` |
+| Awaiting evidence | caution | `Hourglass` |
+| Under review | blue | `FileSearch` |
+| Disputed | alert | `OctagonAlert` |
+| Independent of the college | none (ink) | `ShieldCheck` |
+| From the college itself | none (ink-muted) | `Building2` |
+| Claim upheld by an officer | seal | `Gavel` |
+| Case statuses Claim upheld, Claim corrected, Claim withdrawn | ok, blue, neutral | `CircleCheck`, `PencilLine`, `CircleSlash` |
+| On time, Late, Overdue | neutral, caution, caution | `CalendarCheck`, `CalendarClock`, `CalendarX` |
+
+### Changes to earlier pages
+
+- The countersign strip (W2-3) is retired everywhere. Lists show the record's status in a Status column (W4-2); the student's home shows the record card (W4-1, student variant).
+- Flags become cases in every visible word. Routes: `/college/flags` and `/college/flags/[flagId]` become `/college/cases` and `/college/cases/[caseId]`; the officers' `/aicte/cases/[flagId]` and `/ro/cases/[flagId]` keep their paths with the parameter renamed. Old paths redirect (308) so emails already sent still open.
+- Clear flag and Confirm give way to the three decisions (W4-5). The flag status words Cleared and Confirmed give way to Claim upheld, Claim corrected and Claim withdrawn.
+- The notice page (W3-1) shows its claim to anyone with the link, as before, but Yes and No appear only after DigiLocker sign-in (W4-8). Their words become [notice.yes] "Yes, I joined" and [notice.no] "No, I never joined".
+- My proofs becomes My attestations (W3-2), Verify a proof becomes Verify an attestation (W3-4), and Degree print becomes Certificate integration (W4-12). The degree proof is now a completion attestation.
+- `/login`: the Student card opens DigiLocker sign-in ([login.card.student], [login.digilocker]); no student password exists.
+- Nav: officers gain Signals and live Reports; the AICTE officer gains Evaluation (if built); the registrar's Flags becomes Cases and gains Completeness; Why this score goes. Only Private matching may stay disabled.
+- Integrity Index: every mention, column and page is removed (`/aicte/institutions/[id]/score`, `/college/score` redirect to the institution page and `/college`).
+
+### W4-1. The record card: enrolment detail
+
+`/aicte/enrolments/[id]`, `/ro/enrolments/[id]`, `/college/enrolments/[id]`, `/university/enrolments/[id]`, and the card on `/student`.
+
+Purpose: one place that answers "is this enrolment backed by evidence, and if not, what happens next", drawn exactly as the deck's sample card, with the record's history and attestations under it.
 
 ```
-Integrity Index  72 of 100             Rank 41 of 50 nationally · computed 20 Jul 2026
-Start at 100, minus:
-Component                 Count   Weight   Penalty   Source
-Invalid or missing APAAR    7     0.5       3.5      rules.yaml integrity.invalid_id
-Excess admissions          12     1.0      12.0      APH 2024-27 cl. 2.8(b)
-Name mismatches             4     0.5       2.0
-Student denied              1     5.0       5.0
-Duplicates across colleges  3     1.5       4.5
-No academic activity        2     0.5       1.0
-= 72
-What would raise it: resolve the 12 unseated enrolments (up to +12).
+Overview / ABC College of Engineering / Enrolments / <student name>
+<student name>                                              (!) Disputed (priority)
+B.Tech CSE 2026, ABC College of Engineering · APAAR XXXX XXXX 4417          since 22 Aug
++------------------------------------------------------------------------------------------+
+| Check           Evidence state                     Source and date                         |
+| Identity        (✓) Confirmed                      APAAR verification · 12 Aug             |
+|                                                    [shield] Independent of the college     |
+| Seat            (✓) Confirmed: fits approved       AICTE approval v2, 2026-27              |
+|                     intake                         (Seat Ledger, derived)                  |
+| Joining record  (✕) Contradicted: not found        State admission authority · 20 Aug      |
+|                                                    [shield] Independent of the college     |
+| Credits         (–) Not yet due                    First semester not complete             |
+| Student         (✕) Contradicted: "I never joined" Student sign-in via DigiLocker · 22 Aug |
+|                                                    [shield] Independent of the college     |
+| Status: Disputed (priority). Next step: College asked for admission documents by 29 Aug.   |
+| Why: The student said they never joined, after signing in with DigiLocker on 22 Aug.       |
+| Awaiting evidence · Countersigned · Under review · Disputed      What the statuses mean (i) |
++------------------------------------------------------------------------------------------+
+[Show details]                                                     [Recheck evidence]
+
+Cases about this record
+High  Student dispute   Documents requested   The student said they never joined, ...   22 Aug
+Medium Not in joining record  Open            Not found in the Maharashtra admission ...   20 Aug
+
+Student                     Enrolment                       Seat
+Date of birth  21 Mar 2007  Intake  AICTE approval v2, 2026-27   CSE-R-014 · Regular · approval v2,
+Gender         Male         Year of study 1                       2026-27 · assigned 14 Aug
+Mobile         XXXXXX4521   Admission route Counselling ...
+                            Reported eligibility  none
+
+Student notice                                                   [Resend notice]
+Email: Sent, 15 Aug · DigiLocker: Sent, 15 Aug
+Answer: Never joined, 22 Aug (DigiLocker sign-in)
+
+Attestations
+Enrolment attestation K7PQ3M2X, issued 16 Aug
+Revoked on 22 Aug: You told us you never joined, so this attestation was revoked while an officer reviews it.
+Revoked when the student disputed the record. Issued again only if an officer upholds the claim and the record is Countersigned.
+
+History
+When              What changed                                                         By
+14 Aug, 11:40 IST Programme changed from B.Tech ME to B.Tech CSE by upload on 14 Aug.  Registrar
+                  Upload 1-ABC-0001_2026-27_update1.csv · Version 2
+28 Jul, 09:30 IST Record created by upload 1-ABC-0001_2026-27.csv on 28 Jul.           Registrar
+Viewing student records is logged.
 ```
 
-Data: `GET /scores/institutions/{id}` (proposed: `integrity_index`, `rank`, `of`, `computed_at`, `components[{key, label, count, weight, penalty, rule_source}]`). Always a number with its arithmetic visible; never a colour band on its own. The registrar sees the same table with the extra "What would raise it" line.
+Data: `GET /enrolments/{id}` with the Addendum 4 fields (pending): `record_status`, `status_reason`, `next_step`, `record_status_at`; `rows[]` in the order IDENTITY, SEAT, ADMISSION, STUDYING, STUDENT, each with `check`, `status`, `finding`, `source_line`, `supplied_by`, `observed_at`, `independent`, `resolved {outcome, by, at}`, `detail.summary`, `attempts`; `versions[]` (D42: `version`, `changes {field: [before, after]}`, `source`, `batch {filename}`, `case {id, type}`, `actor {name, role}`, `at`); `attestations[]`; the Week 2 and 3 fields (student, enrolment, seat with its approval `version`, flags as cases, notices).
 
-### W4-2. `/aicte/reports` and `/ro/reports`
+Elements, top to bottom:
+1. Heading: the student's name (officers, registrar, university), then the status badge at its largest size: icon and [record_status.DISPUTED_priority] for a Disputed record, else `record_status.*`, with [record.status_since] under it. The badge's tooltip is `record_status.meaning.*`.
+2. The card, labelled [record.aria_card]: [record.header], then a real `<table>` with [record.col.check], [record.col.state], [record.col.source] as `<th scope="col">` and the row label as `<th scope="row">` with its [check.label_tip.*]. The state cell: the icon and `evidence.state.*` word, then [evidence.with_finding] when `finding` is set. The source cell: `source_line` verbatim, then on Confirmed and Contradicted rows the marker [evidence.independent] or [evidence.from_college] with its icon and tooltip (none on the Seat row). An upheld contradiction adds [evidence.resolved.UPHELD] with its icon and [evidence.resolved_tip], on its own line under the state; the state stays Contradicted. Each row is announced as one [evidence.sr_row].
+3. The footer, inside the card: [record.footer_status] (Disputed prints "Disputed (priority)") and [record.footer_next] on one line as the deck draws it, then [record.reason] for officers, the registrar and the university, then the legend [record_status.legend] with the current status's word in bold and its icon, and a disclosure [record_status.legend_label] opening the four `record_status.meaning.*` lines and [record_status.rule].
+4. [record.details_show] toggles one `detail.summary` sentence under each row (and [check.attempts] in small text). Recheck: [recheck.enrolment] with [recheck.enrolment_tip], for officers and the registrar, only when a row other than Student is Pending or Source unavailable; results per §17 in an `aria-live` region; the card refetches.
+5. Cases about this record ([enrolment.section.flags]): severity chip, `flag.<TYPE>.name`, `flag_status.*` word with icon, `summary` verbatim, opened date; rows link to case detail for officers and the registrar, plain text for the university; empty [empty.flags_enrolment].
+6. Student, Enrolment and Seat blocks as W2-5, with [enrolment.intake_value] and [enrolment.seat_value] naming the approval version, and [enrolment.field.eligibility] listing reported markers (TFW income certificate, NRI sponsored, CIWG) or "none".
+7. Student notice block (W3-10) with the answer words Joined or Never joined and "(DigiLocker sign-in)".
+8. Attestations ([enrolment.section.attestations], officers only): one [enrolment.attestations.line] per attestation; a revoked one adds [enrolment.attestations.revoked_line] with the `wallet.revoked_reason.*` sentence, and [enrolment.attestations.held_by_dispute] when the reason is STUDENT_DISPUTE; Revoke for the AICTE officer on an active one (the dialog of copy-cases, renamed). None: [enrolment.attestations.none].
+9. History ([history.heading]): a table When, What changed, By per §22; newest first; empty [history.empty].
+10. Footer [privacy.read_logged].
 
-Pre-built summaries: by state, by institution type, flags by type, countersign coverage, each as a table with "Download CSV". No charts without the table beside them. Any chart is a bar chart; never a map.
+Withdrawn records: [record.withdrawn_banner] or [record.withdrawn_upload_banner] above the card, with an icon; the card keeps its last rows and reads the last status it held; no Recheck.
 
-### W4-3. `/admin/psi` (private set intersection demo)
+Role differences: the registrar sees the same card and footer, the history with roles only, no attestations block, and the cases list of its own college. The university sees the card, the footer and History with roles only; no Recheck, no notice block, no attestations block, no case links. No role sees a signal here.
 
-Two panels "Countersign holds" and "Partner registry holds" showing only counts; button "Compute overlap"; result "Overlap: 1,204 records. Neither side learned the other's members." with a short explanation [psi.explain]. A toggle "Show how" reveals the step list.
+Student variant (`/student`): the same card for each of the student's active records, without Recheck, cases, notice block or attestations block; under the footer the line `record_status.student.*` in place of [record.reason], then the §8 notice line or a `student.decision.*` line. History shows the sentences only (no By column). The student sees the row states and source lines of their own record and nothing about cases, officers, notes or signals.
 
-### W4-4. Fraud graph and anomaly panel (inside flag detail)
+States:
+- Loading: the card's frame with five skeleton rows, the badge as a grey pill; the blocks below load on their own.
+- Not found: [err.NOT_FOUND_enrolment] with [err.back_overview].
+- A row never checked: Source and date reads [check.never]; an empty `rows` prints [empty.checks] inside the card in place of the rows.
+- Error: the card shows [err.tile_failed] with retry; the page's other blocks still render.
+- After a decision elsewhere: the card refetches when the page regains focus, and the badge flashes its soft tint once (DESIGN §7).
 
-For `GHOST_RING` and `ANOMALY` flags the evidence card adds a small node-link drawing (students as dots, shared mobile/email/address as links) with the facts table beside it: "40 students across 3 institutions share 6 mobile numbers". The drawing is decorative support; the facts table is the evidence.
+Phone (390 px): the card becomes a stack of five blocks, one per row, in the same order: the row label as a small heading, the state word and finding on the next line, the source line and the marker under it. The status badge sits above the stack, full width; the footer and legend follow the stack, the legend wrapping onto as many lines as it needs. The history table becomes a list of entries (When, then What changed). Nothing scrolls sideways.
+
+### W4-2. Enrolment lists with status
+
+The Enrolments tab of institution detail, `/college/enrolments`, and the related records on case detail.
+
+```
+Status [All statuses ▾]  Row [Any ▾]  Evidence state [Any ▾]  Cases [Any ▾]  Seat [Any ▾]   Sort [Needs attention first ▾]
+Student            APAAR / Provisional   Programme  Year  Route        Seat        Status                 Cases
+<student name>     XXXX XXXX 4417        CSE        1     Counselling  CSE-R-014   (!) Disputed           Student dispute, High
+<student name>     PRV-XXXXXXXX          CSE        1     Management   CSE-R-102   (⌛) Awaiting evidence
+<student name>     XXXX XXXX 9021        CSE        1     Counselling  CSE-R-001   (✓) Countersigned
+1 to 25 of 605                                                    Viewing student records is logged.
+```
+
+Data: `GET /enrolments` (and `GET /institutions/{id}/enrolments`) with `record_status` on each row and new query params `record_status`, `row` (`check_type` renamed in words only), `row_state`, and `sort=attention` (pending).
+- The Countersign column becomes Status ([col.record_status]): the icon and `record_status.*` word, with `status_reason` as its tooltip when the list carries it (pending; otherwise `record_status.meaning.*`).
+- Filters in the URL with the `e_` prefix: Status ([enrolments.filter.status], the four words in legend order plus [enrolments.filter.status_all]), Row ([enrolments.filter.check], the five labels in deck order), Evidence state ([enrolments.filter.result], the six words), Cases, Seat. Row and Evidence state together mean "this row in this state".
+- Default sort [record_status.sort.attention], explained by [record_status.sort_tip] on the Status header (`aria-sort`).
+- A status count line above the table, in legend order, each a link that sets the Status filter: "312 Awaiting evidence · 254 Countersigned · 37 Under review · 2 Disputed".
+- Empty with filters: [empty.status_filtered] or [empty.enrolments_filtered] with [empty.clear_filters].
+
+States: skeleton rows; error card; empty [empty.enrolments]. Phone (390 px): the table scrolls inside its container with Student sticky; the count line wraps; filters collapse behind a "Filters" button opening a sheet.
+
+### W4-3. Dashboards by status: national, regional and college
+
+`/aicte`, `/ro`, `/college`.
+
+```
+Overview                                                         Academic year [2026-27 ▾]
+Records by status
+(⌛) Awaiting evidence   (✓) Countersigned   (◎) Under review   (!) Disputed
+    9,412 · 49.6%           8,120 · 42.8%        1,388 · 7.3%      40 · 0.2%
+Countersigned = identity verified (or the alternative route) + seat fits the approval + ...
+[bar chart, one bar per status, with the same numbers in the table beside it]
+
+Completeness and deadlines                     Open cases by type        Signals (officers only)
+Colleges   Completeness   Missing   Deadline   Student dispute   40      3 new · See all signals
+ABC ...    92%            14        Late       Not in joining ... 212     Shared contact ring, 3 colleges
+XYZ ...    100%           0         On time    Excess admission    9     Unusual pattern, XYZ Institute
+...                                            ...                        Signals never change a
+                                                                          record's status.
+Institutions ranked
+Name  Permanent id  State  Approved seats  Admitted  Countersigned  Under review  Disputed  Completeness  Deadline  Open cases
+```
+
+Data: `GET /dashboard/summary` adds (pending) `by_status {AWAITING_EVIDENCE, COUNTERSIGNED, UNDER_REVIEW, DISPUTED}` with counts and shares, `countersigned_pct`, `completeness {pct, joined, missing}`, `deadlines {on_time, late, overdue, not_due}`, `cases_by_type` with ages, `signals {new, top[]}` (officers only); `GET /institutions` rows add `by_status`, `completeness_pct`, `missing`, `deadline_state`, `flags_open`.
+
+Elements:
+- Records by status ([kpi.status_heading], tooltip [kpi.status_tip]): four tiles in legend order, each the icon and word, the count and share ([kpi.status_value]), linking to the enrolment list filtered by that status (officers: the case queue for Under review and Disputed is one click further). Under them [record_status.rule]. A bar chart of the same four counts sits beside a table of the same numbers (D46: bar charts only, the table always present); bars use the status hues with the word under each bar.
+- Completeness and deadlines: a table of colleges (Name, [completeness.col] with [completeness.tip], [completeness.col_missing], [deadline.col] word with icon and `deadline.tip.*`), sorted by missing, descending; the national tile [kpi.completeness] with [kpi.completeness_value].
+- Open cases by type ([section.flags_by_type]) with counts and the median age per type, each linking to the case queue.
+- Signals panel ([signal.panel_heading], officers only): [signal.count], the three newest signal summaries with their type word, [signal.panel_more] to W4-6, and [signal.never_status] under it.
+- Institutions ranked: the default sort becomes open cases, then Disputed, then Under review ([table.sort_tip]); columns as sketched; Integrity Index is gone.
+- By state and By region tables gain the four status columns and completeness; still no map, no fill percentage of seats.
+
+`/ro`: the same, scoped to the region, heading [ro.heading].
+
+`/college` (registrar): the Seat Ledger tiles stay first ([nav.ledger]); then the college's Records by status (four tiles, linking to `/college/enrolments?e_status=`), its completeness line ([completeness.line]) linking to W4-4, its deadline word with [deadline.tip.*], the five newest open cases about the college, and the last upload line. No signals panel, no other college, no national number.
+
+States: each panel loads and fails on its own ([err.tile_failed] with retry); nulls read [kpi.not_computed]; completeness before the authority publishes reads [completeness.line_none]. Phone (390 px): tiles in a 2 by 2 grid, each word above its number; tables scroll in their containers; the chart sits under its table.
+
+### W4-4. Completeness and missing students
+
+`/aicte/institutions/[id]/completeness` and `/ro/institutions/[id]/completeness` (a tab, [tab.completeness]), and `/college/completeness` ([nav.completeness]).
+
+```
+Seat Ledger / Completeness
+Completeness                                         Academic year [2026-27 ▾]
+92% of joined students uploaded, 14 missing          (⏰) Late · first upload 3 Oct, deadline 30 Sep
+Joined (authority) 180 · Uploaded and joined 166 · Missing 14
+A Missing from upload case is open for these students.  [See the case]
+
+Missing from the upload (14)                                     [Download the list as CSV]
+The state admission authority lists these students as joined at your college in 2026-27,
+but they are not in your uploads. Upload their rows to complete your record.
+Student            Programme  Joined on   Admission round
+XXXX XXXX 2231     CSE        4 Aug       round 1
+Roll XXXX7710      ME         6 Aug       Management admission approved by the state
+Viewing student records is logged.
+```
+
+Data (pending): `GET /institutions/{id}/completeness?academic_year` returning `{joined, matched, missing, completeness_pct, deadline_date, deadline_state, first_upload_at, case_id, students[] {id_masked, programme_code, joined_on, round_words}}`; the CSV at `/api/institutions/{id}/completeness.csv`.
+- Heading line [completeness.line] (or [completeness.line_full]); the deadline word with its icon and `deadline.tip.*` as visible text, not only a tooltip.
+- [missing.heading], [missing.lead_college] or [missing.lead_officer], the table with `missing.col.*`; [missing.case_line] with a link to the MISSING_FROM_UPLOAD case when `case_id` is set; [missing.download].
+- The registrar's page links [upload.upload_again]; uploading the missing rows updates the line and the case gains [case.system_note.missing_updated].
+
+States: skeleton; empty [missing.none]; before the authority publishes, [completeness.line_none] and no table; error card. Phone (390 px): the summary lines stack; the table becomes a list (masked id as heading, programme, joined on, round).
+
+### W4-5. Officer decision sheets
+
+On `/aicte/cases/[caseId]` and `/ro/cases/[caseId]` (W3-8 gains these sheets; Clear and Confirm go).
+
+```
+Student dispute                                   High · Documents requested · opened 22 Aug
+ABC College of Engineering · CSE · 2026-27
+Decide: [ Uphold claim ] [ Correct record ] [ Withdraw claim ]     [ Request documents ] [ Escalate ]  [ Add note ] [ Assign ]
+
+Withdraw the claim?                                                        (modal)
+The college's claim that this student joined does not stand.
+Reason     [ The student never joined ▾ ]
+Note (shown to the college)
+[ Joining record not found after the deadline; the college sent no admission documents.  ]
+What will change
+• The record is withdrawn: its status becomes Withdrawn, with the reason "withdrawn by decision",
+  and it leaves the college's active counts.
+• Seat CSE-R-014 is released.
+• Enrolment attestation K7PQ3M2X is revoked. Anyone who checks it sees Revoked.
+• Nothing is deleted. Each record and its history stay, marked withdrawn.
+• The case closes as Claim withdrawn.
+• The student sees that the college's claim was withdrawn.
+ABC College of Engineering sees your decision, its reason and your note.
+The student sees the outcome in plain words, never your note or your name.
+[ ] I have read what will change.
+[ Withdraw claim ]  [ Cancel ]
+```
+
+Programme-level Withdraw (Excess admission) adds the picker:
+
+```
+Records to withdraw                     Only records this case names are listed.
+[ ] Select all 12                                                   3 of 12 selected
+[x] <student name>   XXXX XXXX 1182   CSE-unseated   Awaiting evidence
+[x] <student name>   PRV-XXXXXXXX     unseated       Under review
+...
+What will change
+• 3 records are withdrawn: ...   • No seat to release.   • No attestation to revoke.  ...
+[ Withdraw 3 records ]
+```
+
+Correct record:
+
+```
+Correct the record
+Choose the fields that are wrong and enter the right values. Only the fields you change are stored,
+as a new version of the record.
+Field [ Programme ▾ ]      Now  B.Tech ME      Correct value [ B.Tech CSE ▾ ]     [Remove Programme]
+[ Add another field ]
+APAAR and status are not corrected here. ...
+Reason [ Documents show a different value ▾ ]   Note [ ... ]
+What will change
+• These fields change, saved as version 3 of the record with your name and reason:
+  Programme: B.Tech ME to B.Tech CSE
+• Countersign checks every row of the record again against its sources and the Seat Ledger.
+• Seat ME-R-031 is released, and a Regular seat in CSE is assigned if one is free. If none is free,
+  the record is unseated and a case opens.
+• The case closes as Claim corrected.  • The record's status is worked out again from the new evidence.
+[ Correct record ]
+```
+
+Uphold claim lists [case.uphold_change.case], `.row`, `.status`, `.not_evidence`, `.seat` (or, on a programme-level case, the approval version select and `.version`), and `.attestation` only when a dispute revoked one.
+
+Data: `POST /flags/{id}/actions` with `action` UPHOLD, CORRECT, WITHDRAW, ESCALATE, REQUEST_DOCS, NOTE, ASSIGN or REOPEN, and `reason_code`, `note`, `correction {enrolment_id, fields {field: value}}`, `withdrawn_enrolment_ids`, `approval_version`, `docs_kind`, `due_date`; the preview with `dry_run: true` (pending) returning the consequences with seat codes, attestation ids and the next version number; `GET /approvals/{id}/versions` for the Uphold select.
+
+Behaviour (deck §6 lists every string and rule):
+- The three decisions sit together under [case.decide_heading], in the order Uphold claim, Correct record, Withdraw claim; none is red or styled as dangerous; all share one weight.
+- Each sheet is a modal dialog labelled by its heading; focus goes to the reason select; Tab stays inside; Esc and Cancel return focus to the button that opened it.
+- "What will change" is a list (`<ul>`), each item a full sentence with real values; it refreshes when the reason, the picked records or the corrected fields change (debounced 300 ms, from the dry run). While it loads, the list shows skeleton lines and the submit button is disabled with "Working out what will change". If the dry run fails, the sheet shows [err.tile_failed] in place of the list and the submit stays disabled: an officer never decides without seeing the consequences.
+- Withdraw needs [case.withdraw_ack] ticked; the submit reads [case.withdraw_submit] or [case.withdraw_submit_many] with the count.
+- Correct: field select lists the correctable fields with their `field.*` words; the correct-value input matches the field (a select for enums and programmes, a date input for dates); a value equal to Now is refused inline with [err.CORRECTION_EMPTY] on submit if nothing changed.
+- Errors in the sheet: [case.reason_required], [case.note_required], [case.withdraw_ack_required] under their fields; 409 [err.FLAG_TRANSITION_INVALID], [err.WITHDRAW_NOT_NAMED], [err.UPHOLD_NEEDS_VERSION]; 422 [err.CORRECTION_INVALID] under the field it names.
+- After success: the toast in an `aria-live` region, the history row with [case.history.reason], correction lines or [case.history.withdrawn_line], and the related records refetch with their new status. The registrar's case page then shows [college.decision_line].
+
+States: sending ([case.sending], inputs disabled; a double press sends once). Phone (390 px): each sheet is a full-height bottom sheet; the consequences list scrolls with the form; the submit is pinned to the foot, full width; the record picker is a list of checkable rows 56 px tall with the masked id under the name.
+
+### W4-6. Signals (officers only)
+
+`/aicte/signals`, `/aicte/signals/[id]`, `/ro/signals`, `/ro/signals/[id]` ([nav.signals]); the dashboard panel of W4-3.
+
+```
+Overview / Signals
+Signals                                                  Academic year [2026-27 ▾]   5 signals, 3 new
+Patterns worth a look, found by a published rule or a model. Only AICTE and regional officers see signals.
+Signals never change a record's status. Only a case an officer opens can lead to a decision.
+Type [All ▾]  Status [New ▾]  Institution [All ▾]
+Type                  What stands out                                                 Colleges  Records  Found   Status
+Shared contact ring   40 students across 3 colleges share 6 mobile numbers and ...  3         40       28 Oct  New
+Unusual pattern       XYZ Institute of Technology stands out from 49 similar ...     1         -        28 Oct  New
+```
+
+Signal detail:
+
+```
+Overview / Signals / Shared contact ring
+Shared contact ring                                              New · found 28 Oct 2026
+40 students across 3 colleges share 6 mobile numbers, 2 email addresses and 3 addresses.
++---------------------------+  Fact                     Value
+| [node-link drawing]       |  Students                 40
+|                           |  Colleges                 ABC College of Engineering (18), ...
++---------------------------+  Shared mobile numbers    6
+The drawing shows how members link. The table beside it is the evidence.
+Rule: students linked by a shared mobile number, email or address form a group; a group of 3 or
+more across 2 or more colleges, or of 5 or more in one college, is a signal.
+Members (40)   <student name>  XXXX XXXX 1182  ABC College of Engineering  CSE  Awaiting evidence ...
+[ Open case ]  [ Dismiss ]
+Signals never change a record's status. Only a case an officer opens can lead to a decision.
+Viewing student records is logged.
+```
+
+Data (pending): `GET /signals?academic_year&type&status&institution_id&page`, `GET /signals/{id}` (`type`, `summary`, `facts`, `rule`, `score`, `status`, `institution_ids`, `enrolment_ids` with masked members, `case_flag_id`, dismissal note), `POST /signals/{id}/open-case {institution_ids, note}`, `POST /signals/{id}/dismiss {note}`. Officers only; any other role gets 403 and the nav never lists the item.
+- List: columns per `signal.col.*`; status words with icons; default Status New, newest first; filters in the URL with the `s_` prefix; [signal.count]; empty [signal.empty], filtered [signal.empty_filtered].
+- Detail: the summary verbatim, the facts table, the rule line ([signal.rule.GHOST_RING] or [signal.rule.ANOMALY] with its `{n}`) printed every time, the members table (masked ids; members in other regions collapsed for a regional officer), and the drawing for a ring (decorative support with a text alternative summarising it; the table is the evidence) or the feature lines for an anomaly ([signal.feature_line] each).
+- Open case: a dialog [signal.open_case_heading] with [signal.open_case_body], a checkbox list [signal.open_case_colleges] (one case per college chosen), a note, and [signal.open_case_submit] or [signal.open_case_submit_many]. The cases cite the signal ([case.from_signal]); the signal's status becomes Case opened with [signal.case_link].
+- Dismiss: a dialog with [signal.dismiss_body], the note [signal.dismiss_note_label] (required), [signal.dismiss_submit]; afterwards [signal.dismissed_line].
+- 409 [err.SIGNAL_ALREADY_HANDLED] refetches; 404 [err.NOT_FOUND_signal].
+
+States: skeleton rows; error card. Phone (390 px): the list becomes stacked blocks (type word, summary, colleges and status); the drawing is hidden below 768 px and the facts table carries the evidence; the actions sit full width at the foot.
+
+### W4-7. Reports
+
+`/aicte/reports` and `/ro/reports` ([nav.reports]).
+
+```
+Overview / Reports
+Reports                                                   Academic year [2026-27 ▾]
+Summaries for policy, accreditation and monitoring. Each downloads as CSV or XLSX; the summary also as a one-page PDF.
+(i) Synthetic data. Every college, student and number here is generated for the demo.
+All India · Academic year 2026-27 · Generated 29 Oct 2026, 10:12 IST
+
+Records by state                Active records by status in each state, with approved seats and admitted.   [CSV] [XLSX]  [Preview]
+Records by institution type     ...                                                                         [CSV] [XLSX]  [Preview]
+Cases by type and outcome       ...                                                                         [CSV] [XLSX]  [Preview]
+Countersign coverage            ...                                                                         [CSV] [XLSX]  [Preview]
+Completeness and deadlines      ...                                                                         [CSV] [XLSX]  [Preview]
+One-page summary                ...                                                                         [PDF]
+```
+
+Data (pending): `GET /reports/{name}.csv`, `.xlsx` and `GET /reports/summary.pdf` (AICTE and RO scoped, D46), and `GET /reports/{name}?preview=25` for the preview.
+- One row per report with `report.name.*`, `report.desc.*` and one download link per format; each link is an `<a href>` with the accessible name [report.download_label] and the format word as its text. [report.synthetic] sits at the top of the page with an icon and is never dismissible. A regional officer sees [report.ro_scope] under the lead.
+- Preview opens the first 25 rows in a table under the report ([report.preview_rows]) with the same column words as the file; a bar chart appears only beside its table, never alone, and never a map.
+- While a file is prepared the link reads [report.preparing]; failure shows [err.REPORT_FAILED] inline under that report.
+
+States: empty [report.empty] per report; error per report. Phone (390 px): each report is a block (name, description, then the format buttons full width in a row of two); the preview table scrolls in its container.
+
+### W4-8. DigiLocker sign-in and the notice page
+
+Web: `/login` (student entry), `/student/notices/[token]` (gate and states), `/auth/digilocker/return` (the page the callback lands on). mockgov: `GET /digilocker/oauth/authorize` and its steps (the Demo DigiLocker).
+
+Notice page, signed out (390 px):
+
+```
++--------------------------------------+
+| [mark] Countersign        [ हिन्दी ] |
+| ABC College of Engineering says      |
+| you joined B.Tech Computer Science   |
+| and Engineering                      |
+| Academic year 2026-27 · Year 1       |
+| They uploaded this on 14 Jul 2026    |
+| for APAAR XXXX XXXX 4417.            |
+|                                      |
+| To answer, sign in with DigiLocker.  |
+| Only the person this record is about |
+| can answer.                          |
+| [ Sign in with DigiLocker to answer ]|
+| You go to DigiLocker to sign in,     |
+| then come back here.                 |
+| Demo: this opens a simulated         |
+| DigiLocker with synthetic accounts.  |
+| > What is this?                      |
++--------------------------------------+
+```
+
+Demo DigiLocker (mockgov), three steps, each with the banner:
+
+```
++--------------------------------------+   +--------------------------------------+   +--------------------------------------+
+| Demo DigiLocker, synthetic data      |   | Demo DigiLocker, synthetic data      |   | Demo DigiLocker, synthetic data      |
+| This is a simulated DigiLocker for   |   | Enter the OTP                        |   | Share with Countersign?              |
+| the Countersign demo. Every account  |   | A real DigiLocker sends an OTP to    |   | Countersign will receive your name,  |
+| here is synthetic. Never type real   |   | the mobile number linked to the      |   | your date of birth, your APAAR if    |
+| details.                             |   | account. In this demo the OTP is     |   | linked, and your DigiLocker id.      |
+| Countersign is asking you to sign in.|   | always 123456.                       |   | [            Allow             ]     |
+| Choose a demo account                |   | OTP [______]                         |   | [            Deny              ]     |
+| [Search by APAAR or DigiLocker id ]  |   | [            Verify            ]     |   | Choose another account               |
+| ( ) Ravi Kumar Sharma · APAAR XXXX   |   | Choose another account               |   | Run by the Countersign demo's mock   |
+|     XXXX 4417                        |   |                                      |   | services, not by DigiLocker.         |
+| ( ) <name> · No APAAR linked · ...   |   |                                      |   |                                      |
+| [          Continue            ]     |   |                                      |   |                                      |
++--------------------------------------+   +--------------------------------------+   +--------------------------------------+
+```
+
+Back on the notice page, signed in, the four cases (deck §23):
+
+```
+Match                                    Someone else                             Claim needed
+Signed in with DigiLocker as Ravi        This notice is for someone else          Claim this record first
+Kumar Sharma. Not you? Sign out          You are signed in with DigiLocker as     This record has no APAAR, so ...
+Is that right?                           <name>, but this notice is about a       [ Claim with provisional ID ]
+[      Yes, I joined       ]             different person's record. Nothing       Not you? Sign out
+[    No, I never joined    ]             was recorded.
+If you say no, a priority dispute        If you did join ABC College of
+opens and an AICTE officer looks into    Engineering, the college may have ...
+it first. Nothing changes for you        If you have never had anything to do
+until they decide.                       with ABC College ..., you do not need
+                                         to do anything.      [ Sign out ]
+```
+
+Data (pending): `GET /auth/digilocker/start?next=` (redirects to mockgov), `GET /auth/digilocker/callback?code&state` (signs the STUDENT in, sets the session, redirects to `/auth/digilocker/return?next=`); `GET /notices/{token}` adds `viewer {signed_in, name, match: MATCH | SOMEONE_ELSE | CLAIM_NEEDED}`; `POST /notices/{token}/respond` requires the student session and refuses with 401 `SIGNIN_REQUIRED` or 403 `NOTICE_IDENTITY_MISMATCH` otherwise. mockgov: `GET /digilocker/oauth/authorize` (picker, OTP, consent), `POST /digilocker/oauth/token`.
+- `/login`: the Student card reads [login.card.student] and is a link to `/api/auth/digilocker/start?next=/student`, with [login.digilocker_hint] under it; no password field ever appears for a student.
+- Notice page signed out: the claim card (W3-1), then [notice.signin_lead], [notice.signin_button] (a link, full width, 48 px), [signin.redirect_note] and [signin.demo_note] (the demo note only when `DEMO_MODE`), then What is this?. Yes and No do not exist in the page until sign-in.
+- Return page: [signin.returning] with a progress indicator while the session settles, then a redirect to `next` (a same-origin path only). Cancelled at DigiLocker: [err.DIGILOCKER_CANCELLED] with [signin.try_again]; failed: [err.DIGILOCKER_FAILED]; bad or stale state: [err.DIGILOCKER_STATE_INVALID] with a link back to the notice.
+- Signed in, MATCH: [notice.signed_in_as] and [notice.signout] above the question; Yes and No as W3-1 with the new words; the No sheet's text is [notice.no_confirm]; the answered states as W3-1 with [notice.no_done] and [notice.yes_done].
+- Signed in, SOMEONE_ELSE: the claim card stays visible, then [notice.someone_else_heading] (h2), [notice.someone_else_body], [notice.someone_else_college], [notice.someone_else_other] and [notice.signout]; no buttons. Nothing is recorded, and the page never shows the record's student name.
+- Signed in, CLAIM_NEEDED: [notice.claim_needed_heading], [notice.claim_needed], [notice.claim_button] to `/student/claim?next=/student/notices/{token}`, and [notice.signout].
+- Demo DigiLocker (mockgov page, plain HTML): [dldemo.title] as the page title and heading, [dldemo.banner] in a bordered box on every step, [dldemo.footer] at the foot; the account list is a radio group with [dldemo.account_line] or [dldemo.account_line_no_apaar]; Ravi first; the search filters as you type ([dldemo.search_empty]); OTP is a one-field form with `inputmode="numeric"` and `autocomplete="one-time-code"`, [dldemo.otp_wrong] under it; consent has Allow and Deny of equal weight. Deny returns to Countersign as cancelled. The page never uses DigiLocker's logo or colours.
+- Hindi: the toggle stays on the notice page and carries into the return page and the claim page for the visit; every string above has its `.hi` row (deck §23), except the Demo DigiLocker pages, which are English only.
+
+States: loading skeleton of the claim; the W3-1 states (expired, invalid, change window, rate limited) unchanged; a network error during respond keeps the choice and retries once. Phone (390 px): as sketched; the sign-in button full width; the someone-else text in 16 px, never in an alert colour.
+
+### W4-9. Claim by provisional ID
+
+`/student/claim` (signed in as a STUDENT through DigiLocker).
+
+```
+390 px
+Claim your record
+Your college recorded your enrolment without an APAAR and gave you a provisional ID.
+Enter it to link the record to your DigiLocker sign-in.
+Provisional ID
+[ PRV-________ ]
+It starts with PRV- and has 8 more letters and digits, for example PRV-7K2M9QXA.
+Countersign checks that the name and date of birth on your DigiLocker match the record.
+A small difference in spelling is allowed; your DigiLocker sign-in decides.
+[          Claim record          ]
+Signed in with DigiLocker as <name> · Sign out
+```
+
+Data (pending): `POST /students/me/claim {provisional_id}` returning the claimed record (Identity now Confirmed with `source_line` "Student sign-in via DigiLocker · <date>"), or 422 `CLAIM_NO_MATCH`, 409 `CLAIM_ALREADY_CLAIMED`, 409 `CLAIM_NOT_NEEDED`, 429 with `retry_after`.
+- The field upper-cases as typed, accepts the ID with or without the PRV- prefix and with spaces, and checks the shape before sending ([claim.format] under the field, focus kept, nothing sent).
+- Submitting reads [claim.submitting]; success replaces the form with [claim.done_heading], [claim.done], then [claim.done_answer] (when `next` is a notice) and [claim.done_home].
+- Errors under the field, the value kept: [err.CLAIM_NO_MATCH], [err.CLAIM_ALREADY_CLAIMED], [err.CLAIM_NOT_NEEDED]; after five failures in 15 minutes, [claim.locked] with the minutes, the button disabled.
+- Signed out: redirect to DigiLocker sign-in with `next=/student/claim`.
+- Hindi with the toggle, every string from its `.hi` row.
+
+States: as above; an unexpected error shows [err.INTERNAL] with [err.retry]. Phone (390 px): as sketched; the input 48 px tall, monospace, `autocapitalize="characters"`.
+
+### W4-10. Column mapping in the upload flow
+
+`/college/upload` gains a step between choosing the file and uploading it; `/college/column-mapping` shows and changes the saved mapping.
+
+```
+Seat Ledger / Upload
+Upload admissions file                          Academic year [2026-27 ▾]
+1 Choose file ✓   2 Map your columns   3 Declare and upload
+Map your columns
+Your saved mapping matched 17 of 21 columns. Check the rest.
+Column in your file        Countersign column
+Student Name               [ Name (name) ▾ ]                 Required
+DOB                        [ Date of birth (dob) ▾ ]         Required
+Branch Code                [ Programme code (programme_code) ▾ ]  Required
+Quota                      [ Admission route (admission_route) ▾ ] Required
+Remarks                    [ Not used ▾ ]
+...
+Required columns not mapped yet: Category
+[x] Saved for next time
+[ Save mapping and continue ]   [ Choose another file ]
+```
+
+Data (pending): `POST /uploads/headers` (multipart `file`) returning the file's header names and the saved mapping's matches; `GET /institutions/{id}/column-mapping` and `PUT` the same with `{mapping: {their_header: our_column}}`; `POST /uploads` then applies the saved mapping (the batch shows it, D42).
+- The step appears only when a header does not match a template column or the saved mapping; a file with template headers goes straight to step 3.
+- One row per column of the file: its name as uploaded (monospace) and a select of the template columns ([mapping.col.ours], each "Field word (column)" with [mapping.required_tag]) plus [mapping.not_used]. [mapping.required_missing] and [mapping.duplicate] update live in an `aria-live` region; [mapping.continue] stays enabled and, when pressed with problems, moves focus to the first one and sends nothing ([err.MAPPING_INCOMPLETE], [err.MAPPING_DUPLICATE] from the server too).
+- [mapping.saved_for_next_time] is ticked by default; saving shows [mapping.saved].
+- The batch page (W2-2) gains [mapping.batch_line] with [mapping.view] to the settings page.
+- `/college/column-mapping`: [mapping.settings_heading], [mapping.settings_lead], the same two-column table read only, [mapping.edit] to make it editable with [mapping.save], and [mapping.reset] with the dialog [mapping.reset_confirm] and [mapping.reset_done]; empty [mapping.empty].
+
+States: reading headers (a skeleton of the table); error card; no student value from the file is shown at any step. Phone (390 px): each column becomes a block (their name above the select); the step indicator reads "Step 2 of 3: Map your columns".
+
+### W4-11. Approval versions
+
+A tab on institution detail ([tab.approvals]) for officers and the university; read only for the registrar on `/college` under each programme.
+
+```
+Programme  Version  Approved intake  Effective from  Source                   
+CSE        v2       132              1 Sep 2026      Sample approval data      Current
+CSE        v1       120              1 Jul 2026      Sample approval data
+v2 raised the intake from 120 to 132 on 1 Sep 2026: 12 seats added and 12 records seated from the backlog.
+```
+
+Data (pending): `GET /approvals?institution_id&academic_year` with `versions[]` (D41). Columns `approval.col.*`, [approval.current] as a tag with an icon, [approval.change_up] or [approval.change_down] under the programme's rows, [approval.rule_tip] on the Approved intake header. Recording a version is not a web action this week; [err.APPROVAL_BELOW_ASSIGNED] is listed for the api's refusal. States: skeleton; empty [empty.programmes]. Phone: table in its container.
+
+### W4-12. Certificate integration
+
+`/university/certificates` ([nav.certificates]) and `/university/certificates/[enrolmentId]/print`. `/university/degrees*` redirect here.
+
+```
+Affiliated institutions / Certificate integration
+Certificate integration
+Countersign does not issue degrees. Your university awards the degree and prints its own certificate.
+Countersign gives you two things to print on it: the graduate's masked APAAR, and a QR to their
+completion attestation.
+> How it works        > For your certificate system
+[Search by name or the last four digits of APAAR]                              318 graduates
+Graduate        APAAR / Provisional  Institution                 Programme  Year of completion  Completion attestation
+<graduate name> XXXX XXXX 4417       ABC College of Engineering  CSE        2026                (✓) Issued 28 Oct 2026  [Print certificate block] [Download PDF]
+<graduate name> PRV-XXXXXXXX         ABC College of Engineering  ME         2026                Not issued              [Issue completion attestation]
+<graduate name> XXXX XXXX 8810       XYZ Institute of Technology CSE        2026                (⌛) Record not Countersigned
+Viewing student records is logged.
+```
+
+Print view (the block for the certificate):
+
+```
+screen only: [ Print ]  Back to graduates  Print on A4, portrait, or place the PDF on your certificate.
+------------------------------------------------------------------------------------------- A4
+For the certificate awarded by Maharashtra State Technical University to
+Name                 <graduate name>
+Programme            B.Tech Computer Science and Engineering
+Institution          ABC College of Engineering
+Year of completion   2026
+APAAR                XXXX XXXX 4417
+                                                     [ QR, 30 mm ]
+                                                     Attestation id <short id>
+                                                     Scan to verify at localhost:3000/verify
+Completion attestation issued 28 Oct 2026.
+Signed by Countersign for Maharashtra State Technical University. This block is not a degree, and a
+changed block does not verify.
+```
+
+Data (pending paths, D28 renamed): `GET /university/graduates?q&page` with each graduate's `record_status`; `POST /university/certificates/{enrolment_id}/issue`; `GET /university/certificates/{enrolment_id}` (print data with `qr_svg`); `GET /university/certificates/{enrolment_id}/block.pdf`.
+- Copy and row actions per deck §11. A graduate whose record is not Countersigned shows [cert.status.not_eligible] with [cert.not_eligible_tip] and no action.
+- The how-it-works and API disclosures are native `<details>`, closed by default after the first visit (remembered per browser).
+- Issue sheet, print view, `@media print` rules and the QR rules as W3-5, with the `cert.*` words; the word "degree" appears only where the page says Countersign does not issue one.
+
+States: skeleton rows; empty [empty.graduates]; no match [empty.graduates_search]; error card; 409s per deck §11. Phone (390 px): each graduate a block with the attestation word and the actions full width; the print view is not offered below 768 px (Download PDF is).
+
+### W4-13. Evaluation report (if built)
+
+`/admin/evaluation` (AICTE officer, [nav.evaluation]). Optional: `make eval` writes `eval_report.md` and `eval.json`, and this page only renders `eval.json` with the deck's labels.
+
+```
+Overview / Evaluation
+Evaluation                                                              (i) Synthetic data
+How Countersign performs on the synthetic test bed: generated colleges, students and planted cases.
+Run 29 Oct 2026, 09:10 IST · seed 42 · 50 colleges · 50,000 records
+Measure                                   Result                          Target        Met
+Seeded inconsistencies caught             97.2% (486 of 500)              95% or more   (✓) Met
+Cases raised on legitimate records        2.1% (21 of 1,000 known-clean)  Under 5%      (✓) Met
+Time to process 50,000 rows               104.6 s                         Under 2 min   (✓) Met
+Cross-college access attempts refused     2,450 of 2,450                  All refused   (✓) Met
+...
+Detection by case type
+We can only check data we receive, and a student who colludes cannot always be caught. ...
+[Download eval_report.md]  [Download eval.json]
+```
+
+Data (pending): `GET /admin/evaluation` returning the latest `eval.json`. The numbers above are an illustration of the layout, not results. Columns `eval.col.*`, values per `eval.value.*`, Met and Not met words with icons ([eval.met.*]), [eval.limit] under the tables, [eval.synthetic] as a tag beside the heading. Empty: [eval.none]. Phone: the table scrolls in its container with Measure sticky.
+
+### W4-14. `/admin/psi` (private set intersection, last and only if disk allows)
+
+Unchanged from the earlier plan: two panels "Countersign holds" and "Partner registry holds" showing only counts; [psi.compute]; [psi.result] with [psi.explain]; "Show how" reveals the steps. If it is not built, the nav item stays disabled with its hint.
