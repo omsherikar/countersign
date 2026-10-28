@@ -90,19 +90,6 @@ export interface StudentEnrolment {
   status: EnrolmentStatus;
   countersign: Countersign;
 }
-export interface StudentMe {
-  id: string;
-  name: string;
-  apaar_masked: string | null;
-  consent_status: ConsentStatus;
-  provisional_id: string | null;
-  dob: string;
-  email: string | null;
-  mobile_masked: string | null;
-  enrolments: StudentEnrolment[];
-  notices: unknown[];
-  credentials: unknown[];
-}
 
 export type SourceKey = "apaar" | "counselling" | "abc" | "digilocker" | "sii";
 export const SOURCE_KEYS: SourceKey[] = ["apaar", "counselling", "abc", "digilocker", "sii"];
@@ -123,17 +110,7 @@ export interface AuditVerify {
   first_broken_seq: number | null;
   checked_at: string;
 }
-export interface AuditRow {
-  seq: number;
-  at: string;
-  actor_id: string | null;
-  actor_email: string | null;
-  action: AuditAction;
-  entity_type: string;
-  entity_id: string | null;
-  hash: string;
-  prev_hash: string | null;
-}
+
 export interface RegionMeta {
   code: Region;
   name: string;
@@ -201,16 +178,7 @@ export interface Score { passes: number; applicable: number }
 export interface CheckBrief { type: CheckType; status: CheckStatus }
 /** Replaces the Week 1 Countersign: list rows carry type and status only. */
 export interface Countersign { score: Score | null; checks: CheckBrief[] }
-export interface CheckDetail {
-  summary: string;
-  source_unavailable?: boolean; source_error?: string; needs_review?: boolean;
-  name_score?: number; dob_match?: boolean; apaar_last4?: string;
-  round?: number; allotment_ref?: string; ref_mismatch?: boolean;
-  seat_code?: string; seat_type?: SeatType; flag_type?: FlagType;
-  expected?: number; missing?: number; semesters?: { academic_year: string; sem: number; credits: number }[];
-  awaiting_semester?: number;
-  [key: string]: unknown;
-}
+
 /** Replaces the Week 1 Check. */
 export interface Check { type: CheckType; status: CheckStatus; source: CheckSource; checked_at: string | null; attempts: number; detail: CheckDetail }
 
@@ -305,20 +273,7 @@ export interface InstitutionRef {
 }
 export interface ProgrammeRef { id: string; code: string; name: string }
 export interface FlagSummary extends FlagRef { summary: string; created_at: string }
-export interface EnrolmentDetail {
-  id: string;
-  institution: InstitutionRef;
-  student: StudentRef & { dob: string; gender: "M" | "F" | "O" | "U"; mobile_masked: string | null };
-  programme: ProgrammeRef & { level: Level; mode: ProgrammeMode; duration_years: number };
-  academic_year: string; cohort_year: string; year_of_study: number;
-  admission_route: AdmissionRoute; counselling_ref: string | null; category: Category;
-  status: EnrolmentStatus; status_date: string; admission_date: string; uploaded_at: string;
-  upload: { batch_id: string; filename: string; row_no: number | null } | null;
-  seat: { id: string; seat_code: string; seat_type: SeatType; academic_year: string; assigned_at: string | null } | null;
-  countersign: Countersign;
-  checks: Check[];
-  flags: FlagSummary[];
-}
+
 export interface EnrolmentRecheck {
   enrolment_id: string; rechecked: number;
   results: { type: CheckType; before: CheckStatus; after: CheckStatus }[];
@@ -332,25 +287,10 @@ export interface InstitutionRecheck {
 // ---------- flags ----------
 export interface EvidenceFact { label: string; value: string; source: string | null }
 export interface Evidence { summary: string; facts: EvidenceFact[]; related_enrolment_ids: string[]; rule_source: string | null }
-export interface FlagRow {
-  id: string; type: FlagType; severity: Severity; status: FlagStatus;
-  institution: InstitutionRef; programme: ProgrammeRef | null; enrolment_id: string | null; academic_year: string;
-  summary: string; related_count: number; assignee: { id: string; name: string } | null;
-  created_at: string; updated_at: string;
-}
+
 export interface FlagPage extends Page<FlagRow> { institutions: number }
-export interface FlagListQuery {
-  page?: number; page_size?: number; type?: FlagType; severity?: Severity; status?: FlagStatus;
-  institution_id?: string; programme_id?: string; state?: string; academic_year?: string; q?: string; sort?: FlagSort;
-}
+
 export interface RelatedEnrolmentRow extends EnrolmentRow { institution: { id: string; name: string } }
-export interface FlagDetail extends FlagRow {
-  evidence: Evidence;
-  enrolment: RelatedEnrolmentRow | null;
-  related_enrolments: RelatedEnrolmentRow[];
-  related_hidden: number;
-  history: unknown[]; // always [] in Week 2
-}
 
 /* ---------- Derived names used across the web ---------- */
 
@@ -399,4 +339,284 @@ export interface UploadErrorListParams {
   page_size?: number;
   level?: RowErrorLevel;
   code?: RowErrorCode;
+}
+
+// Notices, cases, credentials, verifier, degrees, privacy and audit (API_CONTRACT A3.27)
+// ---------- Week 3 enums ----------
+export type NoticeChannel = "EMAIL" | "DIGILOCKER";
+export type NoticeResponse = "YES" | "NO";
+export type NoticeDelivery = "QUEUED" | "SENT" | "FAILED";
+export type NoticeState = "QUEUED" | "AWAITING" | "ANSWERED" | "EXPIRED" | "FAILED";
+export type StudentNoticeState = "NOT_SENT" | "UNREACHABLE" | "SENT" | "EXPIRED" | "CONFIRMED" | "DENIED";
+export type IdKind = "APAAR" | "PROVISIONAL";
+export type ResendBlock = "LIVE" | "ANSWERED" | "LIMIT" | "CONSENT_WITHDRAWN" | "NO_CHANNEL" | "NOT_ACTIVE" | "ROLE";
+export type CaseAction =
+  | "CLEAR" | "REQUEST_DOCS" | "ESCALATE" | "CONFIRM" | "NOTE" | "ASSIGN" | "REOPEN" | "COLLEGE_RESPONSE" | "SYSTEM_NOTE";
+export type OfficerAction = Exclude<CaseAction, "COLLEGE_RESPONSE" | "SYSTEM_NOTE">;
+export type OfficerRole = Extract<Role, "AICTE_ADMIN" | "RO_OFFICER">;
+export type CredentialKind = "ENROLMENT" | "DEGREE";
+export type CredentialStatus = "ACTIVE" | "REVOKED" | "EXPIRED";
+export type PresentationState = "LIVE" | "EXPIRED";
+export type VerifyResultCode = "VALID" | "REVOKED" | "EXPIRED" | "INVALID";
+export type VerifyMethod = "signature" | "register_lookup";
+export type RevokedReasonCode = "ENROLMENT_WITHDRAWN" | "ENROLMENT_TRANSFERRED" | "FLAG_CONFIRMED" | "ADMIN";
+export type ClaimKey =
+  | "name" | "dob" | "apaar_masked" | "provisional_id" | "institution" | "programme" | "academic_year"
+  | "year_of_study" | "countersigned" | "university" | "year_of_award" | "proof_id";
+export type ConsentPurpose = "APAAR_LINK" | "NOTICE" | "CREDENTIAL_SHARE";
+export type ConsentState = "GIVEN" | "WITHDRAWN" | "REFUSED";
+export type ConsentCurrentState = ConsentState | "NONE";
+export type ConsentChannel = "COLLEGE_UPLOAD" | "NOTICE_EMAIL" | "NOTICE_DIGILOCKER" | "PORTAL";
+export type DataRequestKind = "ACCESS" | "CORRECTION" | "ERASURE";
+export type DataRequestStatus = "OPEN" | "DONE" | "REJECTED";
+export type AccessorRole = Role | "NOTICE_LINK" | "SYSTEM";
+export type AccessedWhat = "RECORD" | "EXPORT" | "DEGREE" | "NOTICE" | "CREDENTIAL" | "PROOF";
+
+// ---------- checks ----------
+/** Replaces the A2.23 CheckDetail: adds the STUDENT check keys of A3.8. */
+export interface CheckDetail {
+  summary: string;
+  source_unavailable?: boolean; source_error?: string; needs_review?: boolean;
+  name_score?: number; dob_match?: boolean; apaar_last4?: string;
+  round?: number; allotment_ref?: string; ref_mismatch?: boolean;
+  seat_code?: string; seat_type?: SeatType; flag_type?: FlagType;
+  expected?: number; missing?: number; semesters?: { academic_year: string; sem: number; credits: number }[];
+  awaiting_semester?: number;
+  notice_state?: StudentNoticeState; channel?: NoticeChannel; sent_at?: string; responded_at?: string; changed?: boolean;
+  delivery_failed?: boolean; consent_withdrawn?: boolean;
+  [key: string]: unknown;
+}
+
+// ---------- notices ----------
+export interface NoticePublic {
+  channel: NoticeChannel; institution_name: string; programme_code: string; programme_name: string;
+  academic_year: string; year_of_study: number; id_kind: IdKind; id_masked: string;
+  uploaded_at: string; sent_at: string | null; expires_at: string;
+  response: NoticeResponse | null; responded_at: string | null;
+  previous_response: NoticeResponse | null; changed_at: string | null; can_change_until: string | null;
+  consent_text: string; notice_version: string;
+}
+export interface NoticeRespondRequest { response: NoticeResponse; comment?: string }
+export interface StudentNotice {
+  id: string; enrolment_id: string; channel: NoticeChannel;
+  institution_name: string; programme_name: string; academic_year: string;
+  state: NoticeState; delivery_status: NoticeDelivery; sent_at: string | null; expires_at: string;
+  response: NoticeResponse | null; responded_at: string | null; changed_at: string | null; can_change_until: string | null;
+}
+export interface EnrolmentNotice {
+  id: string; channel: NoticeChannel; state: NoticeState; delivery_status: NoticeDelivery;
+  attempts: number; last_error: string | null; sent_at: string | null; expires_at: string;
+  response: NoticeResponse | null; responded_at: string | null;
+  previous_response: NoticeResponse | null; changed_at: string | null; resent: boolean;
+}
+export interface ResendState { allowed: boolean; blocked_by: ResendBlock | null; resends_left: number }
+export interface NoticeResendResult { enrolment_id: string; notices: EnrolmentNotice[]; resend: ResendState }
+
+// ---------- credentials ----------
+export interface IssuerRef { name: string; url: string }
+export interface CredentialRef {
+  id: string; kind: CredentialKind; status: CredentialStatus; short_id: string;
+  issued_at: string; revoked_at: string | null; revoked_reason_code: RevokedReasonCode | null; revoked_reason: string | null;
+}
+export interface StudentCredentialBrief {
+  id: string; kind: CredentialKind; status: CredentialStatus; enrolment_id: string; institution_name: string; issued_at: string;
+}
+export interface DisclosableField { key: ClaimKey; label: string; always: boolean }
+export interface PresentationBrief {
+  id: string; created_at: string; expires_at: string; disclosed: ClaimKey[]; verify_count: number; last_verified_at: string | null;
+}
+export interface CredentialCard {
+  id: string; kind: CredentialKind; status: CredentialStatus; vct: string; short_id: string; issuer: IssuerRef;
+  enrolment_id: string; institution_name: string; programme_name: string; academic_year: string;
+  university_name: string | null;
+  issued_at: string; expires_at: string | null; revoked_at: string | null;
+  revoked_reason_code: RevokedReasonCode | null; revoked_reason: string | null;
+  holder_bound: boolean; disclosable: DisclosableField[]; shares: number; last_verified_at: string | null;
+  presentations: PresentationBrief[];
+}
+export interface CredentialClaim { key: string; label: string; value: string; disclosable: boolean }
+export interface CredentialDetail extends CredentialCard { claims: CredentialClaim[] }
+export interface CredentialListQuery {
+  page?: number; page_size?: number; student_id?: string; enrolment_id?: string; kind?: CredentialKind; status?: CredentialStatus;
+}
+export interface PresentRequest { fields: ClaimKey[]; consent: true }
+export interface PresentationCreated {
+  id: string; code: string; url: string; qr_svg: string; expires_at: string; disclosed: ClaimKey[]; total: number;
+}
+export interface PresentationRow {
+  id: string; created_at: string; expires_at: string; state: PresentationState; disclosed: ClaimKey[];
+  verify_count: number; first_verified_at: string | null; last_verified_at: string | null;
+}
+export interface RevokeRequest { reason: string }
+
+// ---------- verifier ----------
+export interface DisclosedField { key: ClaimKey; label: string; value: string }
+export interface VerifyResult {
+  result: VerifyResultCode; kind: CredentialKind | null; issuer: IssuerRef | null;
+  institution_name: string | null; university_name: string | null;
+  issued_at: string | null; expires_at: string | null; revoked_at: string | null;
+  disclosed: DisclosedField[]; holder_bound: boolean; status_checked_at: string | null;
+  method: VerifyMethod; nonce: string | null;
+}
+export interface VerifyPasteRequest { presentation: string }
+
+// ---------- university ----------
+export interface GraduateRow {
+  enrolment_id: string;
+  student: { id: string; name: string; apaar_masked: string | null; provisional_id: string | null };
+  institution: { id: string; name: string; aicte_permanent_id: string };
+  programme: { id: string; code: string; name: string; level: Level };
+  academic_year: string; year_of_award: number;
+  degree: { credential_id: string; short_id: string; status: CredentialStatus; issued_at: string } | null;
+}
+export interface GraduateListQuery {
+  page?: number; page_size?: number; q?: string; institution_id?: string; academic_year?: string;
+  degree?: "issued" | "not_issued"; university_id?: string;
+}
+export interface DegreePrint {
+  enrolment_id: string;
+  student: { name: string; id_kind: IdKind; id_masked: string };
+  programme: { code: string; name: string; short_name: string };
+  institution: { name: string; aicte_permanent_id: string; short_name: string };
+  university: { code: string; name: string };
+  academic_year: string; year_of_award: number;
+  degree: {
+    credential_id: string; short_id: string; status: CredentialStatus; issued_at: string; revoked_at: string | null;
+    jws: string; verify_url: string; lookup_url: string; qr_svg: string;
+  } | null;
+}
+
+// ---------- cases ----------
+export interface ActorRef { id: string; name: string; role: Role }
+export interface CaseAttachment {
+  id: string; filename: string; content_type: "application/pdf" | "image/png" | "image/jpeg"; size_bytes: number; sha256: string;
+}
+export interface CaseHistoryItem {
+  seq: number; at: string; action: CaseAction; from_status: FlagStatus | null; to_status: FlagStatus | null;
+  actor: ActorRef | null; note: string | null; due_date: string | null;
+  assignee: { id: string; name: string } | null; attachments: CaseAttachment[];
+}
+export interface CaseActionRequest { action: OfficerAction; note?: string; due_date?: string | null; assignee_id?: string | null }
+/** POST /flags/{id}/response is multipart: FormData with "note" and up to three "files". */
+/** Replaces the A2.23 FlagRow. */
+export interface FlagRow {
+  id: string; type: FlagType; severity: Severity; status: FlagStatus;
+  institution: InstitutionRef; programme: ProgrammeRef | null; enrolment_id: string | null; academic_year: string;
+  summary: string; related_count: number; assignee: { id: string; name: string } | null;
+  response_received: boolean; docs_due_on: string | null; last_action_at: string | null;
+  created_at: string; updated_at: string;
+}
+/** Replaces the A2.23 FlagListQuery. */
+export interface FlagListQuery {
+  page?: number; page_size?: number; type?: FlagType; severity?: Severity; status?: FlagStatus;
+  institution_id?: string; programme_id?: string; state?: string; academic_year?: string; q?: string; sort?: FlagSort;
+  assignee?: "me" | "none" | string; response_received?: boolean;
+}
+/** Replaces the A2.23 FlagDetail. */
+export interface FlagDetail extends FlagRow {
+  evidence: Evidence;
+  enrolment: RelatedEnrolmentRow | null;
+  related_enrolments: RelatedEnrolmentRow[];
+  related_hidden: number;
+  history: CaseHistoryItem[];
+  allowed_actions: OfficerAction[];
+  can_respond: boolean;
+}
+export interface OfficerRow { id: string; name: string; role: OfficerRole; region: Region | null }
+export interface UserListQuery {
+  role: OfficerRole | `${OfficerRole},${OfficerRole}`; flag_id?: string; page?: number; page_size?: number;
+}
+
+// ---------- enrolments and the student ----------
+/** Replaces the A2.23 EnrolmentDetail. */
+export interface EnrolmentDetail {
+  id: string;
+  institution: InstitutionRef;
+  student: StudentRef & { dob: string; gender: "M" | "F" | "O" | "U"; mobile_masked: string | null };
+  programme: ProgrammeRef & { level: Level; mode: ProgrammeMode; duration_years: number };
+  academic_year: string; cohort_year: string; year_of_study: number;
+  admission_route: AdmissionRoute; counselling_ref: string | null; category: Category;
+  status: EnrolmentStatus; status_date: string; admission_date: string; uploaded_at: string;
+  upload: { batch_id: string; filename: string; row_no: number | null } | null;
+  seat: { id: string; seat_code: string; seat_type: SeatType; academic_year: string; assigned_at: string | null } | null;
+  countersign: Countersign;
+  checks: Check[];
+  flags: FlagSummary[];
+  notices: EnrolmentNotice[];
+  resend: ResendState;
+  credentials: CredentialRef[];
+}
+/** Replaces the section D StudentMe. */
+export interface StudentMe {
+  id: string; name: string; apaar_masked: string | null; consent_status: ConsentStatus; provisional_id: string | null;
+  dob: string; email: string | null; mobile_masked: string | null;
+  enrolments: StudentEnrolment[];
+  notices: StudentNotice[];
+  credentials: StudentCredentialBrief[];
+}
+
+// ---------- privacy ----------
+export interface PrivacyNotice {
+  version: string; effective_from: string; title: string;
+  sections: { id: string; heading: string; body: string }[];
+  consent_texts: Record<ConsentPurpose, string>;
+}
+export interface EnrolmentBrief { id: string; institution_name: string; programme_name: string; academic_year: string }
+export interface ConsentRow {
+  id: string; purpose: ConsentPurpose; status: ConsentState; channel: ConsentChannel;
+  notice_text: string; notice_version: string; recorded_at: string; withdrawn_at: string | null;
+  enrolment: EnrolmentBrief | null;
+}
+export interface ConsentCurrent { purpose: ConsentPurpose; status: ConsentCurrentState; since: string | null; can_withdraw: boolean }
+export interface ConsentsView { current: ConsentCurrent[]; items: ConsentRow[] }
+export interface ConsentWithdrawResult extends ConsentsView { presentations_expired: number }
+export interface AccessLogRow { at: string; role: AccessorRole; what: AccessedWhat }
+export interface DataRequestRow {
+  id: string; kind: DataRequestKind; status: DataRequestStatus; details: string | null; response: string | null;
+  enrolment: EnrolmentBrief | null; created_at: string; resolved_at: string | null; export_path: string | null;
+}
+export interface DataRequestAdminRow extends DataRequestRow {
+  student: { id: string; name: string; apaar_masked: string | null; provisional_id: string | null };
+  resolved_by: { id: string; name: string } | null;
+}
+export interface DataRequestCreate { kind: DataRequestKind; details?: string; enrolment_id?: string }
+export interface DataRequestResolve { status: Exclude<DataRequestStatus, "OPEN">; response: string }
+export interface DataRequestListQuery { page?: number; page_size?: number; status?: DataRequestStatus; kind?: DataRequestKind }
+export interface MyDataExport {
+  generated_at: string; privacy_notice_version: string;
+  student: {
+    id: string; name: string; dob: string; gender: "M" | "F" | "O" | "U"; nationality: string;
+    apaar_masked: string | null; provisional_id: string | null; consent_status: ConsentStatus;
+    email: string | null; mobile_masked: string | null;
+  };
+  enrolments: {
+    id: string; institution_name: string; programme_name: string; academic_year: string; year_of_study: number;
+    admission_route: AdmissionRoute; category: Category; status: EnrolmentStatus; status_date: string; admission_date: string;
+    seat_code: string | null;
+    checks: { type: CheckType; status: CheckStatus; summary: string; checked_at: string | null }[];
+    flags: { type: FlagType; status: FlagStatus; summary: string; created_at: string }[];
+  }[];
+  notices: {
+    channel: NoticeChannel; sent_at: string | null; expires_at: string; delivery_status: NoticeDelivery;
+    response: NoticeResponse | null; responded_at: string | null; changed_at: string | null; comment: string | null;
+  }[];
+  consents: ConsentRow[];
+  credentials: {
+    id: string; kind: CredentialKind; status: CredentialStatus; issued_at: string; expires_at: string | null;
+    revoked_at: string | null; revoked_reason: string | null; claims: { key: string; label: string; value: string }[];
+  }[];
+  presentations: { credential_id: string; created_at: string; expires_at: string; disclosed: ClaimKey[]; verify_count: number }[];
+  data_requests: DataRequestRow[];
+  access_log: AccessLogRow[];
+}
+
+// ---------- audit ----------
+/** Replaces the section D AuditRow. */
+export interface AuditRow {
+  seq: number; at: string; actor_id: string | null; actor_email: string | null; actor_role: Role | null; via: string | null;
+  action: AuditAction; entity_type: string; entity_id: string | null; hash: string; prev_hash: string | null;
+}
+export interface AuditListQuery {
+  page?: number; page_size?: number; actor_id?: string; entity_type?: string; entity_id?: string;
+  action?: AuditAction; seq_from?: number;
 }

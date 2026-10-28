@@ -360,6 +360,9 @@ function flagRow(user: User, f: StoredFlag): FlagRow {
     summary: redactedSummary(user, f),
     related_count: visibleRelated(user, f).length,
     assignee: null,
+    response_received: false,
+    docs_due_on: null,
+    last_action_at: null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   };
@@ -414,6 +417,8 @@ function getFlag(user: User, id: string): FlagDetail {
     related_enrolments: related.map((rid) => relatedRow(user, rid)).filter((r): r is RelatedEnrolmentRow => r !== null),
     related_hidden: f.related.length - related.length,
     history: [],
+    allowed_actions: [],
+    can_respond: false,
   };
 }
 
