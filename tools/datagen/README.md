@@ -10,7 +10,8 @@ uv run datagen summary /data/generated
 uv run pytest -q
 ```
 
-`--no-scenarios` leaves out the named demo scenarios; `--no-xlsx` writes CSV uploads only.
+`--no-scenarios` leaves out the named demo scenarios; `--no-xlsx` writes CSV uploads only;
+`--perf 50000` also writes `perf/`, a one-college throughput dataset for `make eval`.
 The same seed always writes the same bytes (except `generated_at` and timings in
 `manifest.json` and `summary.json`). Sizes and planted-case counts live in `datagen.yaml`.
 
@@ -20,23 +21,25 @@ The same seed always writes the same bytes (except `generated_at` and timings in
 institutions.json        regions, states, universities, institutions with programmes, approvals
                          (with versions) and the autonomous flag
 users.json               demo logins
-uploads/<aicte_id>_<year>.csv (+ .xlsx)          initial upload of every college
+column_mappings.json     the colleges that upload with their own headers, header -> template column
+uploads/<aicte_id>_<year>.csv (+ .xlsx)          initial upload of every college but the overdue
 uploads/<aicte_id>_<year>_update<n>.csv (+ .xlsx) withdrawals, transfers and late refills
-ground_truth.json        every planted case and expected signal, with the upload rows it refers to
+ground_truth.json        every planted case, expected signal and expected record status
 mockgov/apaar_registry.jsonl, counselling.jsonl, abc_credits.jsonl (with issuer), sii.jsonl
-mockgov/joining_records.jsonl      the state admission authority's joining records
+mockgov/admission_joinings.jsonl   the state admission authority's joinings
 mockgov/digilocker_accounts.jsonl  synthetic accounts for the DigiLocker sign-in simulator
 graduates.jsonl          2025-26 graduates for the university degree proof
 notice_replies.jsonl     how each student answers the enrolment notice in the seeded demo
-history.json             last year's first-year admissions per college, for the anomaly model
-manifest.json            size, seed, counts, demo_unanswered_notices, deck_sample
+history.json             last year's first-year admissions per college
+manifest.json            size, seed, counts, demo notices and accounts, sample card, uploads
 summary.json             manifest plus columns, notes and timings
+perf/                    only with --perf N (below)
 ```
 
-The file contract for everything above `graduates.jsonl` is docs/API_CONTRACT.md section E
-and Addendum 2 (A2.24). The files and fields described below are new since then. The steps that
-build them draw from random streams of their own, so the rows a step does not touch keep
-every value; small mode still runs in under 10 seconds.
+The file contract is docs/API_CONTRACT.md section E, Addendum 2 (A2.24), A3.28 and A4.25; the
+sections below describe what is new for A4.25. The steps that build it draw from random
+streams of their own, so the rows a step does not touch keep every value; small mode runs in
+under 10 seconds.
 
 ## notice_replies.jsonl
 
@@ -45,7 +48,7 @@ order, rows in file order. Update files have no lines. A row the api would rejec
 in-file duplicate (DUPLICATE_IN_FILE) never becomes an enrolment and has no line.
 
 ```json
-{"file":"uploads/1-ABC-0001_2026-27.csv","row_no":41,"reply":"NO","channel":"DIGILOCKER_SIGNIN","comment":"I never joined this college.","reply_after_days":3,"claim_provisional_id":false,"digilocker_id":"DL-7K2M-9QRT"}
+{"file":"uploads/1-ABC-0001_2026-27.csv","row_no":41,"reply":"NO","channel":"DIGILOCKER","comment":"I never joined this college.","reply_after_days":0}
 ```
 
 | field | type | meaning |
@@ -53,36 +56,33 @@ in-file duplicate (DUPLICATE_IN_FILE) never becomes an enrolment and has no line
 | `file` | string | the upload file, as in `ground_truth.json` `rows[].file` |
 | `row_no` | int | spreadsheet row (header is row 1), the api's `enrolments.source_row_no` |
 | `reply` | `YES`, `NO`, `NONE` | the student's answer; `NONE` means no reply |
-| `channel` | `DIGILOCKER_SIGNIN` | always: an answer counts only after DigiLocker sign-in (D37) |
+| `channel` | `DIGILOCKER`, `EMAIL` | the notice the student answers |
 | `comment` | string or null | what the student wrote; only on some `NO` replies |
 | `reply_after_days` | int | days between the notice and the reply, 0 to 12 |
-| `claim_provisional_id` | bool | the student has no APAAR and claims the record with the provisional id the college gave them before answering |
-| `digilocker_id` | string or null | the account in `mockgov/digilocker_accounts.jsonl` that signs in; null for an international student, who has none |
 
 Rules:
 
-- Every planted STUDENT_DENIED row (`will_deny: true` in ground truth) replies `NO`, signed
-  in with the APAAR the notice is about. Three of them leave a comment; the deck sample at
-  ABC CSE (scenario `not_me`, "I never joined this college.") is always one of the three.
-- A few refused-consent students (4 small, 30 full; `digilocker.provisional_claims` in
-  datagen.yaml), the planted CONSENT_REFUSED_NO_APAAR rows first, reply `YES` with
-  `claim_provisional_id: true`. Their DigiLocker account has no APAAR and the same name and
-  date of birth as the row.
-- About 70% of the clean rows whose student signs in with the row's own APAAR (12 digits,
-  LINKED, the registry holds it under that name) reply `YES`. Clean means no planted case
+- The lines stand for answers given after DigiLocker sign-in (API_CONTRACT A4.13); `channel`
+  is the notice the student answers.
+- Every planted STUDENT_DENIED row (`will_deny: true` in ground truth) replies `NO`: on
+  `DIGILOCKER` when the row has an APAAR the registry holds, otherwise by `EMAIL`. Three of
+  them leave a comment; the sample card at ABC CSE (scenario `not_me`, "I never joined this
+  college.") is always one of the three.
+- About 70% of the clean rows reply `YES`, on a channel the student has (DigiLocker needs an
+  APAAR the registry holds; every row has an email address). Clean means no planted case
   refers to the row, apart from CONSENT_REFUSED_NO_APAAR, and no update file withdraws or
   transfers it.
-- Every other row is `NONE`: rows of other planted cases, rows an update file withdraws or
-  transfers, students without an APAAR who do not claim, international students, and the
-  notices the live demo answers by hand. `NONE` lines carry `reply_after_days` 0 and still
-  name the account that would sign in.
+- Every other row is `NONE`: rows of other planted cases and of the record-status records
+  (CLEAN_INDEPENDENT, SELF_ISSUED_ONLY, PROVISIONAL_UNCLAIMED), rows an update file withdraws
+  or transfers, and the notices the live demo answers by hand. For `NONE`, `channel` is the
+  channel the student would use and `reply_after_days` is 0; both carry no meaning.
 - The live demo's notices are always `NONE`: Ravi Kumar Sharma (APAAR 123456784417, row 2 of
-  ABC College, DigiLocker id `DL-RAVI-4417`), his duplicate row "R. K. Sharma", and one more
-  clean, LINKED, counselled ABC CSE first-year. `manifest.json` lists the three under
-  `demo_unanswered_notices` as `{role, file, row_no, name, apaar_id}` with roles
-  `DEMO_STUDENT`, `DEMO_STUDENT_DUPLICATE` and `SECOND_DEMO_NOTICE`.
+  ABC College), his duplicate row "R. K. Sharma", and one more clean, LINKED, counselled ABC
+  CSE first-year. `manifest.json` lists the three under `demo_unanswered_notices` as
+  `{role, file, row_no, name, apaar_id}` with roles `DEMO_STUDENT`,
+  `DEMO_STUDENT_DUPLICATE` and `SECOND_DEMO_NOTICE`.
 - `manifest.json` counts: `notice_replies`, `notice_replies_yes`, `notice_replies_no`,
-  `notice_replies_none`, `notice_replies_claims`.
+  `notice_replies_none`.
 
 ## graduates.jsonl
 
@@ -126,161 +126,191 @@ Rules:
   no seat, no upload batch, no checks and no flags, so they never count in 2026-27 figures.
 - `manifest.json` counts: `graduates`.
 
+## institutions.json: approval versions and autonomy
+
+Every approval lists its versions in ascending order; `approved_intake` is the last one's, the
+intake every cohort was admitted against.
+
+```json
+{"academic_year": "2026-27", "approved_intake": 120, "versions": [
+  {"version": 1, "approved_intake": 90, "effective_from": "2026-03-15", "source": "AICTE EoA 2026-27"},
+  {"version": 2, "approved_intake": 120, "effective_from": "2026-05-20", "source": "AICTE EoA 2026-27, revised"}]}
+```
+
+- Version 1 is effective from 15 March of the year's start ("AICTE EoA <year>"). A revised
+  approval adds version 2 from 20 May ("AICTE EoA <year>, revised"), before admissions open,
+  and its version 1 holds the earlier intake.
+- ABC College of Engineering CSE 2026-27 goes from 90 to 120, so its 132 first-years still
+  exceed it. About one approval in ten elsewhere (ABC and XYZ aside) is revised up one step of
+  the intake ladder.
+- The api seed imports the versions into `approval_versions` once migration 0004 declares that
+  table (`services/api/app/seed/importer.py`).
+
+Every institution has `autonomous` (bool, datagen only): about 30% of colleges
+(`autonomous_share` in datagen.yaml), XYZ Institute of Technology and every deemed university
+always, ABC College never. An autonomous college issues its own ABC credits.
+
 ## Upload columns: category eligibility
 
 Every upload file (initial and update, CSV and XLSX) has three optional columns after
-`admission_date`, for the upload engine's eligibility rules (D41). Blank means not reported.
-An update row repeats its initial row's values.
+`admission_date` (A4.16), `yes` or `no`, blank when not reported. An update row repeats its
+initial row's values. A read-only XLSX reader leaves out trailing empty cells; the api's reader
+treats them as blank.
 
-| column | values | on which rows |
-|---|---|---|
-| `tfw_income_certified` | `yes` or blank | `yes` on every TFW row: the family income certificate the tuition fee waiver needs was reported. One planted TFW row is blank (TFW_INCOME_NOT_REPORTED) |
-| `nri_sponsored` | `NRI`, `NRI_SPONSORED`, `NO` or blank | on NRI-route rows: `NRI` (the student is a non-resident Indian, about 70%) or `NRI_SPONSORED` (a ward sponsored by an NRI). One planted NRI-route row says `NO`: neither (ELIGIBILITY_BREACH). Blank on every other route |
-| `ciwg` | `yes` or blank | `yes` on the rows of children of Indian workers in the Gulf: INTERNATIONAL route, nationality `IN`, consent `INTERNATIONAL`, a passport and a Study in India record; they may take the CIWG-reserved third of the international seats |
+| column | `yes` on |
+|---|---|
+| `tfw_income_certified` | every legitimate TFW row: the family income certificate was reported |
+| `nri_sponsored` | every legitimate NRI-route row: the student is an NRI or sponsored by one |
+| `ciwg` | every INTERNATIONAL row of nationality `IN`: a child of an Indian worker in the Gulf, on a CIWG-reserved seat, with a Study in India record |
 
-A read-only XLSX reader leaves out trailing empty cells; the api's reader treats a short row's
-missing cells as blank.
+Planted against them (small mode): one ELIGIBILITY_BREACH per rule of A4.4, NRI_STATUS
+(`nri_sponsored` no, MEDIUM), TFW_INCOME (`tfw_income_certified` no, MEDIUM) and
+INTERNATIONAL_CIWG (an Indian national on an ordinary international seat with `ciwg` blank,
+HIGH); two TFW_INCOME_NOT_REPORTED rows with the certificate blank (Seat pending, no case); two
+CIWG_ADMISSION rows (not flagged).
 
-## institutions.json: approval versions and autonomy
-
-Every approval carries its versions; `approved_intake` is the current (latest) version's.
+## column_mappings.json
 
 ```json
-{"academic_year": "2026-27", "approved_intake": 90, "versions": [
-  {"version": 1, "approved_intake": 60, "effective_from": "2026-05-15", "source": "AICTE approval 2026-27 (sample approval data)"},
-  {"version": 2, "approved_intake": 90, "effective_from": "2026-10-21", "source": "AICTE revised approval 2026-27, intake 60 to 90 (sample approval data)"}]}
+{"1-XYZ-0002": {"Student Name": "name", "D.O.B.": "dob", "Course Code": "programme_code"}}
 ```
 
-- Version 1 of every approval: the generated intake, effective from 15 May of the year's
-  start, source "AICTE approval <year> (sample approval data)".
-- Only ABC College of Engineering IT 2026-27 has a version 2: the intake rises from 60 to 90
-  from 21 Oct 2026, after its first-years (exactly 60, the late refill programme) were
-  admitted against version 1. Seat arithmetic for a cohort uses the version in force on the
-  year's admission cutoff.
-- The api seed imports the versions into `approval_versions` once migration 0004 declares
-  that table (`services/api/app/seed/importer.py`).
-
-Every institution has `autonomous` (bool): about 30% of colleges (`autonomous_share` in
-datagen.yaml), XYZ Institute of Technology and every deemed university always, ABC College
-never. An autonomous college issues its own ABC credits.
+The colleges that upload with their own headers (three in small mode, XYZ Institute of
+Technology among them), each mapping its headers to template columns. Their files, initial and
+update, are written with those headers in the template's order. No such header normalises
+(trimmed, lower case, spaces and hyphens as underscores) to a template column, two never
+normalise alike, and with the mapping every required column is reached. The seed saves each
+mapping before the college's first upload.
 
 ## mockgov/abc_credits.jsonl: issuer
 
-Every credit record carries `issuer: {type, code, name}`: `{"type": "INSTITUTION", "code":
-<aicte_id>, "name": <college>}` when the student's college is autonomous (or a deemed
-university), else `{"type": "UNIVERSITY", "code": <university_code>, "name": <university>}`
-for its affiliating university. Credits a college issued for itself are not independent
-evidence of the enrolment (D38).
+Every credit record carries `issuer` and `issuer_name`: the affiliating university's code and
+name, or, for an autonomous college (or a deemed university), the college's AICTE permanent id
+and name. Credits a college issued for itself are not independent evidence (D38).
 
-## mockgov/joining_records.jsonl
+## mockgov/admission_joinings.jsonl
 
-The state admission authority's record of who reported and joined, one state's format
-simulated for every state (mockgov `/admission-authority/*`). Sorted by college, academic
-year, programme and roll number.
+The state admission authority's joinings, one state's format simulated for every state
+(mockgov `/admission-authority/*`), sorted by college, academic year, programme and date.
 
 ```json
-{"state":"MH","academic_year":"2026-27","roll_no":"MHCET-2026-004512","name":"Ravi Kumar Sharma","dob":"2007-03-21","gender":"M","institution_code":"1-ABC-0001","programme":"CSE","joined_on":"2026-08-04","round":1,"route":"COUNSELLING","category":"GENERAL"}
+{"state":"MH","academic_year":"2026-27","name":"Ravi Kumar Sharma","dob":"2007-03-21","roll_no":"MHCET-2026-004512","institution_code":"1-ABC-0001","programme":"CSE","joined_on":"2026-08-04","round":1,"route":"COUNSELLING","category":"GENERAL","apaar_id":"123456784417"}
 ```
 
 | field | meaning |
 |---|---|
-| `state` | the college's state |
-| `academic_year` | the academic year the row's `admission_date` falls in: `2026-27` for this year's first-years, `2025-26` for second-years and for year-2 lateral entrants (whose admission is dated in their cohort's window, as their counselling allotment is filed) |
-| `roll_no` | counselled, TFW and lateral admissions: the entrance-exam roll number of `counselling.jsonl`; management, NRI and spot admissions: the authority's number `<STATE>AA-<year>-<nnnnnn>`. Unique |
-| `name`, `dob`, `gender` | as uploaded |
+| `academic_year` | the year the student joined this programme: the cohort's year, and for a lateral entrant the year it entered year 2 |
+| `roll_no` | counselled, TFW and lateral admissions: the entrance-exam roll number of `counselling.jsonl`; management, NRI and spot admissions: the authority's number `<STATE>AA-<year>-<nnnnnn>` |
+| `name`, `dob`, `programme`, `route`, `category` | as uploaded |
 | `institution_code` | the college's AICTE permanent id |
-| `programme`, `route`, `category` | as uploaded |
-| `joined_on` | 0 to 6 days after the admission, never after the year's reporting deadline; except 3 clean first-years (25 full) who joined 1 to 12 days after it and late refills admitted after it |
-| `round` | the counselling round, null for routes without one |
+| `joined_on` | 0 to 6 days after the admission, never after the year's reporting deadline, except 3 clean first-years (25 full) who joined after it and refills admitted after it |
+| `round` | the counselling round, null for other routes |
+| `apaar_id` | the APAAR when the registry holds it under this student, else null |
 
-Who has a record: every row of every upload file (refills included) except international
-admissions (Study in India holds those), renamed duplicate rows (their person already has a
-record; a renamed row may still match it by name, else its joining record reads not found),
-and the rows planted as never joined; plus the students colleges left out of their upload.
-Management, NRI and spot admissions are included. The reporting deadline is `rules.yaml`
-`reporting.deadline` when present (a date, or a mapping by academic year), else
-`joining.reporting_deadline` in datagen.yaml (`2026-09-30` for 2026-27), else 30 September
-of the year's start.
+Who has a line: every uploaded student (refills included) except international admissions
+(Study in India holds those), renamed duplicate rows (their person already has a line; such a
+row may still match it by name) and the rows planted as NOT_IN_JOINING_RECORD; plus the
+students colleges left out of their upload and every student of an overdue college. Ring
+members have lines. One state (not ABC's or XYZ's) has published nothing for 2025-26, so its
+second-years have no line and their Joining record reads pending. The reporting deadline is
+`rules.yaml` `reporting.deadline` (a date, or a mapping by year), else datagen.yaml's
+`joining.reporting_deadline`, else 30 September of the year's start.
 
-`manifest.json` counts: `joining_records`, `joining_records_late` (joined after the
-deadline), `missing_from_upload` (students left out).
+Planted: six NOT_IN_JOINING_RECORD rows (MEDIUM), the sample card among them; three colleges,
+XYZ among them, that left 2 to 6 joined first-years out of their upload (MISSING_FROM_UPLOAD).
+`manifest.json` counts `admission_joinings`, `admission_joinings_late` and
+`missing_from_upload`.
 
 ## mockgov/digilocker_accounts.jsonl
-
-Synthetic accounts for the DigiLocker sign-in simulator (mockgov `/digilocker/oauth/*`).
 
 ```json
 {"digilocker_id":"DL-RAVI-4417","name":"Ravi Kumar Sharma","dob":"2007-03-21","gender":"M","apaar_id":"123456784417"}
 ```
 
-- Every APAAR in `apaar_registry.jsonl` has exactly one account with that APAAR and the
-  registry's name, date of birth and gender (students, refills, students left out of an
-  upload, graduates, and the person behind a NAME_MISMATCH APAAR).
-- Every other person has one account with `apaar_id: null` under the uploaded name: consent
-  refused or pending, an uploaded APAAR that is malformed or unknown, or the uploaded side of
-  a NAME_MISMATCH; graduates without an APAAR too. Rows describing one person (a renamed
-  duplicate, one student at two colleges) share an account.
-- International students have no account.
+- The demo accounts (manifest `demo_digilocker_accounts`) come first, Ravi Kumar Sharma at the
+  top, so the sign-in page lists them first.
+- Every APAAR in `apaar_registry.jsonl` has exactly one account with the registry's name, date
+  of birth and gender.
+- Every other person on the roll, left out of an upload or graduated has one account with
+  `apaar_id` null under the uploaded name: consent refused or pending, an uploaded APAAR that is
+  malformed or unknown, or the uploaded side of a NAME_MISMATCH. Rows describing one person (a
+  renamed duplicate, one student at two colleges) share an account. International students
+  have none.
 - `digilocker_id` is `DL-` and two groups of four characters; Ravi Kumar Sharma's is fixed.
-- `manifest.json` counts: `digilocker_accounts`.
 
 ## history.json
 
-Last year's first-year admissions per college and programme, the denominator of the anomaly
-model's year-over-year feature (D45). Colleges in `institutions.json` order.
+Last year's first-year admissions per college and programme (colleges in `institutions.json`
+order): a physical programme's second-years still on the roll (lateral entrants aside) divided
+by a retention of 0.90 to 0.98, or this year's first-years times 0.9 to 1.1 for an open or
+online programme. The anomaly model's own `admission_growth` (ENGINES 17.11) reads the roll's
+second-years; this file is the like-for-like reference the planted growth is measured against.
 
-```json
-{"academic_year": "2025-26", "note": "Synthetic. ...", "institutions": [
-  {"institution_aicte_id": "1-ABC-0001", "admitted": 226, "programmes": {"CSE": 117, "IT": 14}}]}
-```
+## ground_truth.json
 
-`programmes` lists every programme with an approval for that year: for a physical programme,
-its second-years still on the roll (lateral entrants aside) divided by a retention of 0.90 to
-0.98; for an open or online programme, this year's first-years times 0.9 to 1.1. Compare like
-for like: this year's first-years in the programmes listed with admissions above zero, over
-those admissions (a programme new this year is not growth).
-
-## ground_truth.json additions
-
-The record shape is unchanged. New `anomaly_type` values:
+The record shape is unchanged; a row may appear in more than one record (the sample card is
+both STUDENT_DENIED and NOT_IN_JOINING_RECORD). Rows named by no record are the known-clean set.
+New and changed `anomaly_type` values (counts for small mode):
 
 | anomaly_type | expected_flag | severity | small | rows | extra keys |
 |---|---|---|---|---|---|
-| NOT_IN_JOINING_RECORD | NOT_IN_JOINING_RECORD | MEDIUM | 6 | the uploaded row | `academic_year`, `reporting_deadline`; the deck sample also `scenario: "deck_sample"`, `expected_rows`, `expected_record_status` |
-| MISSING_FROM_UPLOAD | MISSING_FROM_UPLOAD | MEDIUM | 3 (one per college) | none | `academic_year`, `missing: [{roll_no, name, dob, programme_code, academic_year, joined_on, route, apaar_id}]`, `joined`, `uploaded_and_joined`, `completeness`; XYZ's has `scenario: "xyz_missing"` |
-| ELIGIBILITY_BREACH | ELIGIBILITY_BREACH | MEDIUM | 1 | the NRI-route row | `seat_type: "NRI"`, `marker`, `source` |
-| TFW_INCOME_NOT_REPORTED | null (SEAT pending, no case) | null | 1 | the TFW row | `seat_type`, `expected_check: {"type": "SEAT", "status": "PENDING"}` |
-| CIWG_ADMISSION | null (must not be flagged) | null | 2 | the CIWG row | `seat_type`, `source` |
-| ANOMALY | null (a signal, not a case) | null | 2 | none | `expected_signal: "ANOMALY"`, `feature`, `value`, `peer_median`, `first_years`, `academic_year`; growth also `admitted_last_year`, `added_rows` |
+| NOT_IN_JOINING_RECORD | NOT_IN_JOINING_RECORD | MEDIUM | 6 | the uploaded row | `academic_year`, `reporting_deadline`; the sample card also `scenario: "sample_card"`, `expected_rows`, `expected_record_status: "DISPUTED"` |
+| MISSING_FROM_UPLOAD | MISSING_FROM_UPLOAD | MEDIUM | 3, plus 1 per overdue college | none | `academic_year`, `missing` (a count), `missing_students`, `joined`, `uploaded_and_joined`, `completeness_pct`; XYZ's `scenario: "xyz_missing"`, an overdue college's `overdue: true` |
+| ELIGIBILITY_BREACH | ELIGIBILITY_BREACH | MEDIUM, HIGH for INTERNATIONAL_CIWG | 3 | the row | `eligibility_rule`, `marker`, `source` |
+| TFW_INCOME_NOT_REPORTED | null (Seat pending) | null | 2 | the TFW row | `expected_check` |
+| CIWG_ADMISSION | null (not flagged) | null | 2 | the CIWG row | `seat_type`, `source` |
+| GHOST_RING | null, `expected_signal: "GHOST_RING"` | null | 3 | the members | as before |
+| ANOMALY | null, `expected_signal: "ANOMALY"` | null | 2 | none | `features`, `values`, `peer_medians`, `first_years`, `academic_year`; growth also `admitted_last_year`, `growth_like_for_like`, `added_rows` |
+| LATE_UPLOAD | null, `expected_deadline_state: "LATE"` | null | 2 | none | `academic_year`, `deadline` |
+| OVERDUE_UPLOAD | null, `expected_deadline_state: "OVERDUE"` | null | 1 | none | `academic_year`, `deadline` |
+| CLEAN_INDEPENDENT | null, `expected_record_status: "COUNTERSIGNED"` | null | 5 | the row | `independent_row` |
+| SELF_ISSUED_ONLY | null, `expected_record_status: "AWAITING_EVIDENCE"` | null | 3 | the second-year | `expected_rows`, `unpublished` |
+| PROVISIONAL_UNCLAIMED | null, `expected_record_status: "AWAITING_EVIDENCE"` | null | 1 | the row | `expected_record_status_after_claim: "COUNTERSIGNED"` |
 
-- Every GHOST_RING record gains `expected_signal: "GHOST_RING"`; the named ring (40 students
-  across 3 colleges sharing contacts) stays as it was.
-- ANOMALY `feature` is `admission_growth` (like-for-like first-years over last year's
-  admissions; the planted college admits extra first-years into free regular seats until it
-  is at 3 times, peers near 1) or `nri_management_share` (NRI and management share of
-  first-years; the planted college moves its counselled and spot first-years to management
-  and fills its NRI seats, about 3 times the peer median). Both stay inside every seat pool.
-  Colleges with a planted EXCESS_ADMISSION also stand out on both features; the ring colleges
-  stand out on contact sharing.
-- Institution-level records (MISSING_FROM_UPLOAD, ANOMALY) have `rows: []` and
-  `student_refs: []`.
-- A row can carry more than one record: the deck sample is both STUDENT_DENIED and
-  NOT_IN_JOINING_RECORD.
+- ANOMALY `features` are the model's (ENGINES 17.11): `["admission_growth"]` for the college
+  that admits extra first-years into its free regular seats until it has about three times
+  last year's admissions, `["management_share", "nri_share"]` for the college whose counselled
+  and spot first-years move to management and whose NRI seats fill up. Both stay inside every
+  seat pool. Colleges with a planted EXCESS_ADMISSION also stand out on growth and management
+  share, and the ring colleges on contact sharing.
+- CLEAN_INDEPENDENT, SELF_ISSUED_ONLY and PROVISIONAL_UNCLAIMED rows answer no notice (`NONE`).
+  SELF_ISSUED_ONLY second-years are at an autonomous college in the state with no 2025-26
+  joinings, so their only confirmed enrolment row is the college's own credits.
+- An overdue college carries no other record and sends no file; its students still have
+  registry entries, joining lines and accounts.
 
-## manifest.json: deck_sample
+## manifest.json
 
-The deck's sample record (DECISIONS D49), null without the named scenarios: an ABC College
-CSE first-year whose APAAR verifies and whose seat fits, with no joining record, who answers
-No through DigiLocker sign-in.
+New keys:
 
-```json
-{"file": "uploads/1-ABC-0001_2026-27.csv", "row_no": 41, "name": "...", "apaar_id": "...",
- "institution_aicte_id": "1-ABC-0001", "programme_code": "CSE", "year_of_study": 1,
- "reply": "NO", "channel": "DIGILOCKER_SIGNIN", "comment": "I never joined this college.",
- "expected_rows": {"IDENTITY": "CONFIRMED", "SEAT": "CONFIRMED", "ADMISSION": "CONTRADICTED",
-                   "STUDYING": "NOT_YET_DUE", "STUDENT": "CONTRADICTED"},
- "expected_record_status": "DISPUTED"}
-```
+- `reporting_deadline`: `{"2026-27": "2026-09-30"}`.
+- `uploads`: `[{"file", "aicte_id", "academic_year", "submitted_at"}]` for every initial file
+  (name order) and update file; the seed sets each batch's upload time to `submitted_at`.
+  Initial files arrive 16 to 29 September, the late colleges' in October, update files 21 to
+  27 October, after every date they carry.
+- `late_colleges` and `overdue_colleges`: AICTE ids (2 and 1 in small mode).
+- `demo_digilocker_accounts`: `[{"role", "digilocker_id", "name", "dob", "apaar_id", "file",
+  "row_no"}]` with roles `DEMO_STUDENT` (Ravi Kumar Sharma), `SECOND_DEMO_NOTICE`,
+  `PROVISIONAL_CLAIM` (a refused-consent ABC College CSE first-year with an email and a joining
+  line, seated, who becomes countersigned after claiming), `SOMEONE_ELSE` (a linked first-year
+  at another college, whose account matches no notice the demo opens) and `SAMPLE_CARD`.
+- `sample_card`: `{"file", "row_no"}`, the deck's sample record: an ABC College CSE
+  2026-27 first-year with a linked APAAR, a seat under approval v2, no joining line (the demo
+  runs after the 30 Sep deadline, so Joining record reads contradicted), credits not yet due and
+  a planted No; the record reads Disputed. Null without the named scenarios.
+- `perf` (only with `--perf N`): `{"institutions_file", "file", "rows"}`.
+- `counts` gains `admission_joinings`, `admission_joinings_late`, `missing_from_upload`,
+  `digilocker_accounts` and `history_institutions`; `students` counts the rows of the files
+  written (an overdue college's students are not among them).
 
-The joining record reads Contradicted because the demo runs after the 30 Sep 2026 reporting
-deadline.
+## perf/ (`--perf N`)
+
+`perf/institutions.json` (the main file's regions, states and universities and one college,
+"Countersign Throughput Test College", `9-PERF-0001`, Maharashtra, whose ten B.Tech
+programmes have 2025-26 and 2026-27 approvals that seat every row),
+`perf/9-PERF-0001_2026-27.csv` (exactly N rows, every one legitimate: a linked APAAR the
+registry holds, a regular-pool route, a seat, a joining line, credits for the 30% who are
+second-years, no shared contact) and `perf/mockgov/apaar_registry.jsonl`,
+`admission_joinings.jsonl`, `abc_credits.jsonl` and `digilocker_accounts.jsonl`. Nothing in
+`perf/` is loaded by `make seed`; its ids never repeat the main dataset's. 50,000 rows take
+about four seconds.
