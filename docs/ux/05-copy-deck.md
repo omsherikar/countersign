@@ -779,15 +779,36 @@ Wallet
 | id | text |
 |---|---|
 | wallet.heading | My proofs |
+| wallet.lead | Proofs you can show an employer or anyone else who needs to check your enrolment. You choose what they see. |
 | wallet.kind.ENROLMENT | Enrolment proof |
-| wallet.kind.DEGREE | Degree |
+| wallet.kind.DEGREE | Degree proof |
 | wallet.issued_by | Issued by Countersign for {institution_name} |
+| wallet.issued_by_degree | Issued by Countersign for {university_name} |
 | wallet.issued_on | Issued {issued_date} |
+| wallet.valid_until | Valid until {expires_date} |
 | wallet.status.active | Active |
 | wallet.status.revoked | Revoked |
+| wallet.status.expired | Expired |
 | wallet.share | Share proof |
 | wallet.details | Show details |
+| wallet.hide_details | Hide details |
+| wallet.details_heading | What this proof holds |
+| wallet.proof_id | Proof id {short_id} |
+| wallet.not_issued_heading | No enrolment proof yet |
+| wallet.not_issued.reply | Your proof is issued after you reply Yes to the notice we sent you and the other checks agree. |
+| wallet.not_issued.checks | You confirmed your enrolment. Your proof is issued once no source disagrees and any review of this enrolment is finished. You do not need to do anything. |
+| wallet.not_issued.denied | You told us you did not join {institution_name}, so no proof is issued for this enrolment. |
+| wallet.revoked_line | Withdrawn on {revoked_date}. Anyone who checks this proof now sees Revoked. |
+| wallet.revoked_reason.ENROLMENT_WITHDRAWN | Your college reported that you left this programme. |
+| wallet.revoked_reason.ENROLMENT_TRANSFERRED | Your college reported that you moved to another institution. |
+| wallet.revoked_reason.FLAG_CONFIRMED | AICTE reviewed this enrolment and withdrew the proof. |
+| wallet.revoked_reason.ADMIN | AICTE withdrew this proof. |
+| wallet.revoked_help | If you think this is wrong, ask for a correction from your Privacy page. |
+| wallet.expired_line | This proof ended on {expires_date}. If you are still enrolled, a proof for your next academic year is issued once its checks agree. |
+| wallet.share_heading | Share this proof |
 | wallet.fields_heading | Choose what to share |
+| wallet.fields_hint | Institution and programme are always shared. Tick anything else the verifier needs. |
+| wallet.always_shared | Always shared |
 | wallet.field.name | Name |
 | wallet.field.institution | Institution (always shared) |
 | wallet.field.programme | Programme (always shared) |
@@ -795,18 +816,51 @@ Wallet
 | wallet.field.year_of_study | Year of study |
 | wallet.field.dob | Date of birth |
 | wallet.field.apaar_masked | APAAR (masked) |
+| wallet.field.countersigned | Checks that agree (countersigned) |
+| wallet.field.countersigned_hint | Which of the five checks agree with your college's record, and the date. |
+| wallet.field.university | University |
+| wallet.field.year_of_award | Year of award |
+| wallet.countersigned_value | {checks}, as of {date} |
+| wallet.consent_label | I agree |
+| wallet.consent_required | Tick "I agree" to create the QR. |
 | wallet.create_qr | Create QR |
+| wallet.creating | Creating |
 | wallet.shares | Shares {n} of {m} fields |
+| wallet.shared_fields | Shared: {fields} |
 | wallet.valid_for | Valid for 10 minutes |
+| wallet.expires_in | Expires in {mm}:{ss} |
+| wallet.expires_in_sr | The QR expires in {minutes} minutes. |
+| wallet.expired_share | This QR has expired. Create a new one if you still need to share. |
+| wallet.new_qr | Create a new QR |
+| wallet.qr_alt | QR code for your proof. The same code is written under it. |
+| wallet.code_label | Code |
+| wallet.code_hint | The verifier can type this code at {verify_url} instead of scanning. |
+| wallet.copy_code | Copy code |
+| wallet.code_copied | Code copied |
 | wallet.copy_link | Copy link |
 | wallet.copied | Link copied |
+| wallet.done | Done |
+| wallet.history_heading | Sharing history |
+| wallet.history.created | {date}, {time}: QR created, shares {n} of {m} fields |
 | wallet.history_item | Shared with a verifier at {time} |
+| wallet.history_item_date | Shared with a verifier on {date} at {time} |
+| wallet.history_item_more | Checked {n} times, last at {time} |
+| wallet.history.unused | Not checked by anyone before it expired |
+| wallet.history.stopped | Stopped on {date}, when you withdrew consent to share |
+| wallet.history_empty | You have not shared this proof yet. |
+| wallet.history_note | AICTE records when your proof is checked, but not who checked it. |
 | student.heading | My enrolment |
 | student.card_lead | {institution_name} says you joined {programme_name} |
 | student.strip_caption | {passes} of {applicable} sources agree |
 | student.check_student_pending | The last check is your own reply. AICTE sends you a notice by email or DigiLocker to confirm this enrolment. |
 | privacy.student_line | Only you can see your email and mobile here. Officers see masked ids only. |
 | privacy.how_link | How my data is used |
+
+Share sheet fields (D26): an enrolment proof lists 8 fields in this order: name, institution, programme, academic year, year of study, date of birth, APAAR (masked), countersigned. Institution and programme are ticked and locked; the other six start unticked. `{m}` in `wallet.shares` is the response's `total` (8 for an enrolment proof) and `{n}` counts the ticked fields, locked ones included, so the fewest a share can show is "Shares 2 of 8 fields". A degree proof lists the fields its `disclosable` claims name, using the `wallet.field.*` words. Each row shows the value that would be shared; the countersigned value is `wallet.countersigned_value`, with `{checks}` the `check.*` words joined with commas and a final "and" ("Identity, Admission, Seat and Student, as of 28 Oct 2026").
+
+The code under the QR is 6 groups of 4 letters and digits, printed as sent (`K7PQ-3M2X-9ZAB-4TNE-W8RC-6HDF`). `{verify_url}` is the host and path of the verify page without the code ("localhost:3000/verify"). The countdown counts down from `expires_at`; `wallet.expires_in_sr` is announced at 5 minutes and at 1 minute only. In the history, a share's first row is `wallet.history.created`; each check of it prints `wallet.history_item` (D27), with `wallet.history_item_date` when it was not today, or `wallet.history_item_more` once `verify_count` is above 1; a share that expired unchecked prints `wallet.history.unused`.
+
+No proof yet: for an active enrolment with no enrolment proof, the card reads `wallet.not_issued_heading` and one line by the Student check: pending, `wallet.not_issued.reply`; countersigned, `wallet.not_issued.checks`; not countersigned, `wallet.not_issued.denied`. It never names a flag or a failed check. A revoked proof prints `wallet.revoked_line`, then the `wallet.revoked_reason.*` sentence for its `revoked_reason` (a reason the deck does not list prints `wallet.revoked_reason.ADMIN`), then `wallet.revoked_help`; it has no Share button.
 
 ## 9. Consent texts (DPDP)
 
@@ -816,7 +870,7 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 |---|---|---|
 | consent.apaar_link | APAAR_LINK | I allow AICTE to use my APAAR id to check that my enrolment at {institution_name} is genuine. AICTE will look up my id with the APAAR registry, the counselling allotment list and the Academic Bank of Credits. Only the last four digits of my id are shown to officers. I can withdraw this consent from my Privacy page; checks already made stay on record. |
 | consent.notice | NOTICE | By replying, you let AICTE record your answer with today's date against this enrolment. Your answer is shown to AICTE officers and to {institution_name} as "Confirmed" or "Denied", with no other personal detail. |
-| consent.credential_share | CREDENTIAL_SHARE | I am creating a proof that shows only the fields I ticked. Whoever scans it sees those fields, the issuer and the date, and nothing else. The proof expires in 10 minutes. AICTE records that a proof was created, not who scanned it. |
+| consent.credential_share | CREDENTIAL_SHARE | I am creating a proof that shows only the fields I ticked. Whoever scans it sees those fields, who issued the proof and when, and nothing else. The proof works for 10 minutes. AICTE records when it is created and when it is checked, but not who checks it. |
 | consent.withdraw | any | Withdraw this consent? Checks already made stay on record. New checks will use your provisional id instead of your APAAR. |
 | consent.upload_declaration | APAAR_LINK via college | (identical to upload.declaration) |
 
@@ -934,6 +988,8 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | err.NOTICE_ALREADY_CHANGED | You have already changed your answer once, so it cannot be changed again. |
 | err.RESEND_LIMIT | This enrolment has already had 3 notices resent in this academic year, which is the limit. |
 | err.NOTICE_LIVE | The student still has a notice they can answer. You can resend once it expires or is not delivered. |
+| err.CREDENTIAL_NOT_ELIGIBLE | A proof cannot be issued for this record yet. Refresh the page to see its current status. |
+| err.CREDENTIAL_REVOKED | This proof has been withdrawn, so it cannot be shared or printed. |
 | err.INTERNAL | Something went wrong on our side. Try again. |
 | err.NETWORK | Could not reach Countersign. Check your connection and try again. |
 | err.ref | Ref: {code} |
@@ -971,7 +1027,7 @@ Each text is stored verbatim in `consents.notice_text` when the consent is recor
 | empty.seats | No seats in this pool. |
 | empty.uploads | No uploads yet. |
 | empty.notices_student | You have no notices yet. When a college reports your enrolment, AICTE sends you a notice by email or DigiLocker. |
-| empty.credentials_student | Proofs you can share arrive in Week 3. |
+| empty.credentials_student | No proofs yet. An enrolment proof appears here after you confirm your enrolment and the other checks agree. |
 | empty.enrolments_student | No college has reported an enrolment for you. |
 | empty.affiliates | No institutions are affiliated to your university in this academic year. |
 | empty.audit | No audit entries. |
