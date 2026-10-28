@@ -1,6 +1,6 @@
 # Data model (api database `countersign`)
 
-All tables carry `id UUID PK default gen_random_uuid()`, `created_at timestamptz default now()`, `updated_at timestamptz` (trigger or ORM onupdate) unless marked append-only (then only `id`/`seq` and `at`). Enums are Postgres `ENUM` types named `<table>_<column>` with the UPPER_SNAKE values from `ARCHITECTURE.md` §9. FKs are `ON DELETE RESTRICT` except where noted. Migration `0001_initial` creates everything below. Migration `0002` (Week 2) changes the columns listed under "Migration 0002" near the end of this file; where the two disagree, 0002 wins.
+All tables carry `id UUID PK default gen_random_uuid()`, `created_at timestamptz default now()`, `updated_at timestamptz` (trigger or ORM onupdate) unless marked append-only (then only `id`/`seq` and `at`). Enums are Postgres `ENUM` types named `<table>_<column>` with the UPPER_SNAKE values from `ARCHITECTURE.md` §9. FKs are `ON DELETE RESTRICT` except where noted. Migration `0001_initial` creates everything below. Migration `0002` (Week 2) changes the columns listed under "Migration 0002" near the end of this file; where the two disagree, 0002 wins. Migration `0003` (Week 3) is listed under "Migration 0003" after it; the per-table reference below already shows the 0003 columns of `flags`, `case_actions`, `notifications`, `credentials`, `consents` and `data_requests` and the four new tables.
 
 ## Geography and institutions
 
@@ -196,9 +196,12 @@ Unique: `(enrolment_id, type)`. Why: one row per source per enrolment; score = P
 | enrolment_id | FK enrolments nullable | |
 | related_enrolment_ids | uuid[] | duplicates / rings |
 | evidence | jsonb | human-readable, never auto-reject |
-| assignee_id | FK users nullable | |
-| opened_at / resolved_at | timestamptz | |
+| assignee_id | FK users nullable | the officer the flag is assigned to (0003: set by ASSIGN and optionally by ESCALATE) |
+| opened_at / resolved_at | timestamptz | `resolved_at` set on CLEAR and CONFIRM, cleared on REOPEN |
 | dedupe_key | text unique | stops re-raising the same flag on re-run |
+| docs_due_on | date nullable | 0003: the reply-by date of the latest REQUEST_DOCS; null when none was given or the flag is reopened |
+| response_received | bool NOT NULL default false | 0003: true once the college responds to the latest REQUEST_DOCS; a new REQUEST_DOCS or a REOPEN sets it back to false |
+| last_action_at | timestamptz nullable | 0003: time of the latest `case_actions` row (any action, system notes included) |
 
 Index: `(institution_id, status)`, `(type, status)`, `(enrolment_id)`.
 
@@ -206,58 +209,142 @@ Index: `(institution_id, status)`, `(type, status)`, `(enrolment_id)`.
 | column | type | notes |
 |---|---|---|
 | seq | bigserial PK | |
-| flag_id | FK flags | |
-| actor_id | FK users | |
-| action | enum case_action | CLEAR, REQUEST_DOCS, ESCALATE, CONFIRM, NOTE, COLLEGE_RESPONSE |
-| note | text nullable | |
-| attachments | jsonb | `[{name, size, sha256}]` |
+| flag_id | FK flags | indexed |
+| actor_id | FK users nullable | 0003: null for SYSTEM_NOTE rows |
+| action | enum case_actions_action | CLEAR, REQUEST_DOCS, ESCALATE, CONFIRM, NOTE, COLLEGE_RESPONSE; 0003 adds ASSIGN, REOPEN, SYSTEM_NOTE |
+| note | text nullable | required for every action except ASSIGN (DECISIONS D25); the fixed sentence for SYSTEM_NOTE |
+| attachments | jsonb | Week 1 placeholder, always `[]` from 0003 on: files live in `case_attachments` |
+| from_status | enum flags_status nullable | 0003: the flag's status before the action |
+| to_status | enum flags_status nullable | 0003: the status after it; equal to `from_status` for NOTE, ASSIGN, COLLEGE_RESPONSE and SYSTEM_NOTE |
+| due_date | date nullable | 0003: REQUEST_DOCS reply-by date |
+| assignee_id | FK users nullable | 0003: the officer chosen by ASSIGN or ESCALATE; null on ASSIGN means "unassigned" |
 | at | timestamptz | |
+
+Why: the history of a flag is these rows in `seq` order; nothing else records a decision.
+
+### `case_attachments` (0003)
+| column | type | notes |
+|---|---|---|
+| flag_id | FK flags | indexed |
+| case_action_seq | bigint FK case_actions.seq | the COLLEGE_RESPONSE row the file came with |
+| filename | text | the uploaded name, cleaned (path parts and control characters removed, at most 120 characters) |
+| content_type | text | `application/pdf`, `image/png` or `image/jpeg`, from the file's first bytes |
+| size_bytes | int | at most 5 MB (5,242,880) |
+| sha256 | char(64) | hex digest of the original bytes |
+| storage_key | text unique | random UUID hex; the file is `CASE_FILES_DIR/<storage_key>`, Fernet-encrypted with `PII_FERNET_KEY` |
+| uploaded_by_id | FK users | the registrar |
+| created_at | timestamptz | |
+
+Why: documents a college sends may hold personal data, so they stay outside the database, encrypted, and are read only through the scoped, audited download.
 
 ### `notifications`
 | column | type | notes |
 |---|---|---|
-| student_id | FK students | |
+| student_id | FK students | indexed |
 | enrolment_id | FK enrolments | |
-| channel | enum notice_channel | EMAIL, DIGILOCKER |
-| token | text unique | magic-link token (random 32 bytes urlsafe) |
-| message | text | |
-| sent_at | timestamptz nullable | |
-| opened_at | timestamptz nullable | |
-| response | enum notice_response nullable | YES, NO; null = no reply (neutral) |
-| responded_at | timestamptz nullable | |
-| expires_at | timestamptz | |
+| channel | enum notifications_channel | EMAIL, DIGILOCKER |
+| token_hash | text unique | 0003 (renamed from `token`): hex SHA-256 of the link token; the token itself (32 random bytes, URL-safe) exists only in the message |
+| message | text | the text sent on this channel, without the link |
+| delivery_status | enum notifications_delivery NOT NULL default QUEUED | 0003: QUEUED, SENT, FAILED |
+| attempts | int NOT NULL default 0 | 0003: delivery tries so far (at most 3) |
+| last_error | text nullable | 0003: one plain sentence, never PII, e.g. "No DigiLocker account for this APAAR" |
+| sent_at | timestamptz nullable | when the delivery succeeded |
+| opened_at | timestamptz nullable | first view of the notice page |
+| response | enum notifications_response nullable | YES, NO; null = no reply (neutral) |
+| responded_at | timestamptz nullable | time of the first reply |
+| comment | text nullable | 0003: the student's optional comment with a No (at most 500 characters); shown to officers only |
+| previous_response | enum notifications_response nullable | 0003: the first answer, set when the student changes it (once) |
+| changed_at | timestamptz nullable | 0003: when the answer was changed |
+| resent_by_id | FK users nullable | 0003: the user who asked for a resend; null for notices sent after a batch |
+| expires_at | timestamptz | creation time plus `notices.expiry_days` |
+
+Index: `(enrolment_id, channel)` (0003).
+
+Words used by the api and ENGINES §16: a notice is **answered** when `response` is set; **live** when it is not answered, `delivery_status` is not FAILED and `expires_at` is in the future. An enrolment **needs a notice** when it has no live and no answered notice.
 
 ## Credentials and consent
 
 ### `credentials`
 | column | type | notes |
 |---|---|---|
-| student_id | FK students | |
+| student_id | FK students | indexed |
 | enrolment_id | FK enrolments | |
-| kind | enum credential_kind | ENROLMENT, DEGREE |
-| sd_jwt | text | issued SD-JWT (Week 3) |
-| status_list_index | int unique | position in the revocation status list |
+| kind | enum credentials_kind | ENROLMENT, DEGREE |
+| vct | text NOT NULL | 0003: `countersign:enrolment:v1` or `countersign:degree:v1` |
+| short_id | text unique NOT NULL | 0003: 8 Crockford base32 characters, e.g. `7Q2MK4PX`; the `cid` of the degree QR |
+| sd_jwt | text | the issued SD-JWT: issuer-signed JWT and every disclosure, `~`-joined, ending in `~` |
+| status_list_index | int unique | a random unused position in status list 1 (0 to 131,071) |
+| disclosable | text[] NOT NULL default `'{}'` | 0003: the claim names the holder may disclose, in display order |
 | revoked | bool | |
 | issued_at / revoked_at | timestamptz | |
-| issuer_key_id | text | JWKS kid |
+| expires_at | timestamptz nullable | 0003: the SD-JWT `exp` (31 August after the academic year ends, 23:59:59 IST); null for DEGREE |
+| revoked_reason | text nullable | 0003: the reason code `ENROLMENT_WITHDRAWN`, `ENROLMENT_TRANSFERRED` or `FLAG_CONFIRMED`, or for an officer's revocation the officer's text (its code is then `ADMIN`); the api derives `revoked_reason_code` from it (API_CONTRACT §A3.18) |
+| revoked_by_id | FK users nullable | 0003: null when the system revoked it (ledger, seed) |
+| issuer_key_id | text | the `kid` of the signing key |
+
+Index (0003): unique partial `(enrolment_id, kind) WHERE revoked = false`, so an enrolment holds at most one active credential of each kind.
+
+### `credential_presentations` (0003)
+| column | type | notes |
+|---|---|---|
+| credential_id | FK credentials | indexed |
+| code_hash | char(64) unique | hex SHA-256 of the share code in display form (`K7PQ-3M2X-9ZAB-W4TD-H8NC-2QRF`) |
+| presentation | text | the SD-JWT presentation with its key-binding JWT (nonce = the code) |
+| disclosed | text[] | the disclosed claim names |
+| created_at | timestamptz | |
+| expires_at | timestamptz | `created_at` plus 10 minutes; set to the withdrawal time when share consent is withdrawn |
+| first_verified_at / last_verified_at | timestamptz nullable | |
+| verify_count | int default 0 | every verification of this code, whatever the result |
+
+Why: the code is the only way to reach a presentation, and only its hash is stored.
+
+### `signing_keys` (0003)
+| column | type | notes |
+|---|---|---|
+| kid | text PK | the RFC 7638 JWK thumbprint (SHA-256, base64url) |
+| alg | text | `ES256` |
+| purpose | text default `ISSUER` | |
+| public_jwk | jsonb | `{kty, crv, x, y, kid, use: "sig", alg}` as published in the JWKS |
+| private_jwk_encrypted | text | Fernet(`PII_FERNET_KEY`) of the private JWK JSON |
+| active | bool | unique partial index on `(purpose) WHERE active`: one active key per purpose |
+| created_at | timestamptz | |
+
+Retired keys stay (inactive) and stay in the JWKS, so proofs signed with them still verify.
+
+### `holder_keys` (0003)
+| column | type | notes |
+|---|---|---|
+| student_id | uuid PK, FK students | |
+| public_jwk | jsonb | the `cnf.jwk` of the student's Enrolment proofs |
+| private_jwk_encrypted | text | Fernet(`PII_FERNET_KEY`); custodial demo wallet only |
+| created_at | timestamptz | |
 
 ### `consents`
 | column | type | notes |
 |---|---|---|
-| student_id | FK students | |
-| purpose | enum consent_purpose | APAAR_LINK, NOTICE, CREDENTIAL_SHARE |
-| status | enum consent_state | GIVEN, WITHDRAWN, REFUSED |
-| notice_text | text | the exact text shown |
+| student_id | FK students | indexed |
+| enrolment_id | FK enrolments nullable | 0003: the enrolment the consent was given for (APAAR_LINK and NOTICE); null for a share |
+| purpose | enum consents_purpose | APAAR_LINK, NOTICE, CREDENTIAL_SHARE |
+| status | enum consents_status | GIVEN, WITHDRAWN, REFUSED |
+| notice_text | text | the exact text shown, placeholders filled |
+| notice_version | text NOT NULL default `'v1'` | 0003: version of the privacy notice and consent texts (`app/privacy/notice.py`) |
 | recorded_at | timestamptz | |
-| channel | text | `PORTAL`, `UPLOAD_DECLARATION` |
+| withdrawn_at | timestamptz nullable | 0003: set when a GIVEN row is withdrawn (its status becomes WITHDRAWN) |
+| channel | text | `COLLEGE_UPLOAD` (APAAR_LINK from the upload), `NOTICE_EMAIL` or `NOTICE_DIGILOCKER` (the Yes reply), `PORTAL` (shares and withdrawals by the signed-in student) |
 
-### `data_requests` (Week 3, created in 0001)
+The latest row per purpose (by `recorded_at`) is the student's current choice.
+
+### `data_requests`
 | column | type | notes |
 |---|---|---|
-| student_id | FK students | |
-| kind | enum data_request_kind | ACCESS, CORRECTION, ERASURE |
-| status | enum data_request_status | OPEN, DONE, REJECTED |
-| payload | jsonb | |
+| student_id | FK students | indexed |
+| kind | enum data_requests_kind | ACCESS, CORRECTION, ERASURE |
+| status | enum data_requests_status | OPEN, DONE, REJECTED; ACCESS rows are DONE when created |
+| payload | jsonb | `{enrolment_id?}` |
+| details | text nullable | 0003: what the student asked, as written |
+| response | text nullable | 0003: the officer's answer (for ACCESS the fixed line that the export is ready) |
+| resolved_at | timestamptz nullable | 0003 |
+| resolved_by_id | FK users nullable | 0003; null for ACCESS |
 
 ## Scores and audit
 
@@ -286,6 +373,8 @@ Index: `(institution_id, status)`, `(type, status)`, `(enrolment_id)`.
 | hash | text | sha256(prev_hash + canonical_json({seq, at, actor_id, action, entity_type, entity_id, before, after})) |
 
 Writes happen in the same transaction as the change. `verify_chain()` walks seq ascending and returns the first row whose recomputed hash differs.
+
+From Week 3 (DECISIONS D29) READ rows may carry a small `after` object that says how the read happened, for example `{"via": "notice-link"}` for a notice page view or `{"via": "verifier", "ip_hash": "3f9a0c1d2e4b5a69", "result": "VALID"}` for a verifier call; it is part of the hashed payload like any other `after`. There is no separate `extra` column: `AuditEntry.extra` in `app/core/audit.py` is not stored, so writers put these keys in `after`.
 
 ### `users`
 | column | type | notes |
@@ -394,6 +483,92 @@ Index: `(type, status)` for the enrolment list filters. No column change. `sourc
 Indexes: `(academic_year, status)`; GIN on `related_enrolment_ids`. `created_at` is when the flag was opened (same instant as `opened_at`); `updated_at` moves whenever an engine changes the evidence or severity.
 
 Evidence stored in `flags.evidence` (D20, API_CONTRACT §A2.17): `{summary, summary_for_institution?, facts: [{label, value, source, audience?}], related_enrolment_ids: [uuid], rule_source, data?}` (`audience` is `ALL` when absent, `OFFICER` or `INSTITUTION`). `flags.related_enrolment_ids` always equals `evidence.related_enrolment_ids`. `summary` never contains a student name or a full id.
+
+## Migration 0003 (Week 3)
+
+One Alembic revision `0003` (`down_revision = "0002"`, file `alembic/versions/0003_notices_cases_credentials.py`) plus the matching edits to `app/models/*.py` and `app/models/enums.py`. It implements DECISIONS D23 to D30 and lands on `main` before any Week 3 code that reads the new columns. `downgrade()` restores the 0002 schema exactly (Postgres cannot drop an enum value, so `case_actions_action` is rebuilt without the three new values; system rows are deleted and ASSIGN and REOPEN rows become NOTE first). Demo data is rebuilt by `make demo-reset`, but the migration still backfills existing rows so `alembic upgrade head` works on a seeded database.
+
+### New and changed enum types
+
+| Postgres type | Python enum (`app/models/enums.py`) | values |
+|---|---|---|
+| `notifications_delivery` (new) | `NoticeDelivery` | `QUEUED`, `SENT`, `FAILED` |
+| `case_actions_action` (changed) | `CaseActionKind` | adds `ASSIGN`, `REOPEN`, `SYSTEM_NOTE` to `CLEAR`, `REQUEST_DOCS`, `ESCALATE`, `CONFIRM`, `NOTE`, `COLLEGE_RESPONSE` (`ALTER TYPE ... ADD VALUE IF NOT EXISTS`) |
+
+`notifications_delivery` is the one type not named `<table>_<column>` (the column is `delivery_status`); the name is fixed by the migration. `case_actions.from_status` and `to_status` reuse the existing `flags_status` type.
+
+### `notifications`
+| column | change | notes |
+|---|---|---|
+| token | rename to `token_hash` | hex SHA-256 of the link token; existing values are hashed in place (`encode(sha256(convert_to(token, 'UTF8')), 'hex')`) and the unique constraint is renamed `uq_notifications_token_hash` |
+| delivery_status | add, `notifications_delivery` NOT NULL DEFAULT `'QUEUED'` | backfilled to `SENT` where `sent_at` is set |
+| attempts | add, int NOT NULL DEFAULT 0 | |
+| last_error | add, text NULL | PII-free sentence |
+| comment | add, text NULL | the student's comment with a No |
+| previous_response | add, `notifications_response` NULL | the first answer, kept when the answer is changed |
+| changed_at | add, timestamptz NULL | |
+| resent_by_id | add, uuid NULL, FK users | |
+
+Index: `ix_notifications_enrolment_id_channel` on `(enrolment_id, channel)`.
+
+### `case_actions`
+| column | change | notes |
+|---|---|---|
+| actor_id | make nullable | system rows (SYSTEM_NOTE) have no actor |
+| action | enum gains `ASSIGN`, `REOPEN`, `SYSTEM_NOTE` | |
+| from_status | add, `flags_status` NULL | |
+| to_status | add, `flags_status` NULL | |
+| due_date | add, date NULL | |
+| assignee_id | add, uuid NULL, FK users | |
+
+### `flags`
+| column | change | notes |
+|---|---|---|
+| docs_due_on | add, date NULL | |
+| response_received | add, bool NOT NULL DEFAULT false | |
+| last_action_at | add, timestamptz NULL | |
+
+### New table `case_attachments`
+`id` uuid PK (`gen_random_uuid()`), `flag_id` uuid NOT NULL FK flags (indexed), `case_action_seq` bigint NOT NULL FK `case_actions.seq`, `filename` text NOT NULL, `content_type` text NOT NULL, `size_bytes` int NOT NULL, `sha256` char(64) NOT NULL, `storage_key` text NOT NULL unique, `uploaded_by_id` uuid NOT NULL FK users, `created_at` timestamptz NOT NULL DEFAULT now().
+
+### New table `signing_keys`
+`kid` text PK, `alg` text NOT NULL, `purpose` text NOT NULL DEFAULT `'ISSUER'`, `public_jwk` jsonb NOT NULL, `private_jwk_encrypted` text NOT NULL, `active` bool NOT NULL DEFAULT true, `created_at` timestamptz NOT NULL DEFAULT now(). Unique partial index `uq_signing_keys_purpose_active` on `(purpose) WHERE active`.
+
+### New table `holder_keys`
+`student_id` uuid PK, FK students; `public_jwk` jsonb NOT NULL; `private_jwk_encrypted` text NOT NULL; `created_at` timestamptz NOT NULL DEFAULT now().
+
+### `credentials`
+| column | change | notes |
+|---|---|---|
+| vct | add, text NOT NULL | backfilled as `countersign:<kind in lower case>:v1` |
+| short_id | add, text NOT NULL, unique | backfilled from the row id; new rows get 8 Crockford base32 characters |
+| expires_at | add, timestamptz NULL | |
+| revoked_reason | add, text NULL | |
+| revoked_by_id | add, uuid NULL, FK users | |
+| disclosable | add, text[] NOT NULL DEFAULT `'{}'` | |
+
+Index: unique partial `uq_credentials_enrolment_id_kind` on `(enrolment_id, kind) WHERE revoked = false`.
+
+### New table `credential_presentations`
+`id` uuid PK (`gen_random_uuid()`), `credential_id` uuid NOT NULL FK credentials (indexed), `code_hash` char(64) NOT NULL unique, `presentation` text NOT NULL, `disclosed` text[] NOT NULL DEFAULT `'{}'`, `created_at` timestamptz NOT NULL DEFAULT now(), `expires_at` timestamptz NOT NULL, `first_verified_at` timestamptz NULL, `last_verified_at` timestamptz NULL, `verify_count` int NOT NULL DEFAULT 0.
+
+### `consents`
+| column | change | notes |
+|---|---|---|
+| enrolment_id | add, uuid NULL, FK enrolments | |
+| notice_version | add, text NOT NULL DEFAULT `'v1'` | |
+| withdrawn_at | add, timestamptz NULL | |
+
+### `data_requests`
+| column | change | notes |
+|---|---|---|
+| details | add, text NULL | |
+| response | add, text NULL | |
+| resolved_at | add, timestamptz NULL | |
+| resolved_by_id | add, uuid NULL, FK users | |
+
+### Not changed
+`audit_log` keeps its columns (READ details go into `after`, see the table reference). `students`, `enrolments`, `checks` and `users` are unchanged: the STUDENT check keeps using the `checks` row of type STUDENT with source `STUDENT_NOTICE`, graduates are ordinary `enrolments` rows with status GRADUATED, and AICTE_ADMIN, RO_OFFICER and UNIVERSITY users need no new scope column. There is no index on `audit_log.entity_id`; the student access log (API_CONTRACT §A3.22) scans by entity id, which is fine at demo size and is noted as a known limit.
 
 ## mockgov database (`mockgov`, separate service)
 

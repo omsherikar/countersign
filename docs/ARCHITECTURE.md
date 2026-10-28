@@ -28,6 +28,8 @@ Tagline: **Every enrolment, countersigned.** A college upload is a claim. Five i
 
 Ports (host): web 3000, api 8000, mockgov 8001, mailpit 8025 (web UI) and 1025 (SMTP), postgres 5432, redis 6379.
 
+Volumes shared by the api and the worker: `upload-spool` (encrypted upload files, Week 2) and `case-files` (encrypted case attachments at `CASE_FILES_DIR`, Week 3). From Week 3 the api and the worker send mail to Mailpit (student notices, document requests); Mailpit keeps 20,000 messages (`MP_MAX_MESSAGES`), and its HTTP API on :8025 is what the end-to-end test reads. The api is also the credential issuer at `ISSUER_URL` (its JWKS and status list are public).
+
 One Postgres instance, three databases: `countersign` (api), `mockgov`, `countersign_test` (pytest).
 
 ## 2. Repo layout and ownership
@@ -93,13 +95,20 @@ services/api/
   app/models/*.py             one module per domain
   app/schemas/*.py            Pydantic v2 response/request models
   app/routers/*.py            auth, me, dashboard, institutions, students, admin, healthz;
-                              Week 2: uploads, enrolments, flags
+                              Week 2: uploads, enrolments, flags;
+                              Week 3: notices, cases, users, credentials, issuer, verify, university, privacy
   app/adapters/               base.py protocols; inmemory/, mockgov/, real/; factory.py
   app/engine/                 seatpools.py (Week 1); Week 2: contracts.py, pipeline.py, upload/ (parse,
                               validate, upsert), matching.py, ledger.py, checks/, duplicates.py, flags.py,
                               evidence.py, score.py (interfaces in ENGINES.md)
-  app/seed/                   importer for datagen output; cli.py
-  app/worker.py               celery app; Week 2 task countersign.run_batch (worker concurrency 1)
+  app/notices/                Week 3: mailer, dispatch, service, student_check (ENGINES §16.3)
+  app/cases/                  Week 3: transitions, service, attachments (ENGINES §16.5)
+  app/credentials/            Week 3: keys, issuer, holder, verifier, status_list, degree (ENGINES §16.6)
+  app/privacy/                Week 3: notice (versioned texts), service (ENGINES §16.7)
+  app/core/audit_tamper.py    Week 3: demo-only chain tamper command (DEMO_MODE)
+  app/seed/                   importer for datagen output; cli.py; Week 3: graduates.py, replies.py
+  app/worker.py               celery app; tasks countersign.run_batch (Week 2), countersign.send_notices and
+                              countersign.deliver_notices (Week 3); worker concurrency 1
   alembic/                    migrations, 0001 = whole schema
   tests/
 ```
@@ -115,8 +124,13 @@ apps/web/
   app/(institution)/college/...
   app/(student)/student/...
   app/(university)/university/...
-  app/verify/...                      public (Week 3)
-  app/api/[...path]/route.ts          proxy to API_INTERNAL_URL, forwards cookies and status
+  app/verify/...                      public: /verify, /verify/[code], /verify/d/[jws], /verify/degree/[shortId]
+  app/(public)/student/notices/[token]  public notice page (Week 3): outside the signed-in student layout
+  app/(student)/student/{notices,wallet,privacy}           Week 3
+  app/(university)/university/degrees/[enrolmentId]/print  Week 3
+  app/(aicte)/admin/{audit,data-requests}                  Week 3 (AICTE_ADMIN)
+  e2e/                                Playwright tests of the demo path (Week 3, §12)
+  next.config.ts                      rewrites /api/* to API_INTERNAL_URL (cookies, status and bodies pass through)
   lib/api.ts                          typed fetch client (throws ApiError with the envelope)
   lib/types.ts                        pasted from API_CONTRACT.md
   lib/auth.ts                         server-side getMe() for layouts and redirects
@@ -135,7 +149,19 @@ apps/web/
 - The web never stores the token; the browser only ever talks to `/api/*` on its own origin. The Next.js route handler `app/api/[...path]/route.ts` forwards method, path, query, JSON body, `Cookie` header and returns the upstream status, body and `Set-Cookie` unchanged.
 - Server components call the api with `API_INTERNAL_URL` directly and pass the incoming `cs_access` cookie through.
 - CSRF: `SameSite=Lax` cookie plus JSON-only request bodies (`Content-Type: application/json` required on every mutating route; form posts are rejected with 415). No CSRF token in Week 1. One exception from Week 2: `POST /uploads` takes `multipart/form-data` (the file); the proxy streams that body through with its own `Content-Type`, and passes CSV and XLSX downloads back with `Content-Type` and `Content-Disposition` unchanged (API_CONTRACT §A2.1).
-- Public endpoints (no cookie): `GET /healthz`, Week 3 `/verify/*`. Public endpoints are rate-limited (60/min per IP); 429 uses the error envelope with code `RATE_LIMITED`.
+- Public endpoints (no cookie; a cookie, if sent, is ignored), each rate-limited per client address with the `RATE_LIMITED` envelope on 429 (D32, API_CONTRACT §A3.1):
+
+  | endpoint | limit |
+  |---|---|
+  | `GET /healthz` | none |
+  | `POST /auth/login` | `LOGIN_RATE_LIMIT` (10/min) |
+  | `GET /notices/{token}`, `POST /notices/{token}/respond` | 30/min |
+  | `GET /verify/{code}`, `POST /verify`, `GET /verify/d/{jws}`, `GET /verify/degree/{short_id}` | 60/min |
+  | `GET /.well-known/jwks.json`, `GET /.well-known/jwt-vc-issuer`, `GET /status-lists/1` | 120/min |
+  | `GET /privacy/notice` | 60/min |
+
+- Public web pages: `/login`, `/verify` and its result pages, and the notice page `/student/notices/[token]`. The notice page lives outside the `(student)` route group so the student layout's sign-in guard never runs for it, and `proxy.ts` lets `/student/notices/<token>` through without a cookie while `/student/notices` itself stays signed-in only.
+- A second multipart route from Week 3: `POST /flags/{id}/response` (a note and up to three files) is exempt from the JSON-only 415 rule like `POST /uploads`. Binary downloads (attachments, the degree insert PDF, the data export) pass back with `Content-Type` and `Content-Disposition` unchanged.
 
 ### 401 shape
 
@@ -158,9 +184,9 @@ Out-of-scope rows (an institution asking for another institution id) return **40
 | `AICTE_ADMIN` | national | `/aicte` | every institution, region, flag, audit, admin tools |
 | `RO_OFFICER` | `scope.region` | `/ro` | institutions whose `region` equals theirs; flags and enrolments of those institutions |
 | `INSTITUTION` | `scope.institution_id` | `/college` | only its own institution, programmes, seats, enrolments, flags against it |
-| `STUDENT` | `scope.student_id` | `/student` | only its own student row, enrolments, notices, consents, credentials |
-| `UNIVERSITY` | `scope.university_id` | `/university` | institutions affiliated to it (read-only), degree QR tools (Week 3) |
-| `VERIFIER` | public, no login | `/verify` | signed credential verification only (Week 3) |
+| `STUDENT` | `scope.student_id` | `/student` | only its own student row, enrolments, notices, consents, credentials (wallet and shares), access log, data requests and export |
+| `UNIVERSITY` | `scope.university_id` | `/university` | institutions affiliated to it and their enrolments, read-only (flag summaries on enrolment detail, no case actions, `/flags` is 403); the graduates of those institutions; Degree proofs: issue, print data with the QR, sample insert PDF (Week 3) |
+| `VERIFIER` | public, no login, not a `users` role | `/verify` | the verify pages only: a share code, a pasted presentation, a degree QR or a degree proof id. Sees the result and the fields the student disclosed (or the degree's printed fields), never a full APAAR, and has no search (Week 3) |
 
 Scope rules are enforced in FastAPI dependencies on every query. The UI hides what a role cannot use, but the api is the authority.
 
@@ -184,7 +210,7 @@ Unknown or mismatched role on a route group (a student opening `/aicte`) is redi
 { "error": { "code": "SNAKE_CASE", "message": "Human readable.", "details": {} } }
 ```
 
-Codes used in Week 1: `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_CREDENTIALS`, `VALIDATION_ERROR` (422, `details.fields` = `[{field, message}]`), `RATE_LIMITED`, `SOURCE_UNAVAILABLE`, `INTERNAL`. Added in Week 2: `FILE_TOO_LARGE`, `TOO_MANY_ROWS` (413), `UNSUPPORTED_FILE_TYPE` (415), `UPLOAD_HEADER_INVALID`, `UPLOAD_EMPTY` (422), `UPLOAD_IN_PROGRESS` (409).
+Codes used in Week 1: `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_CREDENTIALS`, `VALIDATION_ERROR` (422, `details.fields` = `[{field, message}]`), `RATE_LIMITED`, `SOURCE_UNAVAILABLE`, `INTERNAL`. Added in Week 2: `FILE_TOO_LARGE`, `TOO_MANY_ROWS` (413), `UNSUPPORTED_FILE_TYPE` (415), `UPLOAD_HEADER_INVALID`, `UPLOAD_EMPTY` (422), `UPLOAD_IN_PROGRESS` (409). Added in Week 3 (D32, API_CONTRACT §A3.25): `NOTICE_NOT_FOUND` (404), `NOTICE_EXPIRED` (410), `NOTICE_ALREADY_CHANGED`, `NOTICE_LIVE`, `FLAG_TRANSITION_INVALID`, `CREDENTIAL_NOT_ELIGIBLE`, `CREDENTIAL_REVOKED` (409), `ATTACHMENT_TOO_LARGE` (413), `ATTACHMENT_TYPE` (415), `PRESENTATION_NOT_FOUND` (404), `RESEND_LIMIT` (429), and the generic `CONFLICT` (409, always with `details.reason`).
 
 - JSON only. `snake_case` keys on the wire. No nulls for lists (empty list instead); nulls allowed for scalar "not yet known".
 - Money: none anywhere.
@@ -197,6 +223,11 @@ Codes used in Week 1: `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`, `INVALID_CRED
 - Passport (international students): `passport_hmac` plus `passport_masked = "X1234567"` is never returned in Week 1.
 - Email is returned only to the student themselves (`/students/me`).
 - Every endpoint that returns a student row records a `READ` entry in `audit_log` (actor, entity, timestamp). No PII in the audit `before`/`after` payloads; only ids and masked values.
+- Week 3 adds READ entries for notice page views, credential reads and shares, verifier calls (with a keyed hash of the caller's address, never the address), attachment downloads and data exports (API_CONTRACT §A3.23); a student's access log shows the reader's role and the date, never a name.
+- Student notice links: only `sha256(token)` is stored; the token is minted at delivery and exists only in the message (ENGINES §16.3). The public notice page shows no name, date of birth or contact detail.
+- Public surfaces (notice page, verifier, degree QR and insert) mask a provisional id as `PRV-XXXX` plus its last four characters, as well as the APAAR.
+- Case attachments are Fernet-encrypted on the `case-files` volume and read only through the scoped, audited download. A student's comment on a No is shown to officers only.
+- Holder keys of the custodial demo wallet and the issuer's private key are Fernet-encrypted with `PII_FERNET_KEY`.
 
 ## 7. Seeded demo users (fixed, datagen must emit exactly these in `users.json`)
 
@@ -273,6 +304,15 @@ Added in Week 2 (API_CONTRACT Addendum 2):
 - CIWG student: an INTERNATIONAL-route row with nationality `IN`; only CIWG students take the CIWG-reserved international seats (D16).
 - Unresolved flag: status `OPEN`, `DOCS_REQUESTED` or `ESCALATED`; `flags_open` counts these.
 
+Added in Week 3 (API_CONTRACT Addendum 3):
+
+- Notice channel: `EMAIL`, `DIGILOCKER`. Notice response: `YES`, `NO` (no reply is neutral). Delivery status: `QUEUED`, `SENT`, `FAILED`. A notice is live when unanswered, not FAILED and not expired.
+- Student check state (`detail.notice_state`): `NOT_SENT`, `UNREACHABLE`, `SENT`, `EXPIRED` (all PENDING), `CONFIRMED` (PASS), `DENIED` (FAIL, raises STUDENT_DENIED). The Student check is never `NA`.
+- Case actions: `CLEAR`, `REQUEST_DOCS`, `ESCALATE`, `CONFIRM`, `NOTE`, `ASSIGN`, `REOPEN` (officers), `COLLEGE_RESPONSE` (the college), `SYSTEM_NOTE` (the system). Transitions are the table in API_CONTRACT §A3.9.
+- Credential kind: `ENROLMENT` (Enrolment proof), `DEGREE` (Degree proof). Credential status: `ACTIVE`, `REVOKED`, `EXPIRED`. Revocation reason code: `ENROLMENT_WITHDRAWN`, `ENROLMENT_TRANSFERRED`, `FLAG_CONFIRMED`, `ADMIN`.
+- Verify result: `VALID`, `REVOKED`, `EXPIRED`, `INVALID`; verify method: `signature`, `register_lookup`.
+- Consent purpose: `APAAR_LINK`, `NOTICE`, `CREDENTIAL_SHARE`; consent state: `GIVEN`, `WITHDRAWN`, `REFUSED`. Data request kind: `ACCESS`, `CORRECTION`, `ERASURE`; status: `OPEN`, `DONE`, `REJECTED`.
+
 ## 10. Endpoint availability by week
 
 | Endpoint group | Week 1 | Week 2 | Week 3 | Week 4 |
@@ -280,13 +320,18 @@ Added in Week 2 (API_CONTRACT Addendum 2):
 | `/healthz`, `/auth/*`, `/me` | real | | | |
 | `/dashboard/summary` | real (`flags_open` = 0, `integrity_index` null) | `flags_open`, `countersigned_pct`, `clear_pct`, `flags_by_type`, `admitted` real | | integrity real |
 | `/institutions`, `/institutions/{id}`, `/seats`, `/enrolments` | real, `countersign` null/[] | countersign, flags, seats (`seated`, `unseated`), `admitted`, `last_upload` real; enrolment filters `check_status`, `check_type`, `flagged`, `seated`; sort `flags_open_desc` real and default | | |
-| `/students/me` | real (no notices/credentials) | countersign real | notices, consents, wallet | |
-| `/admin/adapters/ping`, `/admin/audit/verify` | real | | audit UI | |
+| `/students/me` | real (no notices/credentials) | countersign real | `notices`, `credentials` filled; STUDENT check real | |
+| `/admin/adapters/ping`, `/admin/audit/verify`, `/admin/audit` | real | | `/admin/audit` filters `entity_id`, `action`, `seq_from`, rows gain `actor_role` and `via`; web `/admin/audit` with Verify chain | |
 | `/admin/demo/reset` | 501, use `make demo-reset` | 501 | | |
 | `/uploads`, `/uploads/rows`, `/uploads/{id}`, `/uploads/{id}/errors`, `/uploads/{id}/errors.csv`, `/uploads/template.csv`, `/uploads/template.xlsx` | absent (404) | real | | |
-| `/enrolments/{id}`, `POST /enrolments/{id}/recheck`, `POST /institutions/{id}/recheck` | absent | real | | |
-| `/flags`, `/flags/{id}` | absent | real, read-only | actions, documents, history | |
-| `/notices/*`, `/credentials/*`, `/verify/*`, `/university/*` | absent | | real | |
+| `/enrolments/{id}`, `POST /enrolments/{id}/recheck`, `POST /institutions/{id}/recheck` | absent | real | enrolment detail gains `notices`, `resend`, `credentials`; `POST /enrolments/{id}/notices/resend` real | |
+| `/flags`, `/flags/{id}` | absent | real, read-only | `POST /flags/{id}/actions`, `POST /flags/{id}/response` (multipart), `GET /flags/{id}/attachments/{attachment_id}`, `history`, `allowed_actions`, assignee, `assignee` and `response_received` filters; `GET /users` for the assignee picker | |
+| `/notices/{token}`, `POST /notices/{token}/respond` (public) | absent | absent | real | |
+| `/credentials`, `/credentials/{id}`, `/present`, `/presentations`, `/revoke` | absent | absent | real | |
+| `/.well-known/jwks.json`, `/.well-known/jwt-vc-issuer`, `/status-lists/1` (public) | absent | absent | real | |
+| `/verify/{code}`, `POST /verify`, `/verify/d/{jws}`, `/verify/degree/{short_id}` (public) | absent | absent | real | |
+| `/university/graduates`, `/university/degrees/{id}`, `/issue`, `/insert.pdf` | absent | absent | real | |
+| `/privacy/notice` (public), `/students/me/consents`, `/access-log`, `/data-requests`, `/export.json`, `/data-requests` (admin) | absent | absent | real | |
 | `/reports/*`, `/scores/*`, `/psi/*` | absent | | | real |
 
 The frontend may build Week 2+ pages against the contract once it is written, but must not ship navigation to routes whose endpoints are absent; show a "coming in Week N" placeholder behind the nav item instead.
@@ -297,10 +342,13 @@ There is no `/cases/*` api path: the officers' case queue pages (`/aicte/cases`,
 
 All environment variables live in `.env.example` with a comment. Compose loads `.env`. The web uses `NEXT_PUBLIC_API_BASE=/api` in the browser and `API_INTERNAL_URL=http://api:8000` on the server.
 
+Week 3 settings: `WEB_ORIGIN` (base of every link a person opens: notices, verify URLs), `ISSUER_URL` (credential `iss`, JWKS and status list base), `SMTP_ALLOWED_HOSTS` and `ALLOW_REAL_SMTP` (the mailer refuses any other host; `ALLOW_REAL_SMTP` is never set, like `ALLOW_REAL_GOV_APIS`), `NOTICE_FROM` (sender of notices and document requests), `CASE_FILES_DIR` (attachments volume), `DEMO_MODE` (true in the demo `.env`; enables `make audit-tamper`). `rules.yaml` gains `notices.expiry_days` (30) and `notices.change_window_days` (7). The older `WEB_BASE_URL` and `MAIL_FROM` keys are not read by Week 3 code.
+
 ## 12. Testing contract
 
 - api: pytest against `countersign_test` (migrations applied fresh per session), `GOV_ADAPTER=inmemory`.
 - mockgov: pytest with an in-memory SQLite fallback or `mockgov_test`; chaos tests assert 503.
 - datagen: pytest on determinism and ground-truth integrity.
-- web: `pnpm lint` and `pnpm typecheck` in CI; Playwright arrives in Week 3.
+- web: `pnpm lint` and `pnpm typecheck` in CI.
 - `make test` runs the three Python suites inside compose.
+- End-to-end (D33): Playwright tests in `apps/web/e2e` drive the demo path against the running stack (`make up && make demo-reset && make seed` first). `make e2e` runs them from the host with Playwright's bundled Chromium (`pnpm exec playwright install chromium`); the config never sets `channel: "chrome"`, so no installed browser is used or copied. Base URL `WEB_ORIGIN`; Mailpit's API at `http://localhost:8025/api/v1` and mockgov's DigiLocker inbox at `http://localhost:8001/digilocker/inbox/{apaar_id}` are how the tests open notice links (the link exists only in the message). The notices left for the live demo are listed in the datagen manifest's `demo_unanswered_notices` (Ravi Kumar Sharma answers Yes, the `SECOND_DEMO_NOTICE` student answers No). The path: every role signs in; the ABC College CSE excess flag; the R. K. Sharma duplicate; Ravi's notice from Mailpit answered Yes, his Enrolment proof appears, three fields shared, the code verifies VALID; a No on the second notice raises STUDENT_DENIED; an officer requests documents, the registrar responds with a PDF, the officer clears; the university prints a degree insert and its QR (`/verify/d/...`) verifies; the AICTE officer verifies the audit chain. Tests run serially, because they share one seeded database.
