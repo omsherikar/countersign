@@ -20,7 +20,7 @@ Timing is for the full Week 4 build. Week 1 rehearsal uses steps 1, 2, 3, 8 and 
 | 5:30 | INSTITUTION | `/college` | ledger reaction | CSE row: admitted 133, seated 120, unseated 13, same day. Narrator: "The ledger has a row per approved seat, so excess shows the day it is uploaded." |
 | 6:00 | STUDENT | Mailpit tab, then `/student/notices/[token]` | Ravi, LINKED | Email "ABC College of Engineering says you joined B.Tech CSE (2026-27). Is that right?" Click link, page shows the claim and two buttons. Click "Yes, that is right". Confirmation screen. Student check becomes Pass. |
 | 6:45 | STUDENT | second token (the "No" student) | not-me scenario | Click "No, that is not me". Page: "Thank you. An AICTE officer will look into this." Officer queue gains a `STUDENT_DENIED` flag, High. |
-| 7:15 | STUDENT | `/student/wallet` | Ravi credential | "Enrolment proof" card. Click "Share proof", untick date of birth, keep institution, programme, year. QR appears with "Shares 3 of 5 fields". |
+| 7:15 | STUDENT | `/student/wallet` | Ravi credential | "Enrolment proof" card. Click "Share proof", untick date of birth, keep institution, programme, year. QR appears with "Shares 3 of 8 fields". |
 | 7:45 | VERIFIER | phone camera -> `/verify/[code]` | same | "Valid. Issued by Countersign for ABC College of Engineering." Shows only the 3 shared fields, APAAR masked. "Checked against the revocation list just now." |
 | 8:15 | UNIVERSITY | `/university/degrees/[id]/print` | graduating demo student | Print preview: name, programme, year, "APAAR XXXX XXXX 4417", QR. Narrator: "The degree carries the masked id and a scannable proof." |
 | 8:45 | AICTE_ADMIN | `/admin/system` | chaos: APAAR down | Toggle "APAAR registry: down". Ping shows Unavailable. In the registrar's tab, upload a small file during the outage; as the officer, open one of its enrolments: Identity check is "Awaiting source", hollow, not red. Narrator: "A source outage never fails a student." Reset chaos, press "Recheck pending checks" on the institution: the check turns Countersigned. |
@@ -88,7 +88,7 @@ Error cases: 413 [err.FILE_TOO_LARGE] or [err.TOO_MANY_ROWS]; 415 [err.UNSUPPORT
 
 Actor: STUDENT, starting from email (Mailpit in demo) or DigiLocker inbox (mockgov). Week 3.
 
-1. System sends the notice after an enrolment passes Identity (or immediately when there is no APAAR, by email). Message [notice.email_body]. Link `/student/notices/[token]`.
+1. When the college's upload batch is Done, the system sends a notice for every active enrolment in it, whatever its Identity result: by email when the college gave an address, and to the DigiLocker inbox when the student has a linked APAAR (D23). The notice is how the real APAAR holder learns that their identity was used, so it goes out even when, and especially when, Identity failed. Message [notice.email_body] or [notice.digilocker]. Link `/student/notices/[token]`.
 2. Student opens the link (no login needed; the token is the auth). `GET /notices/{token}` (W3). State: the claim card: institution, programme, academic year, year of study, masked APAAR or provisional id, the date the college uploaded it.
 3. Two buttons [notice.yes], [notice.no], the next-step line [notice.next_step], and a "What is this?" expander [notice.what_is_this].
 4a. Yes. `POST /notices/{token}/respond {response: "YES"}`. State: confirmation [notice.yes_done]. Student check -> PASS. Optional "See what is held about you" link to `/student` (requires login).
@@ -103,9 +103,9 @@ Actor: STUDENT, starting from email (Mailpit in demo) or DigiLocker inbox (mockg
 Actor: STUDENT, then a VERIFIER. Week 3.
 
 1. `/student/wallet`. `GET /credentials` (W3). State: one card per credential: kind (Enrolment proof, Degree), issuer, issued date, status (Active, Revoked).
-2. "Share proof" on a card. Sheet lists the disclosable fields as checkboxes: name, institution, programme, academic year, year of study, date of birth, masked APAAR. Institution and programme are ticked and locked (a proof without them means nothing); the rest are unticked by default.
+2. "Share proof" on a card. Sheet lists the disclosable fields as checkboxes: name, institution, programme, academic year, year of study, date of birth, masked APAAR, countersigned (the checks that agreed, with the date). Institution and programme are ticked and locked (a proof without them means nothing); the rest are unticked by default.
 3. Consent text [consent.credential_share] with "I agree" checkbox. "Create QR" enables.
-4. `POST /credentials/{id}/present {fields: [...]}` (W3). State: QR, a 6-group code under it, "Shares 3 of 7 fields", "Valid for 10 minutes", "Copy link".
+4. `POST /credentials/{id}/present {fields: [...]}` (W3). State: QR, a 6-group code under it, "Shares 3 of 8 fields", "Valid for 10 minutes", "Copy link".
 5. Verifier scans. Lands on `/verify/[code]`. `GET /verify/{code}` (W3, public, rate limited).
 6a. Valid: [verify.valid] heading, issuer, issue date, the shared fields only, "Revocation checked just now". Nothing else is on the page.
 6b. Revoked: [verify.revoked]. 6c. Expired presentation: [verify.expired]. 6d. Malformed: [verify.invalid].
