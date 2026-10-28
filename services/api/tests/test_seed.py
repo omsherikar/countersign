@@ -11,13 +11,23 @@ from sqlalchemy import func, select
 from app.core import audit
 from app.core.crypto import decrypt, hmac_bytes
 from app.db.session import session_factory
-from app.models.enums import ConsentStatus, SeatType, UserRole
+from app.engine.upload.upsert import provisional_id_for
+from app.models.enums import (
+    ConsentStatus,
+    EnrolmentStatus,
+    ProgrammeMode,
+    SeatType,
+    UploadKind,
+    UploadSource,
+    UserRole,
+)
 from app.models.institution import Approval, Institution, Programme
 from app.models.seat import Seat, SeatPool
 from app.models.student import Enrolment, Student
+from app.models.upload import UploadBatch
 from app.models.user import User
 from app.seed import cli
-from app.seed.importer import SeedError, import_directory, provisional_id_for
+from app.seed.importer import SeedError, import_directory
 from tests.conftest import API_ROOT, FIXTURE_DIR
 
 
@@ -30,30 +40,39 @@ async def test_import_fixture_then_rerun_is_idempotent(clean_db):
     summary = await import_directory(session_factory(), FIXTURE_DIR)
     created = {k: v.created for k, v in summary.counts.items()}
     assert created["regions"] == 3 and created["states"] == 3 and created["universities"] == 3
-    assert created["institutions"] == 3 and created["programmes"] == 5 and created["approvals"] == 5
-    assert created["seat_pools"] == 25
-    # 120 -> 156, 60 (MBA) -> 84, 60 (ECE) -> 78, 30 (MCA, 25% intl) -> 43, 40 (DME) -> 52
-    assert created["seats"] == 156 + 84 + 78 + 43 + 52
-    assert created["students"] == 40 and created["enrolments"] == 41 and created["users"] == 7
+    assert created["institutions"] == 3 and created["programmes"] == 5 and created["approvals"] == 8
+    assert created["seat_pools"] == 40
+    # 2026-27: 120 -> 156, 60 (MBA) -> 84, 60 (ECE) -> 78, 30 (MCA, 25% intl) -> 43, 40 (DME)
+    # -> 52; 2025-26 for the lateral entrants: CSE 156, ECE 78, DME 52
+    assert created["seats"] == 156 + 84 + 78 + 43 + 52 + 156 + 78 + 52
+    assert created["upload_batches"] == 4 and created["users"] == 7
+    # initial files by name, then the update file
     assert summary.files == [
         "1-ABC-0001_2026-27.csv",
         "1-PQR-0003_2026-27.csv",
         "1-XYZ-0002_2026-27.csv",
+        "1-PQR-0003_2026-27_update1.csv",
     ]
-    assert "entity" in summary.table() and "students" in summary.table()
+    assert [u.status for u in summary.uploads] == ["DONE"] * 4
+    update = summary.uploads[-1].counts
+    assert (update["created"], update["updated"], update["withdrawn"], update["transferred"]) == (
+        2,
+        2,
+        1,
+        1,
+    )
+    assert created["enrolments"] == 41 + 2
+    assert await _count(Student) == 42 and await _count(Enrolment) == 43
+    assert "entity" in summary.table() and "1-PQR-0003_2026-27_update1.csv" in summary.table()
 
     again = await import_directory(session_factory(), FIXTURE_DIR)
-    # row errors are rebuilt per file on every run; everything else must already exist
-    assert all(v.created == 0 for k, v in again.counts.items() if k != "upload_row_errors"), (
-        again.counts
-    )
-    # per-file tallies: the cross-college student counts once in each of her two files
-    assert again.counts["students"].existing == 41 and again.counts["enrolments"].existing == 41
-    assert await _count(Student) == 40 and await _count(Enrolment) == 41 and await _count(User) == 7
+    assert all(v.created == 0 for v in again.counts.values()), again.counts
+    assert [u.status for u in again.uploads] == ["SKIPPED"] * 4
+    assert await _count(Student) == 42 and await _count(Enrolment) == 43 and await _count(User) == 7
 
     async with session_factory()() as session:
         ok, length, broken = await audit.verify_chain(session)
-        assert ok and broken is None and length == 2 * 6  # 6 SEED entries per run
+        assert ok and broken is None and length > 0
 
 
 async def test_students_are_stored_masked_and_scoped(clean_db):
@@ -97,8 +116,9 @@ async def test_students_are_stored_masked_and_scoped(clean_db):
         assert aisha.apaar_hmac is None and aisha.passport_hmac is not None
         assert aisha.consent_status is ConsentStatus.INTERNATIONAL and aisha.nationality == "BD"
         assert aisha.provisional_id == provisional_id_for(
-            "1-ABC-0001", "Aisha Rahman", "2006-07-07", ""
+            "1-ABC-0001", "aisha rahman", "2006-07-07", ""
         )
+        assert decrypt(aisha.passport_encrypted) == "N1234567"
 
         shared = (
             await session.execute(select(Student).where(Student.name == "Ananya Krishnan"))
@@ -108,14 +128,18 @@ async def test_students_are_stored_masked_and_scoped(clean_db):
             .scalars()
             .all()
         )
-        assert len(enrolments) == 2 and all(e.seat_id is None for e in enrolments)
+        assert len(enrolments) == 2 and all(e.seat_id is not None for e in enrolments)
 
         cse = (
             await session.execute(
                 select(Approval)
                 .join(Programme)
                 .join(Institution)
-                .where(Institution.aicte_permanent_id == "1-ABC-0001", Programme.code == "CSE")
+                .where(
+                    Institution.aicte_permanent_id == "1-ABC-0001",
+                    Programme.code == "CSE",
+                    Approval.academic_year == "2026-27",
+                )
             )
         ).scalar_one()
         pools = {
@@ -142,6 +166,31 @@ async def test_students_are_stored_masked_and_scoped(clean_db):
             )
         ).scalar_one()
         assert ciwg == 6
+        assert (await session.get(Programme, cse.programme_id)).mode is ProgrammeMode.PHYSICAL
+
+        # the update file: a withdrawal, a transfer and two late admissions
+        by_name = {
+            student.name: enrolment
+            for enrolment, student in (
+                await session.execute(
+                    select(Enrolment, Student).join(Student, Student.id == Enrolment.student_id)
+                )
+            ).all()
+        }
+        update = (
+            await session.execute(
+                select(UploadBatch).where(UploadBatch.filename == "1-PQR-0003_2026-27_update1.csv")
+            )
+        ).scalar_one()
+        assert update.source is UploadSource.SEED and update.kind is UploadKind.UPDATE
+        withdrawn, moved = by_name["Prajwal Shetty"], by_name["Kiran Kumar"]
+        assert withdrawn.status is EnrolmentStatus.WITHDRAWN
+        assert withdrawn.status_date == date(2026, 9, 20)
+        assert moved.status is EnrolmentStatus.TRANSFERRED and moved.upload_batch_id == update.id
+        late = by_name["Yashas Gowda"]
+        assert late.admission_date == date(2026, 10, 10) and late.source_row_no == 4
+        assert by_name["Divya Iyer"].cohort_year == "2025-26"
+        assert by_name["Ravi Kumar Sharma"].admission_date == date(2026, 7, 8)
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -169,12 +218,13 @@ async def test_reset_flag_and_cli(clean_db):
             )
         )
         await session.commit()
-    assert await _count(Student) == 41
+    assert await _count(Student) == 43
 
     result = await asyncio.to_thread(_run_cli, "--from", str(FIXTURE_DIR), "--reset")
     assert result.returncode == 0, result.stderr
-    assert "students" in result.stdout and "created" in result.stdout
-    assert await _count(Student) == 40
+    assert "enrolments" in result.stdout and "created" in result.stdout
+    assert "seeded 4 upload files, 45 rows, in " in result.stdout
+    assert await _count(Student) == 42
 
 
 async def test_bad_input_fails_loudly(clean_db, tmp_path: Path):

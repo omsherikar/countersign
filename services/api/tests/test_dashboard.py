@@ -8,9 +8,13 @@ async def test_national_summary(admin):
         "approved_seats": 310,
         "admitted": 38,
         "enrolments": 41,
-        "flags_open": 0,
-        "countersigned_pct": None,
-        "clear_pct": None,
+        # the seed runs the engines: Lokesh's malformed APAAR, Ananya at two colleges (one
+        # flag each side) and two refills after the cut-off at PQR
+        "flags_open": 5,
+        # the student check is pending for everyone in Week 2, so nobody is fully countersigned
+        "countersigned_pct": 0.0,
+        # every active enrolment but Lokesh's has no failing check: 40 of 41
+        "clear_pct": 97.6,
     }
     assert [f["type"] for f in body["flags_by_type"]][:3] == [
         "EXCESS_ADMISSION",
@@ -18,7 +22,12 @@ async def test_national_summary(admin):
         "LATE_REFILL",
     ]
     assert len(body["flags_by_type"]) == 12
-    assert all(f["open"] == 0 for f in body["flags_by_type"])
+    open_by_type = {f["type"]: f["open"] for f in body["flags_by_type"]}
+    assert {t: n for t, n in open_by_type.items() if n} == {
+        "LATE_REFILL": 2,
+        "INVALID_APAAR": 1,
+        "DUPLICATE_CROSS_INSTITUTION": 2,
+    }
     assert [s["state_name"] for s in body["by_state"]] == ["Karnataka", "Maharashtra", "Tamil Nadu"]
     mh = body["by_state"][1]
     assert mh == {
@@ -30,7 +39,7 @@ async def test_national_summary(admin):
         "approved_seats": 180,
         "admitted": 19,
         "enrolments": 20,
-        "flags_open": 0,
+        "flags_open": 1,
     }
     west = next(r for r in body["by_region"] if r["region"] == "WEST")
     assert west == {
@@ -40,10 +49,11 @@ async def test_national_summary(admin):
         "approved_seats": 180,
         "admitted": 19,
         "enrolments": 20,
-        "flags_open": 0,
+        "flags_open": 1,
     }
     other_year = (await admin.get("/dashboard/summary", params={"academic_year": "2025-26"})).json()
-    assert other_year["kpis"]["enrolments"] == 0 and other_year["kpis"]["approved_seats"] == 0
+    # 2025-26 approvals exist for the lateral entrants' cohort; nobody is on that year's roll
+    assert other_year["kpis"]["enrolments"] == 0 and other_year["kpis"]["approved_seats"] == 220
     assert other_year["kpis"]["institutions"] == 3
 
 

@@ -29,11 +29,14 @@ from app.routers import (
     institutions,
     meta,
     students,
+    uploads,
 )
 
 log = logging.getLogger("countersign.api")
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+# The one route that takes a form instead of JSON: the file upload (API_CONTRACT §A2.1).
+MULTIPART_ROUTES = {("POST", "/uploads")}
 
 
 def run_migrations() -> None:
@@ -95,11 +98,13 @@ def create_app() -> FastAPI:
         started = time.perf_counter()
         if request.method in MUTATING and _has_body(request):
             content_type = request.headers.get("content-type", "")
-            if not content_type.lower().startswith("application/json"):
+            multipart = (request.method, request.url.path) in MULTIPART_ROUTES
+            expected = "multipart/form-data" if multipart else "application/json"
+            if not content_type.lower().startswith(expected):
                 response = envelope(
                     415,
                     "UNSUPPORTED_MEDIA_TYPE",
-                    "Request bodies must be application/json.",
+                    f"Request bodies must be {expected}.",
                     {"content_type": content_type or None},
                 )
                 response.headers["x-request-id"] = request_id
@@ -125,6 +130,7 @@ def create_app() -> FastAPI:
     app.include_router(institutions.router)
     app.include_router(enrolments.router)
     app.include_router(flags.router)
+    app.include_router(uploads.router)
     app.include_router(students.router)
     app.include_router(meta.router)
     app.include_router(admin.router)

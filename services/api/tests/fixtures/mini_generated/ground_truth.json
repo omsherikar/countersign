@@ -3,8 +3,42 @@
     "anomaly_type": "DUPLICATE_CROSS_INSTITUTION",
     "institution_aicte_id": "1-ABC-0001",
     "programme_code": "CSE",
-    "student_refs": ["202600000120"],
+    "student_refs": [
+      "202600000120"
+    ],
     "expected_flag": "DUPLICATE_CROSS_INSTITUTION",
     "note": "Ananya Krishnan is also enrolled at 1-XYZ-0002 ECE for 2026-27"
+  },
+  {
+    "anomaly_type": "WITHDRAWAL",
+    "institution_aicte_id": "1-PQR-0003",
+    "programme_code": "DME",
+    "student_refs": [
+      "202600000303"
+    ],
+    "expected_flag": null,
+    "rows": [
+      {
+        "file": "1-PQR-0003_2026-27_update1.csv",
+        "row_no": 2
+      }
+    ],
+    "note": "Prajwal Shetty withdrew on 2026-09-20"
+  },
+  {
+    "anomaly_type": "TRANSFER",
+    "institution_aicte_id": "1-PQR-0003",
+    "programme_code": "DME",
+    "student_refs": [
+      "202600000305"
+    ],
+    "expected_flag": null,
+    "rows": [
+      {
+        "file": "1-PQR-0003_2026-27_update1.csv",
+        "row_no": 3
+      }
+    ],
+    "note": "Kiran Kumar transferred on 2026-10-05"
   }
 ]

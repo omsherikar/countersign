@@ -1,0 +1,5 @@
+apaar_id,name,dob,gender,mobile,email,address,nationality,passport_no,programme_code,academic_year,year_of_study,admission_route,counselling_ref,category,consent_status,status,status_date,admission_date
+202600000303,Prajwal Shetty,2008-11-05,M,9876500303,prajwal.shetty@example.demo,"8 Saraswathipuram, Mysuru",IN,,DME,2026-27,1,MANAGEMENT,,GENERAL,LINKED,WITHDRAWN,2026-09-20,2026-07-22
+202600000305,Kiran Kumar,2008-03-16,M,9876500305,kiran.kumar@example.demo,"2 Hebbal, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000566,ST,LINKED,TRANSFERRED,2026-10-05,2026-08-05
+202600000310,Yashas Gowda,2009-08-08,M,9876500310,yashas.gowda@example.demo,"5 Kuvempunagar, Mysuru",IN,,DME,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-10-10
+202600000311,Nandini Rao,2009-09-19,F,9876500311,nandini.rao@example.demo,"12 Gokulam, Mysuru",IN,,DME,2026-27,1,SPOT,,OBC,LINKED,,,2026-10-12

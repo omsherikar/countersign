@@ -49,6 +49,7 @@ services:
       - ./services/api:/app
       - ./rules.yaml:/app/rules.yaml:ro
       - generated:/data/generated
+      - upload-spool:/data/spool
     ports: ["8000:8000"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -63,11 +64,13 @@ services:
   worker:
     build: ./services/api
     <<: *api-env
-    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+    # one upload at a time, so cross-institution duplicate detection never races
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=1
     volumes:
       - ./services/api:/app
       - ./rules.yaml:/app/rules.yaml:ro
       - generated:/data/generated
+      - upload-spool:/data/spool
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -118,5 +121,6 @@ services:
 volumes:
   pgdata:
   generated:
+  upload-spool:
   web_node_modules:
   web_next:

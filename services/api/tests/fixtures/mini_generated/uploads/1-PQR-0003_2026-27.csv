@@ -1,10 +1,10 @@
-apaar_id,name,dob,gender,mobile,email,address,nationality,passport_no,programme_code,academic_year,year_of_study,admission_route,counselling_ref,category,consent_status
-202600000301,Manjunath Gowda,2009-01-12,M,9876500301,manjunath.g@example.demo,"4 Vijayanagar, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000501,GENERAL,LINKED
-202600000302,Shruthi Hegde,2009-04-23,F,9876500302,shruthi.hegde@example.demo,"11 Kuvempunagar, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000517,OBC,LINKED
-202600000303,Prajwal Shetty,2008-11-05,M,9876500303,prajwal.shetty@example.demo,"8 Saraswathipuram, Mysuru",IN,,DME,2026-27,1,MANAGEMENT,,GENERAL,LINKED
-202600000304,Bhavana Reddy,2009-07-29,F,9876500304,bhavana.reddy@example.demo,"23 Gokulam, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000540,SC,LINKED
-202600000305,Kiran Kumar,2008-03-16,M,9876500305,kiran.kumar@example.demo,"2 Hebbal, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000566,ST,LINKED
-,Rakesh Naik,2009-02-02,M,9876500306,rakesh.naik@example.demo,"17 Bogadi, Mysuru",IN,,DME,2026-27,1,SPOT,,GENERAL,PENDING
-202600000307,Pavithra Murthy,2007-12-20,F,9876500307,pavithra.murthy@example.demo,"6 Jayalakshmipuram, Mysuru",IN,,DME,2026-27,2,LATERAL,DCET-2025-LAT-000020,GENERAL,LINKED
-202600000308,Abhishek Rao,2009-05-09,M,9876500308,abhishek.rao@example.demo,"30 Nazarbad, Mysuru",IN,,DME,2026-27,1,TFW,DCET-2026-R1-000590,EWS,LINKED
-2026000003A09,Lokesh Patil,2009-06-14,M,9876500309,lokesh.patil@example.demo,"9 Chamundi Hill Road, Mysuru",IN,,DME,2026-27,1,MANAGEMENT,,GENERAL,LINKED
+apaar_id,name,dob,gender,mobile,email,address,nationality,passport_no,programme_code,academic_year,year_of_study,admission_route,counselling_ref,category,consent_status,status,status_date,admission_date
+202600000301,Manjunath Gowda,2009-01-12,M,9876500301,manjunath.g@example.demo,"4 Vijayanagar, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000501,GENERAL,LINKED,,,2026-07-08
+202600000302,Shruthi Hegde,2009-04-23,F,9876500302,shruthi.hegde@example.demo,"11 Kuvempunagar, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000517,OBC,LINKED,,,2026-07-15
+202600000303,Prajwal Shetty,2008-11-05,M,9876500303,prajwal.shetty@example.demo,"8 Saraswathipuram, Mysuru",IN,,DME,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-07-22
+202600000304,Bhavana Reddy,2009-07-29,F,9876500304,bhavana.reddy@example.demo,"23 Gokulam, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000540,SC,LINKED,,,2026-07-29
+202600000305,Kiran Kumar,2008-03-16,M,9876500305,kiran.kumar@example.demo,"2 Hebbal, Mysuru",IN,,DME,2026-27,1,COUNSELLING,DCET-2026-R1-000566,ST,LINKED,,,2026-08-05
+,Rakesh Naik,2009-02-02,M,9876500306,rakesh.naik@example.demo,"17 Bogadi, Mysuru",IN,,DME,2026-27,1,SPOT,,GENERAL,PENDING,,,2026-08-12
+202600000307,Pavithra Murthy,2007-12-20,F,9876500307,pavithra.murthy@example.demo,"6 Jayalakshmipuram, Mysuru",IN,,DME,2026-27,2,LATERAL,DCET-2025-LAT-000020,GENERAL,LINKED,,,2025-08-19
+202600000308,Abhishek Rao,2009-05-09,M,9876500308,abhishek.rao@example.demo,"30 Nazarbad, Mysuru",IN,,DME,2026-27,1,TFW,DCET-2026-R1-000590,EWS,LINKED,,,2026-08-26
+2026000003A09,Lokesh Patil,2009-06-14,M,9876500309,lokesh.patil@example.demo,"9 Chamundi Hill Road, Mysuru",IN,,DME,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-09-02

@@ -1,18 +1,54 @@
 {
   "regions": [
-    {"code": "WEST", "name": "Western", "hq_city": "Mumbai"},
-    {"code": "SOUTH", "name": "Southern", "hq_city": "Chennai"},
-    {"code": "SOUTH_WEST", "name": "South-Western", "hq_city": "Bengaluru"}
+    {
+      "code": "WEST",
+      "name": "Western",
+      "hq_city": "Mumbai"
+    },
+    {
+      "code": "SOUTH",
+      "name": "Southern",
+      "hq_city": "Chennai"
+    },
+    {
+      "code": "SOUTH_WEST",
+      "name": "South-Western",
+      "hq_city": "Bengaluru"
+    }
   ],
   "states": [
-    {"code": "MH", "name": "Maharashtra", "region": "WEST"},
-    {"code": "TN", "name": "Tamil Nadu", "region": "SOUTH"},
-    {"code": "KA", "name": "Karnataka", "region": "SOUTH_WEST"}
+    {
+      "code": "MH",
+      "name": "Maharashtra",
+      "region": "WEST"
+    },
+    {
+      "code": "TN",
+      "name": "Tamil Nadu",
+      "region": "SOUTH"
+    },
+    {
+      "code": "KA",
+      "name": "Karnataka",
+      "region": "SOUTH_WEST"
+    }
   ],
   "universities": [
-    {"code": "MSTU", "name": "Maharashtra State Technical University", "state_code": "MH"},
-    {"code": "ATU", "name": "Anna Technical University", "state_code": "TN"},
-    {"code": "VTU", "name": "Visvesvaraya Technological University", "state_code": "KA"}
+    {
+      "code": "MSTU",
+      "name": "Maharashtra State Technical University",
+      "state_code": "MH"
+    },
+    {
+      "code": "ATU",
+      "name": "Anna Technical University",
+      "state_code": "TN"
+    },
+    {
+      "code": "VTU",
+      "name": "Visvesvaraya Technological University",
+      "state_code": "KA"
+    }
   ],
   "institutions": [
     {
@@ -30,7 +66,17 @@
           "level": "UG",
           "discipline": "ENGINEERING",
           "shift": "FIRST",
-          "approvals": [{"academic_year": "2026-27", "approved_intake": 120}]
+          "approvals": [
+            {
+              "academic_year": "2025-26",
+              "approved_intake": 120
+            },
+            {
+              "academic_year": "2026-27",
+              "approved_intake": 120
+            }
+          ],
+          "mode": "PHYSICAL"
         },
         {
           "code": "MBA",
@@ -38,7 +84,13 @@
           "level": "PG",
           "discipline": "MANAGEMENT",
           "shift": "FIRST",
-          "approvals": [{"academic_year": "2026-27", "approved_intake": 60}]
+          "approvals": [
+            {
+              "academic_year": "2026-27",
+              "approved_intake": 60
+            }
+          ],
+          "mode": "PHYSICAL"
         }
       ]
     },
@@ -57,7 +109,17 @@
           "level": "UG",
           "discipline": "ENGINEERING",
           "shift": "FIRST",
-          "approvals": [{"academic_year": "2026-27", "approved_intake": 60}]
+          "approvals": [
+            {
+              "academic_year": "2025-26",
+              "approved_intake": 60
+            },
+            {
+              "academic_year": "2026-27",
+              "approved_intake": 60
+            }
+          ],
+          "mode": "PHYSICAL"
         },
         {
           "code": "MCA",
@@ -65,7 +127,13 @@
           "level": "PG",
           "discipline": "COMPUTER_APPLICATIONS",
           "shift": "FIRST",
-          "approvals": [{"academic_year": "2026-27", "approved_intake": 30}]
+          "approvals": [
+            {
+              "academic_year": "2026-27",
+              "approved_intake": 30
+            }
+          ],
+          "mode": "PHYSICAL"
         }
       ]
     },
@@ -84,7 +152,17 @@
           "level": "DIPLOMA",
           "discipline": "ENGINEERING",
           "shift": "FIRST",
-          "approvals": [{"academic_year": "2026-27", "approved_intake": 40}]
+          "approvals": [
+            {
+              "academic_year": "2025-26",
+              "approved_intake": 40
+            },
+            {
+              "academic_year": "2026-27",
+              "approved_intake": 40
+            }
+          ],
+          "mode": "PHYSICAL"
         }
       ]
     }

@@ -37,14 +37,16 @@ async def test_programme_admitted_counts_its_own_cohort(three_cohorts):
         cse = (await admin.get(f"/institutions/{abc}")).json()["programmes"][0]
         assert cse["approval"]["academic_year"] == "2026-27"
         assert cse["approval"]["approved_intake"] == 120
-        assert (cse["enrolments"], cse["unseated"]) == (132, 132)
+        # the 114 REGULAR seats went to the first 114 of the 133 uploaded; the last one was
+        # withdrawn afterwards, so 18 active first-years are without a seat
+        assert (cse["enrolments"], cse["unseated"]) == (132, 18)
 
         for year, intake, admitted in (("2025-26", 90, 86), ("2024-25", 60, 50)):
             detail = await admin.get(f"/institutions/{abc}", params={"academic_year": year})
             cse = detail.json()["programmes"][0]
             assert cse["approval"]["academic_year"] == year
             assert cse["approval"]["approved_intake"] == intake
-            assert (cse["enrolments"], cse["unseated"]) == (admitted, admitted)
+            assert (cse["enrolments"], cse["unseated"]) == (admitted, 0)  # within intake
 
         # Institution rows and dashboard KPIs keep counting every active enrolment in the year.
         row = (await admin.get("/institutions")).json()["items"][0]
