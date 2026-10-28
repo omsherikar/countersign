@@ -16,17 +16,18 @@ import { useMe } from "@/components/providers/root-provider";
 const REASON_MIN = 5;
 const REASON_MAX = 300;
 
-/** Why a proof was revoked, in the words the student's wallet uses (the officer's text for ADMIN). */
+/** Why an attestation was revoked, in the words the student's wallet uses (the officer's text for ADMIN). */
 function revokedReason(c: CredentialRef): string {
   if (c.revoked_reason_code === "ADMIN" && c.revoked_reason) return c.revoked_reason;
   return c.revoked_reason_code ? tk(`wallet.revoked_reason.${c.revoked_reason_code}`) : "";
 }
 
 /**
- * The proofs AICTE issued for this enrolment (API_CONTRACT A3.7). An AICTE
- * officer can revoke an active one with a reason; the enrolment is untouched.
+ * The attestations of this record (API_CONTRACT A4.6, A4.14; copy deck §22).
+ * An AICTE officer can revoke an active one with a reason; the record and its
+ * status do not change. One revoked by the student's dispute says so.
  */
-export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
+export function AttestationsBlock({ d }: { d: EnrolmentDetail }) {
   const { user } = useMe();
   const revoke = useRevokeCredential(d.id);
   const [target, setTarget] = React.useState<CredentialRef | null>(null);
@@ -40,7 +41,7 @@ export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
   function submit() {
     const text = reason.trim();
     if (text.length < REASON_MIN) {
-      setError(t("enrolment.proofs.reason_short"));
+      setError(t("enrolment.attestations.reason_short"));
       return;
     }
     if (!target) return;
@@ -51,7 +52,7 @@ export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
         onSuccess: () => {
           setTarget(null);
           setReason("");
-          setMessage(t("enrolment.proofs.revoked_toast"));
+          setMessage(t("enrolment.attestations.revoked_toast"));
         },
         onError: (err) => setError(errorMessage(err, user?.role, "enrolment")),
       },
@@ -60,17 +61,17 @@ export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
 
   return (
     <section aria-labelledby={`${ids}-heading`}>
-      <SectionHeader id={`${ids}-heading`} title={t("enrolment.section.proofs")} />
+      <SectionHeader id={`${ids}-heading`} title={t("enrolment.section.attestations")} />
       <div className="border-l-2 border-rule-margin bg-paper-raised px-4 py-3 text-sm">
         {d.credentials.length === 0 ? (
-          <p className="text-ink-muted">{t("enrolment.proofs.none")}</p>
+          <p className="text-ink-muted">{t("enrolment.attestations.none")}</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {d.credentials.map((c) => (
               <li key={c.id} className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p>
-                    {t("enrolment.proofs.line", {
+                    {t("enrolment.attestations.line", {
                       kind_word: tk(`wallet.kind.${c.kind}`),
                       short_id: c.short_id,
                       issued_date: formatDate(c.issued_at),
@@ -81,8 +82,11 @@ export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
                   </p>
                   {c.status === "REVOKED" && (
                     <p className="text-ink-muted [overflow-wrap:anywhere]">
-                      {t("enrolment.proofs.revoked_line", { revoked_date: formatDate(c.revoked_at), reason: revokedReason(c) })}
+                      {t("enrolment.attestations.revoked_line", { revoked_date: formatDate(c.revoked_at), reason: revokedReason(c) })}
                     </p>
+                  )}
+                  {c.status === "REVOKED" && c.revoked_reason_code === "STUDENT_DISPUTE" && (
+                    <p className="text-ink-muted">{t("enrolment.attestations.held_by_dispute")}</p>
                   )}
                 </div>
                 {canRevoke && c.status === "ACTIVE" && (
@@ -99,7 +103,7 @@ export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
                     }}
                   >
                     <ShieldOff className="size-3.5" aria-hidden="true" />
-                    {t("enrolment.proofs.revoke")}
+                    {t("enrolment.attestations.revoke")}
                   </Button>
                 )}
               </li>
@@ -118,12 +122,12 @@ export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
           }}
         >
           <div className="flex flex-col gap-2 pr-6">
-            <DialogTitle className="font-display text-xl font-semibold">{t("enrolment.proofs.revoke_heading")}</DialogTitle>
-            <DialogDescription className="text-sm text-ink">{t("enrolment.proofs.revoke_body")}</DialogDescription>
+            <DialogTitle className="font-display text-xl font-semibold">{t("enrolment.attestations.revoke_heading")}</DialogTitle>
+            <DialogDescription className="text-sm text-ink">{t("enrolment.attestations.revoke_body")}</DialogDescription>
           </div>
           <div className="flex flex-col gap-1.5">
             <label htmlFor={`${ids}-reason`} className="text-sm font-medium">
-              {t("enrolment.proofs.reason_label")}
+              {t("enrolment.attestations.reason_label")}
             </label>
             <textarea
               id={`${ids}-reason`}
@@ -138,7 +142,7 @@ export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
               className="min-h-24 w-full rounded-md border border-line bg-paper px-2.5 py-2 text-md leading-snug aria-invalid:border-check-fail md:text-sm"
             />
             <p id={`${ids}-reason-hint`} className="text-xs text-ink-muted">
-              {t("enrolment.proofs.reason_hint")}
+              {t("enrolment.attestations.reason_hint")}
             </p>
             {error && (
               <p id={`${ids}-reason-error`} className="text-sm text-check-fail-ink">
@@ -148,11 +152,11 @@ export function ProofsBlock({ d }: { d: EnrolmentDetail }) {
           </div>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="outline" className="h-11 sm:h-9" onClick={() => setTarget(null)} disabled={revoke.isPending}>
-              {t("enrolment.proofs.cancel")}
+              {t("enrolment.attestations.cancel")}
             </Button>
             <Button type="button" className="h-11 sm:h-9" onClick={submit} disabled={revoke.isPending} aria-busy={revoke.isPending}>
               {revoke.isPending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-              {revoke.isPending ? t("enrolment.proofs.revoking") : t("enrolment.proofs.revoke_confirm")}
+              {revoke.isPending ? t("enrolment.attestations.revoking") : t("enrolment.attestations.revoke_confirm")}
             </Button>
           </div>
         </DialogContent>

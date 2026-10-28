@@ -8,6 +8,14 @@
 export const recordsCopy = {
   /* ---- Web-only: the joining record's source in words (the deck words its source lines, not the enum) ---- */
   "source.ADMISSION_AUTHORITY": "State admission authority",
+  /* ---- The decision line under the student's own record card (deck section 23) ---- */
+  "student.decision.UPHELD": "An AICTE officer reviewed your dispute and decided that {institution_name}'s record stands. Their reason: {reason_word}. If you think this is wrong, ask for a correction from your Privacy page.",
+  "student.decision.WITHDRAWN": "An AICTE officer agreed with you: {institution_name}'s claim that you joined has been withdrawn.",
+  "student.decision.CORRECTED": "An AICTE officer corrected {institution_name}'s record of your enrolment. See what changed under History.",
+  "student.decision.ESCALATED": "Your dispute has been passed to AICTE for a decision. Nothing changes for you until they decide.",
+  /* ---- The two new revocation reasons the attestations block prints (deck section 8) ---- */
+  "wallet.revoked_reason.CLAIM_WITHDRAWN": "An AICTE officer decided that the college's claim does not stand, so this attestation was revoked.",
+  "wallet.revoked_reason.STUDENT_DISPUTE": "You told us you never joined, so this attestation was revoked while an officer reviews it.",
   /* ---- Evidence states, row labels and record statuses (deck section 21) ---- */
   "check.label_tip.IDENTITY": "Is this person who the college says? Checked with the APAAR registry, or by the student's own DigiLocker sign-in when there is no APAAR.",
   "check.label_tip.SEAT": "Does the enrolment fit an approved seat? Worked out by the Seat Ledger from the AICTE approval version and the category rules.",
