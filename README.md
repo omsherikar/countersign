@@ -54,7 +54,7 @@ A scripted version of steps 1 to 7 against the API lives in `docs/ux/06-review-c
 
 ### Known gaps carried into Week 2
 
-- No seats are assigned yet; every enrolment shows as unseated until the Seat Ledger lands. Programme detail counts every active row tagged 2026-27 (all years of study), so the "132 first-years vs 120 approved" scenario becomes visible as a ledger fact in Week 2.
+- No seats are assigned yet, so every enrolment shows as unseated until the Seat Ledger lands. Admitted counts already follow cohorts, so ABC College CSE shows 132 first-years against 120 approved; the Seat Ledger turns the 12 over intake into an EXCESS_ADMISSION flag with evidence.
 - The TFW "filled at least 50% last year" condition is not evaluated; the pool is always built.
 - Audit entries for a seed import are per batch, not per row.
 
