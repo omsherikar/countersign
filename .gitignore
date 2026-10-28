@@ -26,3 +26,5 @@ data/generated/
 # playwright
 test-results/
 playwright-report/
+# nested git worktrees used by build agents
+.worktrees/
