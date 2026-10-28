@@ -8,7 +8,7 @@ A college's student upload is a *claim*. Five independent sources then countersi
 
 ## Status
 
-Week 1 of 4 is complete (2026-10-28) apart from CI, which GitHub has not started because of an account billing problem (not a code failure). The stack runs end to end in the browser: the Next.js web app (`apps/web`) with a shell per role, national and regional dashboards, institution detail, registrar, student, university and system pages, on top of the API (schema, auth, RBAC, seat pools, adapters, seed importer), mockgov with chaos toggles, datagen with planted anomalies and ground truth, and the design system. The test suites pass in compose (api 76, mockgov 92, datagen 45), the web app lints, typechecks and builds clean, and the Week 1 acceptance checks pass against both the API and the browser. Week 2 is next: the upload engine, validation, name matching, the Seat Ledger, the countersign engine and duplicate detection. The task board, the end-of-week verification checklist and a dated changelog are in [docs/PROGRESS.md](docs/PROGRESS.md); the reasons behind each choice are in `docs/DECISIONS.md`.
+Week 2 of 4 is merged (2026-10-28). A college's upload now runs through the engine: parsing and validation with row warnings, name matching (initials, honorifics, spelling folds, Devanagari), the Seat Ledger, the five checks with a countersign score, duplicate detection within a file, within a college and across colleges, and flags with plain-English evidence. The web app shows all of it: upload with progress and row errors, the countersign strip, enrolment detail with recheck, flags and the officers' read-only case queue, and dashboards ranked by open flags. `make seed` sends every generated upload through the same `run_batch` the upload page uses. Week 2 was verified end to end on a native stack (local Postgres, Redis, mockgov, api, Celery worker and web) because Docker Desktop would not start on the build machine: the small seed (53 files, 10,633 rows) runs in 100 to 120 s, all 76 planted anomalies are caught with the expected severity, no flag is unexplained and none of the 20 refused-consent controls is flagged. Tests: api 306, mockgov 94, datagen 81; the web app lints, typechecks and builds clean. Still open: the compose re-run once Docker Desktop is repaired, CI (GitHub has not started a job because of an account billing problem, not a code failure) and the 50,000-rows-under-2-minutes target for Week 4. Week 3 is next: the student loop, officer actions on flags and student-held credentials. The task boards, the end-of-week verification checklists with their evidence, the Week 2 results and a dated changelog are in [docs/PROGRESS.md](docs/PROGRESS.md); the reasons behind each choice are in `docs/DECISIONS.md` (D14 to D22 for Week 2).
 
 ## Run it
 
@@ -16,7 +16,7 @@ Week 1 of 4 is complete (2026-10-28) apart from CI, which GitHub has not started
 cp .env.example .env
 make up          # postgres, redis, mailpit, api, worker, mockgov, web
 make datagen     # synthetic data, small mode (SIZE=full for 500 colleges)
-make seed        # load it into api and mockgov
+make seed        # mockgov registries, then every upload through the engine (about 2 minutes, small)
 make test
 ```
 
@@ -33,7 +33,7 @@ make test
 cp .env.example .env     # then replace PII_FERNET_KEY with a real Fernet key (see the comment in the file)
 make up                  # postgres, redis, mailpit, api, worker, mockgov, web
 make datagen             # 50 colleges, ~10k students, planted anomalies with ground truth (SIZE=full for 500 / 2 lakh)
-make seed                # api importer + mockgov registries, ~40 s
+make seed                # api importer + mockgov registries, ~40 s in Week 1 (about 2 minutes from Week 2)
 make test                # api, mockgov and datagen suites inside compose
 make demo-reset          # wipe both databases and reseed; safe to run repeatedly
 ```
@@ -54,9 +54,48 @@ A scripted version of steps 1 to 7 against the API lives in `docs/ux/06-review-c
 
 ### Known gaps carried into Week 2
 
-- No seats are assigned yet, so every enrolment shows as unseated until the Seat Ledger lands. Admitted counts already follow cohorts, so ABC College CSE shows 132 first-years against 120 approved; the Seat Ledger turns the 12 over intake into an EXCESS_ADMISSION flag with evidence.
+- Closed in Week 2: no seats were assigned, so every enrolment showed as unseated until the Seat Ledger landed. Admitted counts already follow cohorts, so ABC College CSE shows 132 first-years against 120 approved; the Seat Ledger turns the 12 over intake into an EXCESS_ADMISSION flag with evidence.
 - The TFW "filled at least 50% last year" condition is not evaluated; the pool is always built.
 - Audit entries for a seed import are per batch, not per row.
+
+## Week 2: run it
+
+The commands are the same as Week 1; the seed now does the real work.
+
+```
+make up                  # postgres, redis, mailpit, api, worker (solo pool), mockgov, web
+make datagen             # small mode also writes update files (withdrawals, transfers, refills after the cutoff) and Week 2 ground truth
+make seed                # mockgov registries first, then every upload file through the engine: about 2 minutes for small
+make test                # api 306, mockgov 94, datagen 81
+```
+
+After the seed every enrolment carries its five checks and a score, seats are assigned from the pools, and flags are open with evidence. As `admin@aicte.demo`, open ABC College of Engineering: CSE 2026-27 shows 120 approved, 132 admitted, 120 seated and 12 without a seat, with one Excess admission flag: "132 admitted against 120 approved seats in CSE (2026-27); 12 without a seat." The "R. K. Sharma" row is flagged as a duplicate of Ravi Kumar Sharma, and two refills after the 15 Sep cutoff raise Late refill.
+
+Week 2 was verified on a native stack because Docker Desktop would not start on the build machine; the compose path above is unchanged apart from the worker's solo pool, and needs a re-run once Docker Desktop is repaired.
+
+### Try an upload as the registrar
+
+1. Sign in as `registrar@abc.edu.demo` and open Upload (`/college/upload`).
+2. Download the CSV template and fill in a few rows. Required columns: `name`, `dob`, `programme_code`, `year_of_study`, `admission_route`, `category`; `status`, `status_date` and `admission_date` are optional. Give one row a malformed APAAR (11 digits, say).
+3. Pick the academic year, tick the declaration and send. The batch page moves through Queued, Validating, Processing and Done, then shows the rows accepted, the seats assigned and the flags raised. The malformed APAAR shows as a row warning with its value masked; `errors.csv` downloads the list.
+4. Open Enrolments for the countersign strip on the new rows, and Flags for anything the upload raised.
+
+### See an outage stay pending
+
+1. As `admin@aicte.demo`, open System (`/admin/system`). Under Chaos, pick APAAR, tick Down and Apply (or `curl -X POST localhost:8001/admin/chaos -H 'content-type: application/json' -d '{"source":"apaar","down":true}'`).
+2. As the ABC registrar, upload a file with valid APAARs. On a new enrolment, Identity shows Pending ("Awaiting source") and no flag is raised: an outage is never a fail.
+3. Press Recheck pending checks on that enrolment while APAAR is still down: Identity stays Pending.
+4. Back on System, press Reset chaos, then Recheck pending checks again: Identity turns Pass and the score goes up by one (2 of 4 to 3 of 4 in the verification run).
+
+### Known gaps carried into Week 3
+
+- The STUDENT check is pending for everyone until the Week 3 student loop sends the notice, so the countersigned share reads 0% (the share where no source disagrees reads 99% on the small seed).
+- Flags are read-only; officer actions arrive in Week 3.
+- About 11 ms per row with live checks against mockgov, so 50,000 rows take roughly 8 to 10 minutes; the Week 4 target is under 2 minutes.
+- The TFW pool's "filled at least 50% last year" condition and the lateral-entry vacancy rule are not applied.
+- Only one roll year is supported.
+- CI has never run on GitHub (Actions billing); the suites pass locally.
+- `POST /admin/demo/reset` still answers 501; `make demo-reset` is the working path.
 
 ## Layout
 
