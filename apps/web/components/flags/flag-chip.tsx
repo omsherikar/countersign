@@ -32,7 +32,7 @@ export function FlagChip({ flag, href, className }: { flag: Pick<FlagRef, "type"
   const body = (
     <>
       <SeverityBars severity={flag.severity} />
-      <span className="max-w-40 truncate">{tk(`flag.${flag.type}.name`)}</span>
+      <span className="max-w-32 truncate">{tk(`flag.${flag.type}.name`)}</span>
     </>
   );
   const cls = cn(

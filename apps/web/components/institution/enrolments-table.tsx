@@ -166,13 +166,15 @@ export function EnrolmentsTable({
                 {t("col.year")}
               </th>
               <th scope="col">{t("col.route")}</th>
-              <th scope="col">{t("col.category")}</th>
+              <th scope="col" className="hidden 2xl:table-cell">
+                {t("col.category")}
+              </th>
               <th scope="col" className="code">
                 {t("col.seat")}
               </th>
               <th scope="col">{t("col.countersign")}</th>
               <th scope="col">{t("col.flags")}</th>
-              <th scope="col" className="num hidden xl:table-cell">
+              <th scope="col" className="num hidden 2xl:table-cell">
                 {t("col.uploaded")}
               </th>
             </tr>
@@ -207,12 +209,12 @@ export function EnrolmentsTable({
                   <MaskedApaar apaarMasked={e.student.apaar_masked} provisionalId={e.student.provisional_id} />
                 </td>
                 <td>
-                  <ConsentBadge status={e.student.consent_status} title={tk(`consent.tip_${e.student.consent_status}`)} />
+                  <ConsentBadge status={e.student.consent_status} compact title={tk(`consent.tip_${e.student.consent_status}`)} />
                 </td>
                 <td className="code">{e.programme_code}</td>
                 <td className="num">{e.year_of_study}</td>
                 <td>{tk(`route.${e.admission_route}`)}</td>
-                <td className="text-ink-muted">{tk(`category.${e.category}`)}</td>
+                <td className="hidden text-ink-muted 2xl:table-cell">{tk(`category.${e.category}`)}</td>
                 <td className="code">{e.seat_code ? <SeatCodePill seatCode={e.seat_code} status="ASSIGNED" /> : <UnseatedChip />}</td>
                 <td>
                   <CountersignStrip countersign={e.countersign} />
@@ -220,7 +222,7 @@ export function EnrolmentsTable({
                 <td>
                   <FlagChips flags={e.flags} hrefFor={flagHref} />
                 </td>
-                <td className="num hidden text-ink-muted xl:table-cell">{formatDate(e.uploaded_at)}</td>
+                <td className="num hidden text-ink-muted 2xl:table-cell">{formatDate(e.uploaded_at)}</td>
               </tr>
             ))}
           </tbody>
