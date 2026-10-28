@@ -557,7 +557,7 @@ Only ACTIVE enrolments in `academic_year` take part. The repeated APAAR inside o
 Flag shape:
 
 - Rule A: `institution_id` the institution; `programme_id` the shared programme or null; `enrolment_id` the suspected copy (the one whose student has no APAAR; when both lack one, the later by `(uploaded_at, source_row_no, id)`); `related_enrolment_ids` both.
-- Rules B and C: two flags, one per side, so each institution's flags tab and each regional officer sees it. Each side's flag has that side's `institution_id`, `programme_id` and `enrolment_id`; `related_enrolment_ids` both. The evidence `summary` names both institutions; `summary_for_institution` names only "another institution in {state_name}"; facts about the other side carry `officer_only: true`.
+- Rules B and C: two flags, one per side, so each institution's flags tab and each regional officer sees it. Each side's flag has that side's `institution_id`, `programme_id` and `enrolment_id`; `related_enrolment_ids` both. The evidence `summary` names both institutions; `summary_for_institution` names only "another institution in {state_name}"; a fact that names the other institution carries `audience: "OFFICER"` and has an `audience: "INSTITUTION"` twin without the name (API_CONTRACT §A2.17).
 
 ## 10. `app/engine/flags.py` and `app/engine/evidence.py` (engines, D20)
 

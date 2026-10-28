@@ -393,7 +393,7 @@ Index: `(type, status)` for the enrolment list filters. No column change. `sourc
 
 Indexes: `(academic_year, status)`; GIN on `related_enrolment_ids`. `created_at` is when the flag was opened (same instant as `opened_at`); `updated_at` moves whenever an engine changes the evidence or severity.
 
-Evidence stored in `flags.evidence` (D20, API_CONTRACT §A2.17): `{summary, summary_for_institution?, facts: [{label, value, source, officer_only?}], related_enrolment_ids: [uuid], rule_source, data?}`. `flags.related_enrolment_ids` always equals `evidence.related_enrolment_ids`. `summary` never contains a student name or a full id.
+Evidence stored in `flags.evidence` (D20, API_CONTRACT §A2.17): `{summary, summary_for_institution?, facts: [{label, value, source, audience?}], related_enrolment_ids: [uuid], rule_source, data?}` (`audience` is `ALL` when absent, `OFFICER` or `INSTITUTION`). `flags.related_enrolment_ids` always equals `evidence.related_enrolment_ids`. `summary` never contains a student name or a full id.
 
 ## mockgov database (`mockgov`, separate service)
 
