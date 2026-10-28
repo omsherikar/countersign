@@ -748,3 +748,153 @@ Same roles and scoping as §A2.7.
 ### A2.9 `GET /uploads/template.csv` and `GET /uploads/template.xlsx`
 
 Roles: `AICTE_ADMIN`, `RO_OFFICER`, `INSTITUTION`. The header row only, the 19 columns in §A2.2 order; CSV as `text/csv` with `Content-Disposition: attachment; filename="countersign_upload_template.csv"`, XLSX with one sheet `students` and filename `countersign_upload_template.xlsx`. These two routes are declared before `/uploads/{id}` so they are never read as an id.
+
+### A2.10 Enrolment list changes (`GET /institutions/{id}/enrolments`, A.9)
+
+Rows keep the A.9 and Addendum 1 shape, with these changes:
+
+- `countersign` is real and compact: `{ "score": {"passes", "applicable"} | null, "checks": [{"type", "status"}] }`. Once an enrolment is checked, `checks` has all five types in the order IDENTITY, ADMISSION, SEAT, STUDYING, STUDENT; before that `score` is null and `checks` is `[]`. Full check rows (source, time, detail) are only in `GET /enrolments/{id}`.
+- `seat_code` is the held seat's code, or null when unseated.
+- `flags` lists the unresolved flags (status OPEN, DOCS_REQUESTED or ESCALATED) that name this enrolment as `enrolment_id` or in `related_enrolment_ids`, as `{id, type, severity, status}`, most severe first. The 12 unseated ABC CSE rows each carry the EXCESS_ADMISSION flag.
+- New fields: `cohort_year`, `admission_date`, `status_date`.
+- New filters: `check_status` (`PASS`, `FAIL`, `PENDING`, `NA`): enrolments with at least one check in that status; with `check_type` (`IDENTITY` ... `STUDENT`) as well: that check in that status (`check_type` alone is ignored). `flagged` (`true` | `false`): has, or has no, unresolved flag as above. `seated` (`true` | `false`): holds a seat, or does not.
+
+```json
+{
+  "id": "e1e1e1e1-5555-4666-8777-888899990000",
+  "student": { "id": "st1...", "name": "Ravi Kumar Sharma", "apaar_masked": "XXXX XXXX 4417", "consent_status": "LINKED", "provisional_id": null, "nationality": "IN" },
+  "programme_id": "p1...", "programme_code": "CSE",
+  "academic_year": "2026-27", "cohort_year": "2026-27", "year_of_study": 1,
+  "admission_route": "COUNSELLING", "counselling_ref": "MHCET-2026-R1-004512", "category": "GENERAL",
+  "seat_code": "CSE-R-001", "status": "ACTIVE", "admission_date": "2026-08-02", "status_date": "2026-10-28",
+  "uploaded_at": "2026-10-28T10:02:14Z", "upload_batch_id": "b7c1...", "source_row_no": 2,
+  "countersign": {
+    "score": { "passes": 3, "applicable": 4 },
+    "checks": [
+      { "type": "IDENTITY", "status": "PASS" }, { "type": "ADMISSION", "status": "PASS" },
+      { "type": "SEAT", "status": "PASS" }, { "type": "STUDYING", "status": "NA" },
+      { "type": "STUDENT", "status": "PENDING" }
+    ]
+  },
+  "flags": [ { "id": "f2...", "type": "DUPLICATE_WITHIN_UPLOAD", "severity": "MEDIUM", "status": "OPEN" } ]
+}
+```
+
+### A2.11 `GET /enrolments/{id}`
+
+Roles: `AICTE_ADMIN` (any), `RO_OFFICER` (institutions in its region), `INSTITUTION` (its own), `UNIVERSITY` (its affiliates, read-only). `STUDENT`: 403 (students use `/students/me`). Outside scope: 404 "Enrolment not found.". Writes a READ audit entry for the student.
+
+```json
+200 {
+  "id": "e1e1e1e1-5555-4666-8777-888899990000",
+  "institution": { "id": "a0b1c2d3-1111-4222-8333-444455556666", "name": "ABC College of Engineering", "aicte_permanent_id": "1-ABC-0001", "state_code": "MH", "state_name": "Maharashtra", "region": "WEST" },
+  "student": {
+    "id": "st1...", "name": "Ravi Kumar Sharma", "apaar_masked": "XXXX XXXX 4417", "consent_status": "LINKED",
+    "provisional_id": null, "nationality": "IN", "dob": "2007-03-21", "gender": "M", "mobile_masked": "XXXXXX4521"
+  },
+  "programme": { "id": "p1...", "code": "CSE", "name": "B.Tech Computer Science and Engineering", "level": "UG", "mode": "PHYSICAL", "duration_years": 4 },
+  "academic_year": "2026-27", "cohort_year": "2026-27", "year_of_study": 1,
+  "admission_route": "COUNSELLING", "counselling_ref": "MHCET-2026-R1-004512", "category": "GENERAL",
+  "status": "ACTIVE", "status_date": "2026-10-28", "admission_date": "2026-08-02",
+  "uploaded_at": "2026-10-28T10:02:14Z",
+  "upload": { "batch_id": "b7c1...", "filename": "1-ABC-0001_2026-27.csv", "row_no": 2 },
+  "seat": { "id": "s1...", "seat_code": "CSE-R-001", "seat_type": "REGULAR", "academic_year": "2026-27", "assigned_at": "2026-10-28T10:02:15Z" },
+  "countersign": { "score": { "passes": 3, "applicable": 4 }, "checks": [ { "type": "IDENTITY", "status": "PASS" }, "... five, in order ..." ] },
+  "checks": [
+    { "type": "IDENTITY", "status": "PASS", "source": "APAAR", "checked_at": "2026-10-28T10:02:18Z", "attempts": 1,
+      "detail": { "summary": "Name and date of birth match the APAAR registry (similarity 100 of 100).", "name_score": 100, "dob_match": true, "apaar_last4": "4417" } },
+    { "type": "ADMISSION", "status": "PASS", "source": "COUNSELLING", "checked_at": "2026-10-28T10:02:18Z", "attempts": 1,
+      "detail": { "summary": "Found in the Maharashtra counselling allotments for CSE (2026), round 1.", "round": 1, "allotment_ref": "MHCET-2026-R1-004512", "ref_mismatch": false } },
+    { "type": "SEAT", "status": "PASS", "source": "SEAT_LEDGER", "checked_at": "2026-10-28T10:02:18Z", "attempts": 0,
+      "detail": { "summary": "Holds seat CSE-R-001 (Regular, 2026-27 approval).", "seat_code": "CSE-R-001", "seat_type": "REGULAR" } },
+    { "type": "STUDYING", "status": "NA", "source": "ABC", "checked_at": "2026-10-28T10:02:18Z", "attempts": 0,
+      "detail": { "summary": "First year, no result yet." } },
+    { "type": "STUDENT", "status": "PENDING", "source": "STUDENT_NOTICE", "checked_at": "2026-10-28T10:02:18Z", "attempts": 0,
+      "detail": { "summary": "Notice not sent yet." } }
+  ],
+  "flags": [
+    { "id": "f2...", "type": "DUPLICATE_WITHIN_UPLOAD", "severity": "MEDIUM", "status": "OPEN",
+      "summary": "Rows 2 and 133 of 1-ABC-0001_2026-27.csv describe the same student.", "created_at": "2026-10-28T10:02:20Z" }
+  ]
+}
+```
+
+- `upload` is null for an enrolment with no batch; `seat` is null when unseated.
+- `checks` is `[]` before the first check, else all five in order. `attempts` counts evaluations that met an unavailable source.
+- `flags` lists every flag (any status) naming the enrolment as `enrolment_id` or in `related_enrolment_ids`, most severe first, as `FlagSummary` (§A2.15). For an `INSTITUTION`, `summary` follows the redaction in §A2.16.
+
+### A2.12 `POST /enrolments/{id}/recheck`
+
+Roles: `AICTE_ADMIN`, `RO_OFFICER` (region), `INSTITUTION` (own). `UNIVERSITY`, `STUDENT`: 403. Body `{}`. Rate limit 30 per minute per user (429 `RATE_LIMITED`). Re-runs this enrolment's PENDING checks except STUDENT (D18), synchronously, and raises any flags the new results call for.
+
+```json
+200 {
+  "enrolment_id": "e1e1e1e1-5555-4666-8777-888899990000",
+  "rechecked": 1,
+  "results": [ { "type": "IDENTITY", "before": "PENDING", "after": "PASS" } ],
+  "flags_raised": 0,
+  "countersign": { "score": { "passes": 3, "applicable": 4 }, "checks": [ "... five ..." ] }
+}
+```
+
+Nothing PENDING: `rechecked: 0`, `results: []`. A source still down leaves the check PENDING (`after: "PENDING"`), never FAIL.
+
+### A2.13 `POST /institutions/{id}/recheck`
+
+Roles: `AICTE_ADMIN`, `RO_OFFICER` (institutions in its region). `INSTITUTION`, `UNIVERSITY`, `STUDENT`: 403. Body `{ "academic_year": "2026-27" }` (optional key; default the current year). Rate limit 6 per minute per user. Re-runs, synchronously with `CHECKS_CONCURRENCY` adapter calls in flight, every PENDING check except STUDENT of the institution's ACTIVE enrolments in that year. This is the "recheck after the source is back" button on the chaos demo.
+
+```json
+200 {
+  "institution_id": "a0b1c2d3-1111-4222-8333-444455556666",
+  "academic_year": "2026-27",
+  "enrolments": 214,
+  "rechecked": 214,
+  "now_pass": 214, "now_fail": 0, "now_na": 0, "still_pending": 0,
+  "flags_raised": 0,
+  "duration_ms": 1830
+}
+```
+
+### A2.14 Check rows and their detail sentences
+
+Wire shape of a full check (only in `GET /enrolments/{id}`):
+
+```json
+{ "type": "IDENTITY", "status": "PENDING", "source": "APAAR", "checked_at": "2026-10-28T10:02:18Z", "attempts": 2,
+  "detail": { "summary": "APAAR registry did not respond. This check will retry on its own.", "source_unavailable": true, "source_error": "HTTP 503" } }
+```
+
+`detail.summary` is always present and is shown verbatim. Optional keys the web may use: `source_unavailable` (bool), `needs_review` (bool), `name_score` (int), `dob_match` (bool), `apaar_last4`, `round`, `allotment_ref`, `ref_mismatch` (bool), `seat_code`, `seat_type`, `flag_type`, `expected`, `missing`, `semesters` (`[{academic_year, sem, credits}]`), `awaiting_semester`. Never a full APAAR, passport or mobile.
+
+Placeholder words: `{source_name}` from copy deck `source.*` (APAAR registry, Counselling list, ABC credits, Study in India); `{route_word}` from `route.*`; `{seat_type_word}` from `seat_type.*`; `{flag_name}` from `flag.<TYPE>.name`; `{cohort_start}` the start year of the cohort (`2026`).
+
+| check | status | when | `detail.summary` |
+|---|---|---|---|
+| any | PENDING | the source did not answer | `{source_name} did not respond. This check will retry on its own.` |
+| IDENTITY | NA | no APAAR (consent Refused or Pending) | `APAAR not linked; admission is not blocked.` |
+| IDENTITY | NA | international student | `International student; identity is checked through the passport, not APAAR.` |
+| IDENTITY | FAIL | malformed APAAR on upload | `APAAR as uploaded {problem}; the enrolment was kept without it.` (`{problem}`: "has 11 digits, expected 12" or "contains characters other than digits") |
+| IDENTITY | FAIL | registry: no such id | `APAAR ending {apaar_last4} is not in the APAAR registry.` |
+| IDENTITY | FAIL | date of birth differs | `Date of birth on upload does not match the APAAR registry.` |
+| IDENTITY | FAIL | similarity below 75 | `Name on upload differs from the APAAR registry (similarity {name_score} of 100).` |
+| IDENTITY | PENDING | similarity 75 to 89 (`needs_review`) | `Name on upload is close to the APAAR registry but not a clear match (similarity {name_score} of 100); an officer should review.` |
+| IDENTITY | PASS | similarity 90 or more | `Name and date of birth match the APAAR registry (similarity {name_score} of 100).` |
+| ADMISSION | PASS | in the counselling list | `Found in the {state_name} counselling allotments for {programme_code} ({cohort_start}), round {round}.` |
+| ADMISSION | PASS | found, reference differs | `Found in the {state_name} counselling allotments for {programme_code} ({cohort_start}), round {round}, as {allotment_ref}; the upload says {counselling_ref}.` |
+| ADMISSION | FAIL | not in the counselling list | `Not found in the {state_name} counselling allotments for {programme_code} ({cohort_start}).` |
+| ADMISSION | PASS | management, spot or NRI with a seat in the route's pool | `{route_word} admission is allowed for {programme_code} and holds a {seat_type_word} seat.` |
+| ADMISSION | FAIL | the approval has no seats of the route's type | `{route_word} admission is not allowed for {programme_code}: the {cohort_year} approval has no {seat_type_word} seats.` |
+| ADMISSION | FAIL | no seat of the route's type | `{route_word} admission has no {seat_type_word} seat in {programme_code} ({cohort_year}).` |
+| ADMISSION | PASS | Study in India confirms | `Study in India confirms this admission to {programme_code} ({cohort_year}).` |
+| ADMISSION | FAIL | Study in India does not | `Study in India has no matching admission for this passport at this institution.` |
+| SEAT | PASS | holds a seat of its cohort approval | `Holds seat {seat_code} ({seat_type_word}, {cohort_year} approval).` |
+| SEAT | FAIL | no seat | `No {seat_type_word} seat is free in {programme_code} ({cohort_year}); see the {flag_name} flag.` |
+| STUDYING | NA | first year | `First year, no result yet.` |
+| STUDYING | NA | no APAAR | `APAAR not linked; ABC credits cannot be checked.` |
+| STUDYING | NA | ABC does not know the APAAR | `ABC has no record of this APAAR; see the Identity check.` |
+| STUDYING | PASS | credits in every expected semester | `Credits recorded in ABC for all {expected} semesters since admission.` |
+| STUDYING | PENDING | one semester missing | `No credits recorded in ABC for semester {sem} ({academic_year}); waiting for the next upload.` |
+| STUDYING | FAIL | two or more missing | `No credits recorded in ABC for {missing} of {expected} semesters since admission.` |
+| STUDENT | PENDING | Week 2, always | `Notice not sent yet.` |
+
+Status words on the web: PASS, FAIL and NA as in the copy deck (`check.status.*`). PENDING depends on the detail; proposed copy keys (UX owns the words): `check.pending.unavailable` "Awaiting source" when `source_unavailable`, `check.pending.review` "Needs review" when `needs_review`, `check.pending.student` "Not sent yet" for STUDENT, `check.pending.results` "Awaiting results" for STUDYING with `awaiting_semester`.
