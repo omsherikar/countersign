@@ -190,7 +190,7 @@ export function FlagsTable({
             onChange={(v) => set({ f_programme: v, f_page: null })}
           />
         )}
-        <SearchInput label={t("flags.search")} value={q} onChange={onSearch} className="w-full sm:w-72" />
+        <SearchInput label={t("flags.search")} value={q} onChange={onSearch} className="w-full sm:w-80" />
         {filtered && (
           <Button variant="link" size="sm" className="h-8 px-0" onClick={clearAll}>
             {t("empty.clear_filters")}
