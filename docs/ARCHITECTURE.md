@@ -49,6 +49,8 @@ countersign/
     UX.md                       UX agent
   apps/web/                     frontend, except:
     app/globals.css               UI agent
+    app/tokens.css                UI agent
+    app/(admin)/admin/system      frontend (AICTE_ADMIN only: adapters ping, audit verify, chaos demo)
     components/ui/**              UI agent (shadcn primitives + theme)
     components/brand/**           UI agent (logo, wordmark, countersign mark)
   services/api/                 backend

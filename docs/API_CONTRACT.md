@@ -519,3 +519,4 @@ Both sides implement these in Week 1. Everything else in the contract is unchang
 6. 404 messages are entity-specific: "Institution not found.", "Enrolment not found.", "Seat not found.", "Flag not found.".
 7. api passthrough for the demo (AICTE_ADMIN only, audited): `GET /admin/chaos` and `POST /admin/chaos` and `POST /admin/chaos/reset` on the api forward to mockgov with the same bodies and return mockgov's response, so the browser never talks to :8001 directly.
 8. `POST /admin/demo/reset` (AICTE_ADMIN only) is reserved for Week 2; Week 1 returns 501 `NOT_IMPLEMENTED` with message "Run make demo-reset."
+9. 422 `VALIDATION_ERROR` on both api and mockgov carries `details.fields = [{field, message}]` and `message` = the first field's message. (Supersedes the empty `details` shown in section C.2.)
