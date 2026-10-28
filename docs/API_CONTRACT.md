@@ -1298,7 +1298,7 @@ Supersedes the matching lines of section E. Everything not mentioned stays as it
 - `severity_expected` follows ENGINES.md §10: EXCESS_ADMISSION HIGH; QUOTA_BREACH HIGH when an NRI or INTERNATIONAL pool is exceeded by more than 2, else MEDIUM; LATE_REFILL MEDIUM; INVALID_APAAR HIGH for kind `UNKNOWN` (well-formed, not in the registry) and MEDIUM for `SHORT`, `LONG`, `LETTERS` (malformed); NAME_MISMATCH MEDIUM (planted names score below 75); DUPLICATE_WITHIN_UPLOAD MEDIUM; DUPLICATE_CROSS_INSTITUTION HIGH (shared APAAR); DUAL_ENROLMENT_ALLOWED LOW; NO_ACADEMIC_ACTIVITY MEDIUM.
 - New records: `LATE_REFILL` (rows = the refill rows; extra keys `seat_type`, `cutoff_date`, `released_rows`), `WITHDRAWAL` and `TRANSFER` (rows = the update rows; `expected_flag: null`).
 - `rows[].row_no` becomes the spreadsheet row number (header row 1, first data row 2), the same numbering as the api's `enrolments.source_row_no` and `upload_row_errors.row_no`; `rows[].file` names the initial or the update file. `student_refs` for rows without an APAAR are `<file>#<row_no>` with that numbering.
-- DUPLICATE_CROSS_INSTITUTION and DUAL_ENROLMENT_ALLOWED stay one record per pair; the api raises one flag per institution, and the quick check (verification item 8) accepts either.
+- DUPLICATE_CROSS_INSTITUTION and DUAL_ENROLMENT_ALLOWED stay one record per pair; the api raises one flag per institution, and a ground-truth check accepts either.
 
 **mockgov registries.** Refill students get `apaar_registry` entries; no counselling or ABC rows are needed for them (first-year MANAGEMENT or SPOT). Withdrawn and transferred students keep their registry rows.
 
