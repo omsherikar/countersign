@@ -1,0 +1,3 @@
+{"apaar_id": "123456780003", "academic_year": "2025-26", "sem": 1, "credits": 22, "uploaded_at": "2026-01-20T00:00:00Z", "result": "PASS"}
+{"apaar_id": "123456780003", "academic_year": "2025-26", "sem": 2, "credits": 24, "uploaded_at": "2026-06-30T00:00:00Z", "result": "PASS"}
+{"apaar_id": "123456780004", "academic_year": "2025-26", "sem": 1, "credits": 0, "uploaded_at": "2026-01-20T00:00:00Z", "result": "FAIL"}

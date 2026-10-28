@@ -1,0 +1,111 @@
+"""mockgov tables (docs/DATA_MODEL.md, "mockgov database").
+
+Plaintext on purpose: this simulates the government's own registries and lives in its own
+database that the Countersign API never queries directly.
+"""
+
+from datetime import date, datetime
+
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class ApaarRecord(Base):
+    __tablename__ = "apaar_registry"
+
+    apaar_id: Mapped[str] = mapped_column(String(12), primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    dob: Mapped[date] = mapped_column(Date, nullable=False)
+    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
+class CounsellingAllotment(Base):
+    __tablename__ = "counselling_allotments"
+    __table_args__ = (
+        UniqueConstraint("roll_no", name="uq_counselling_roll_no"),
+        Index("ix_counselling_lookup", "state", "year", "programme", "dob"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    state: Mapped[str] = mapped_column(String(2), nullable=False)
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    dob: Mapped[date] = mapped_column(Date, nullable=False)
+    roll_no: Mapped[str] = mapped_column(Text, nullable=False)
+    programme: Mapped[str] = mapped_column(Text, nullable=False)
+    institution_aicte_id: Mapped[str] = mapped_column(Text, nullable=False)
+    round: Mapped[int] = mapped_column(Integer, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    allotment_ref: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class AbcCredit(Base):
+    __tablename__ = "abc_credits"
+    __table_args__ = (UniqueConstraint("apaar_id", "academic_year", "sem", name="uq_abc_credit"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    apaar_id: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
+    academic_year: Mapped[str] = mapped_column(String(7), nullable=False)
+    sem: Mapped[int] = mapped_column(Integer, nullable=False)
+    credits: Mapped[int] = mapped_column(Integer, nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    result: Mapped[str] = mapped_column(String(8), nullable=False)
+
+
+class DigiLockerMessage(Base):
+    __tablename__ = "digilocker_inbox"
+
+    inbox_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    apaar_id: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    callback_url: Mapped[str] = mapped_column(Text, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class SiiAdmission(Base):
+    __tablename__ = "sii_admissions"
+    __table_args__ = (UniqueConstraint("passport_no", name="uq_sii_passport_no"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    passport_no: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    nationality: Mapped[str] = mapped_column(String(2), nullable=False)
+    institution_aicte_id: Mapped[str] = mapped_column(Text, nullable=False)
+    programme: Mapped[str] = mapped_column(Text, nullable=False)
+    academic_year: Mapped[str] = mapped_column(String(7), nullable=False)
+
+
+class ChaosSetting(Base):
+    __tablename__ = "chaos"
+
+    source: Mapped[str] = mapped_column(String(16), primary_key=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fail_rate: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False, default=0)
+    down: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+SEED_TABLES = (
+    ApaarRecord.__table__,
+    CounsellingAllotment.__table__,
+    AbcCredit.__table__,
+    SiiAdmission.__table__,
+    DigiLockerMessage.__table__,
+)
