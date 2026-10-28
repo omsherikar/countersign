@@ -2,9 +2,11 @@
 
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { usePathname } from "next/navigation";
 import { ThemeProvider } from "next-themes";
 import { ApiError } from "@/lib/api";
 import { useMeQuery } from "@/lib/queries";
+import { roleForPath } from "@/lib/roles";
 import type { User } from "@/lib/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -33,11 +35,13 @@ interface MeContextValue {
 const MeContext = React.createContext<MeContextValue>({ user: null, isLoading: true });
 
 function MeProvider({ initialUser, children }: { initialUser: User | null; children: React.ReactNode }) {
-  const query = useMeQuery();
+  // Public pages (/login, /verify) never ask who is signed in.
+  const onRoleRoute = roleForPath(usePathname() ?? "/") !== null;
+  const query = useMeQuery(onRoleRoute);
   const user = query.data === undefined ? initialUser : query.data;
   const value = React.useMemo<MeContextValue>(
-    () => ({ user, isLoading: query.isLoading && initialUser === null }),
-    [user, query.isLoading, initialUser],
+    () => ({ user, isLoading: onRoleRoute && query.isLoading && initialUser === null }),
+    [user, onRoleRoute, query.isLoading, initialUser],
   );
   return <MeContext.Provider value={value}>{children}</MeContext.Provider>;
 }

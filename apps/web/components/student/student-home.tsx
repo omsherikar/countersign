@@ -86,7 +86,7 @@ export function StudentHome() {
               {s.mobile_masked && (
                 <>
                   <dt className="text-ink-muted">{t("app.student.mobile")}</dt>
-                  <dd className="code">{s.mobile_masked}</dd>
+                  <dd className="code text-md">{s.mobile_masked}</dd>
                 </>
               )}
               {s.email && (
