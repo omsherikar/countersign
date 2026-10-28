@@ -1,12 +1,24 @@
-"""Checks, flags, case actions, notifications."""
+"""Checks, flags, case actions and their attachments, notifications."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import ARRAY, BigInteger, ForeignKey, Index, Integer, String, UniqueConstraint, text
+from sqlalchemy import (
+    ARRAY,
+    CHAR,
+    BigInteger,
+    Boolean,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,6 +31,7 @@ from app.models.enums import (
     FlagStatus,
     FlagType,
     NoticeChannel,
+    NoticeDelivery,
     NoticeResponse,
     Severity,
 )
@@ -76,6 +89,13 @@ class Flag(UUIDPk, Timestamps, Base):
     opened_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))
     resolved_at: Mapped[datetime | None]
     dedupe_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    # set by REQUEST_DOCS: the date the college's documents are due
+    docs_due_on: Mapped[date | None]
+    # the college has responded while DOCS_REQUESTED; the status itself does not change
+    response_received: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    last_action_at: Mapped[datetime | None]
 
 
 class CaseAction(Base):
@@ -83,17 +103,44 @@ class CaseAction(Base):
 
     seq: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     flag_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("flags.id"), nullable=False, index=True)
-    actor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # null on rows the system writes (SYSTEM_NOTE)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     action: Mapped[CaseActionKind] = mapped_column(
         pg_enum(CaseActionKind, "case_actions_action"), nullable=False
     )
     note: Mapped[str | None] = mapped_column(String)
     attachments: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))
+    # the flag's status before and after this action; equal for NOTE, ASSIGN and SYSTEM_NOTE
+    from_status: Mapped[FlagStatus | None] = mapped_column(pg_enum(FlagStatus, "flags_status"))
+    to_status: Mapped[FlagStatus | None] = mapped_column(pg_enum(FlagStatus, "flags_status"))
+    due_date: Mapped[date | None]
+    assignee_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+
+
+class CaseAttachment(UUIDPk, Base):
+    """A file a college sent with its response, stored on the case-files volume."""
+
+    __tablename__ = "case_attachments"
+
+    flag_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("flags.id"), nullable=False, index=True)
+    case_action_seq: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("case_actions.seq"), nullable=False
+    )
+    # the name the college gave the file; shown, never used as a path
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    content_type: Mapped[str] = mapped_column(String, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    # file name under CASE_FILES_DIR, a uuid
+    storage_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    uploaded_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
 
 
 class Notification(UUIDPk, Timestamps, Base):
     __tablename__ = "notifications"
+    __table_args__ = (Index("ix_notifications_enrolment_id_channel", "enrolment_id", "channel"),)
 
     student_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("students.id"), nullable=False, index=True
@@ -102,8 +149,20 @@ class Notification(UUIDPk, Timestamps, Base):
     channel: Mapped[NoticeChannel] = mapped_column(
         pg_enum(NoticeChannel, "notifications_channel"), nullable=False
     )
-    token: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    # hex sha256 of the link token; the token itself is only ever in the message sent
+    token_hash: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     message: Mapped[str] = mapped_column(String, nullable=False)
+    delivery_status: Mapped[NoticeDelivery] = mapped_column(
+        pg_enum(NoticeDelivery, "notifications_delivery"),
+        nullable=False,
+        default=NoticeDelivery.QUEUED,
+        server_default=NoticeDelivery.QUEUED.value,
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    # why the last delivery attempt failed, one plain sentence
+    last_error: Mapped[str | None] = mapped_column(String)
     sent_at: Mapped[datetime | None]
     opened_at: Mapped[datetime | None]
     response: Mapped[NoticeResponse | None] = mapped_column(
@@ -111,3 +170,12 @@ class Notification(UUIDPk, Timestamps, Base):
     )
     responded_at: Mapped[datetime | None]
     expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    # the student's free-text comment with the reply (officers only)
+    comment: Mapped[str | None] = mapped_column(String)
+    # the first answer, kept when the student changes it once within the change window
+    previous_response: Mapped[NoticeResponse | None] = mapped_column(
+        pg_enum(NoticeResponse, "notifications_response")
+    )
+    changed_at: Mapped[datetime | None]
+    # the user who asked for this notice to be sent again; null for the automatic send
+    resent_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))

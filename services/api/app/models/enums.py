@@ -189,6 +189,9 @@ class CaseActionKind(StrEnum):
     CONFIRM = "CONFIRM"
     NOTE = "NOTE"
     COLLEGE_RESPONSE = "COLLEGE_RESPONSE"
+    ASSIGN = "ASSIGN"
+    REOPEN = "REOPEN"
+    SYSTEM_NOTE = "SYSTEM_NOTE"
 
 
 class NoticeChannel(StrEnum):
@@ -199,6 +202,12 @@ class NoticeChannel(StrEnum):
 class NoticeResponse(StrEnum):
     YES = "YES"
     NO = "NO"
+
+
+class NoticeDelivery(StrEnum):
+    QUEUED = "QUEUED"
+    SENT = "SENT"
+    FAILED = "FAILED"
 
 
 class CredentialKind(StrEnum):
