@@ -1,4 +1,4 @@
-"""GET /enrolments/{id} and POST /enrolments/{id}/recheck (API_CONTRACT A2.11, A2.12)."""
+"""GET /enrolments/{id} and POST /enrolments/{id}/recheck (API_CONTRACT A2.11, A2.12, §A3.7)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 
+from app import credentials
 from app.core import audit
 from app.core.config import get_settings
 from app.core.crypto import mask_apaar, mask_mobile
 from app.core.deps import Adapters, RequestId, SessionDep, require_roles, scope_institutions
 from app.core.errors import not_found
 from app.core.ratelimit import limiter
+from app.credentials import holder
 from app.engine.checks import RECHECKABLE, recheck_pending
 from app.engine.contracts import CHECK_ORDER
 from app.engine.score import countersign
@@ -25,6 +27,7 @@ from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
 from app.models.user import User
 from app.models.verification import Check
+from app.notices.service import notices_for_enrolment, resend_state
 from app.routers._enrolment_rows import flags_for, iso, visible_summary
 from app.routers.institutions import user_key
 from app.schemas.common import CheckOut, Countersign, FlagSummary, InstitutionRef
@@ -128,6 +131,9 @@ async def enrolment_detail(
     flags = (
         await flags_for(session, {enrolment.id: enrolment.institution_id}, unresolved_only=False)
     ).get(enrolment.id, [])
+    notices = await notices_for_enrolment(session, enrolment.id)
+    resend = await resend_state(session, enrolment, user)
+    proofs = await holder.credential_refs(session, enrolment.id)
     await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
     return EnrolmentDetail(
         id=str(enrolment.id),
@@ -193,6 +199,9 @@ async def enrolment_detail(
             )
             for f in flags
         ],
+        notices=notices,
+        resend=resend,
+        credentials=proofs,
     )
 
 
@@ -219,6 +228,8 @@ async def enrolment_recheck(
         concurrency=get_settings().checks_concurrency,
         actor_id=user.id,
     )
+    # a recheck can clear the last pending source after the student said Yes
+    await credentials.issue_if_eligible(session, enrolment.id)
     after = await _checks(session, enrolment.id)
     return EnrolmentRecheck(
         enrolment_id=str(enrolment.id),
