@@ -82,6 +82,7 @@ class World:
         self.fake.seed_instance(seed)
         self.names = NameGenerator(self.rng)
         self.institutions: list[dict] = []
+        self.universities: list[dict] = []
         self.inst_by_id: dict[str, dict] = {}
         self.rows_by_inst: dict[str, list[dict]] = {}
         self.all_rows: list[dict] = []
@@ -406,6 +407,7 @@ class World:
     # --------------------------------------------------------------- driver
 
     def build_institutions(self) -> None:
+        self.universities = geo.universities()
         self.institutions = InstitutionBuilder(self.rng, self.cfg).build()
         for inst in self.institutions:
             self.inst_by_id[inst["aicte_permanent_id"]] = inst
