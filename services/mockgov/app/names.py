@@ -9,7 +9,7 @@ import unicodedata
 
 from rapidfuzz import fuzz
 
-HONORIFICS = frozenset({"mr", "ms", "mrs", "dr", "shri", "smt", "kumari"})
+HONORIFICS = frozenset({"mr", "ms", "mrs", "dr", "shri", "smt", "kumari", "km", "sri"})
 MOHAMMED_VARIANTS = frozenset(
     {"mohd", "mohammed", "md", "mohammad", "muhammad", "mohamed", "muhammed"}
 )

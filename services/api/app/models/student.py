@@ -28,6 +28,8 @@ class Student(UUIDPk, Timestamps, Base):
         Index("ix_students_mobile_hmac", "mobile_hmac"),
         Index("ix_students_email", "email"),
         Index("ix_students_address_hmac", "address_hmac"),
+        Index("ix_students_name_key", "name_key"),
+        Index("ix_students_passport_hmac", "passport_hmac"),
     )
 
     apaar_hmac: Mapped[bytes | None] = mapped_column(LargeBinary, unique=True)
@@ -39,6 +41,8 @@ class Student(UUIDPk, Timestamps, Base):
     provisional_id: Mapped[str | None] = mapped_column(String, unique=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     name_normalized: Mapped[str] = mapped_column(String, nullable=False)
+    # duplicate blocking key "<dob ISO>|<first initial>|<metaphone of surname>"
+    name_key: Mapped[str | None] = mapped_column(String)
     dob: Mapped[date] = mapped_column(nullable=False)
     gender: Mapped[Gender] = mapped_column(
         pg_enum(Gender, "students_gender"), nullable=False, default=Gender.U
@@ -49,6 +53,7 @@ class Student(UUIDPk, Timestamps, Base):
     address_hmac: Mapped[bytes | None] = mapped_column(LargeBinary)
     nationality: Mapped[str] = mapped_column(String(2), nullable=False, default="IN")
     passport_hmac: Mapped[bytes | None] = mapped_column(LargeBinary)
+    passport_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
 
     enrolments: Mapped[list[Enrolment]] = relationship(back_populates="student")
 
@@ -60,6 +65,13 @@ class Enrolment(UUIDPk, Timestamps, Base):
         Index("ix_enrolments_institution_year_status", "institution_id", "academic_year", "status"),
         Index("ix_enrolments_programme_year", "programme_id", "academic_year"),
         Index("ix_enrolments_student_id", "student_id"),
+        Index("ix_enrolments_programme_cohort_status", "programme_id", "cohort_year", "status"),
+        Index(
+            "uq_enrolments_seat_id",
+            "seat_id",
+            unique=True,
+            postgresql_where=text("seat_id IS NOT NULL"),
+        ),
     )
 
     student_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("students.id"), nullable=False)
@@ -67,6 +79,8 @@ class Enrolment(UUIDPk, Timestamps, Base):
     programme_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("programmes.id"), nullable=False)
     academic_year: Mapped[str] = mapped_column(String, nullable=False)
     year_of_study: Mapped[int] = mapped_column(Integer, nullable=False)
+    # the approval year this row belongs to (app.core.cohort.cohort_year)
+    cohort_year: Mapped[str] = mapped_column(String, nullable=False)
     admission_route: Mapped[AdmissionRoute] = mapped_column(
         pg_enum(AdmissionRoute, "enrolments_admission_route"), nullable=False
     )
@@ -83,6 +97,12 @@ class Enrolment(UUIDPk, Timestamps, Base):
     upload_batch_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("upload_batches.id"))
     source_row_no: Mapped[int | None] = mapped_column(Integer)
     uploaded_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))
+    admission_date: Mapped[date] = mapped_column(
+        nullable=False, server_default=text("CURRENT_DATE")
+    )
+    status_date: Mapped[date] = mapped_column(nullable=False, server_default=text("CURRENT_DATE"))
+    # why the uploaded APAAR was unusable, e.g. "has 11 digits, expected 12"; never the digits
+    apaar_problem: Mapped[str | None] = mapped_column(String)
 
     student: Mapped[Student] = relationship(back_populates="enrolments")
     institution: Mapped[Institution] = relationship()  # noqa: F821

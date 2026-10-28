@@ -861,7 +861,7 @@ Wire shape of a full check (only in `GET /enrolments/{id}`):
 
 ```json
 { "type": "IDENTITY", "status": "PENDING", "source": "APAAR", "checked_at": "2026-10-28T10:02:18Z", "attempts": 2,
-  "detail": { "summary": "APAAR registry did not respond. This check will retry on its own.", "source_unavailable": true, "source_error": "HTTP 503" } }
+  "detail": { "summary": "APAAR registry did not respond. This check stays pending until a recheck or the next upload.", "source_unavailable": true, "source_error": "HTTP 503" } }
 ```
 
 `detail.summary` is always present and is shown verbatim. Optional keys the web may use: `source_unavailable` (bool), `needs_review` (bool), `name_score` (int), `dob_match` (bool), `apaar_last4`, `round`, `allotment_ref`, `ref_mismatch` (bool), `seat_code`, `seat_type`, `flag_type`, `expected`, `missing`, `semesters` (`[{academic_year, sem, credits}]`), `awaiting_semester`. Never a full APAAR, passport or mobile.
@@ -870,7 +870,7 @@ Placeholder words: `{source_name}` from copy deck `source.*` (APAAR registry, Co
 
 | check | status | when | `detail.summary` |
 |---|---|---|---|
-| any | PENDING | the source did not answer | `{source_name} did not respond. This check will retry on its own.` |
+| any | PENDING | the source did not answer | `{source_name} did not respond. This check stays pending until a recheck or the next upload.` |
 | IDENTITY | NA | no APAAR (consent Refused or Pending) | `APAAR not linked; admission is not blocked.` |
 | IDENTITY | NA | international student | `International student; identity is checked through the passport, not APAAR.` |
 | IDENTITY | FAIL | malformed APAAR on upload | `APAAR as uploaded {problem}; the enrolment was kept without it.` (`{problem}`: "has 11 digits, expected 12" or "contains characters other than digits") |
@@ -980,8 +980,8 @@ Stored by the engines in `flags.evidence`, shown verbatim. `summary` is one sent
 | type | severity | `summary` | `facts` (label: value, source) | `rule_source` |
 |---|---|---|---|---|
 | EXCESS_ADMISSION | HIGH | `{admitted} admitted against {approved} approved seats in {programme_code} ({cohort_year}); {unseated} without a seat.` | Approved intake: `{approved}`, AICTE approval {cohort_year}. Admitted (active): `{admitted}`, College uploads, Regular and NRI routes. Seated: `{seated}`, Seat ledger. Unseated: `{unseated}`, Seat ledger. When `peak_unseated` is higher than `unseated`, also Most unseated at once: `{peak_unseated}`, Seat ledger | the REGULAR pool's `rule_source` |
-| QUOTA_BREACH | MEDIUM; HIGH for INTERNATIONAL or NRI more than 2 over | `{admitted} {seat_type_word} admissions against {capacity} {seat_type_word} seats in {programme_code} ({cohort_year}).` | Pool: `{seat_type_word}`, Seat ledger. Capacity: `{capacity}`, rules.yaml. Admitted via route: `{admitted} ({route_words})`, College uploads. Unseated: `{unseated}`, Seat ledger. Rule percentage: `{share}% of approved intake {approved}`, rules.yaml | that pool's `rule_source` |
-| LATE_REFILL | MEDIUM | `Seat {seat_code} assigned on {assigned_date}, after the last admission date {cutoff_date}.` | Seat: `{seat_code}`, Seat ledger. Released on: `{released_date}`, Seat ledger. Assigned on: `{assigned_date}`, College upload {filename}, row {row_no}. Last admission date: `{cutoff_date}`, rules.yaml cutoff_dates | `Last admission date for {cohort_year} (rules.yaml cutoff_dates)` |
+| QUOTA_BREACH | MEDIUM; HIGH for INTERNATIONAL or NRI more than 2 over | `{admitted} {seat_type_word} admissions against {capacity} {seat_type_word} seats in {programme_code} ({cohort_year}).` | Pool: `{seat_type_word}`, Seat ledger. Capacity: `{capacity}`, AICTE approval rules. Admitted via route: `{admitted} ({route_words})`, College uploads. Unseated: `{unseated}`, Seat ledger. Rule percentage: `{share}% of approved intake {approved}`, AICTE approval rules | that pool's `rule_source` |
+| LATE_REFILL | MEDIUM | `Seat {seat_code} assigned on {assigned_date}, after the last admission date {cutoff_date}.` | Seat: `{seat_code}`, Seat ledger. Released on: `{released_date}`, Seat ledger. Assigned on: `{assigned_date}`, College upload {filename}, row {row_no}. Last admission date: `{cutoff_date}`, AICTE admission schedule | `Last admission date for {cohort_year} (AICTE admission schedule)` |
 | INVALID_APAAR (not in registry) | HIGH | `APAAR ending {apaar_last4} is not in the APAAR registry.` | APAAR (masked): `XXXX XXXX {apaar_last4}`, College upload. Registry reply: `Not found`, APAAR registry. Checked at: `{checked_date}`, APAAR registry | `APAAR verification` |
 | INVALID_APAAR (malformed) | MEDIUM | `APAAR as uploaded {problem}, so it could not be checked.` | APAAR (masked): `<{n} characters>`, College upload. Registry reply: `Not checked`, APAAR registry. Checked at: `{checked_date}`, Countersign | `APAAR verification` |
 | NAME_MISMATCH (name) | MEDIUM below 75; LOW from 75 to 89 | `Name on upload differs from the APAAR registry (similarity {name_score} of 100).` | Name on upload: `{name}`, College upload. Similarity: `{name_score} of 100`, APAAR registry. Date of birth match: `Yes`, APAAR registry. Checked at: `{checked_date}`, APAAR registry | `APAAR verification` |
@@ -1303,3 +1303,15 @@ Supersedes the matching lines of section E. Everything not mentioned stays as it
 **mockgov registries.** Refill students get `apaar_registry` entries; no counselling or ABC rows are needed for them (first-year MANAGEMENT or SPOT). Withdrawn and transferred students keep their registry rows.
 
 **manifest.json** `counts` gains `update_files` and `update_rows`.
+
+## Addendum 2 errata (2026-10-28): corrections from the UX review of the contract
+
+These override anything above that disagrees.
+
+1. **Pending sentence.** There is no scheduler. A PENDING check re-runs only on a recheck or the next upload of that row, so the sentence is "{source_name} did not respond. This check stays pending until a recheck or the next upload." (A2.14 updated in place.)
+2. **Unresolved flags filter.** `GET /flags?status=` accepts a single status, a comma-separated list, or `UNRESOLVED`, which means OPEN, DOCS_REQUESTED and ESCALATED. `flags_open` everywhere counts exactly the UNRESOLVED set, so the Open flags tile and a list filtered by `status=UNRESOLVED` always agree.
+3. **Admitted and approved intake.** `admitted` (A2.18, A2.20) counts every route into the cohort, including supernumerary TFW, international and lateral admissions, which the handbook places over and above approved intake. So `admitted` may exceed `approved_seats` without any excess. Excess is decided only by the Seat Ledger (EXCESS_ADMISSION counts Regular and NRI routes against approved intake; QUOTA_BREACH covers the supernumerary pools). The UI never shows an admitted/approved percentage; it shows the two numbers side by side and the flags. ABC CSE (132 admitted, 120 approved, all Regular or NRI) is unaffected.
+4. **ADMISSION is never NA.** Every route has a rule: counselling list, seat-type rules or Study in India (A2.14, ENGINES section 8). ARCHITECTURE section 9 updated.
+5. **Redaction covers universities.** Wherever a summary or fact names another institution, it is redacted for every role except AICTE_ADMIN and RO_OFFICER (so for INSTITUTION and UNIVERSITY alike), using the A2.16 wording ("another institution in {state}").
+6. **No config file names in evidence.** Officer- and college-facing evidence never says "rules.yaml". Sources read "AICTE approval rules" (with the handbook clause from `rule_source`) or "AICTE admission schedule" for cut-off dates. The QUOTA_BREACH and LATE_REFILL rows in A2.16 are updated in place.
+

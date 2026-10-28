@@ -24,14 +24,15 @@ Landing: `/aicte`
 | `/aicte/institutions/[id]/enrolments` | (tab inside detail) | 1 | Enrolment table with masked ids |
 | `/aicte/institutions/[id]/seats` | (tab inside detail) | 1 | Seat ledger rows |
 | `/aicte/cases` | Cases | 2 | National case queue (all open flags, ranked) |
-| `/aicte/cases/[flagId]` | (breadcrumb only) | 2 | Flag detail, evidence, actions |
+| `/aicte/cases/[flagId]` | (breadcrumb only) | 2 | Flag detail and evidence, read only; actions from Week 3 |
+| `/aicte/enrolments/[id]` | (breadcrumb only) | 2 | Enrolment detail: checks with sources, seat, flags, recheck |
 | `/aicte/institutions/[id]/score` | (tab inside detail) | 4 | Integrity Index breakdown |
 | `/aicte/reports` | Reports | 4 | Exportable summaries |
 | `/admin/system` | System | 1 | Adapter ping, audit verify, demo controls |
 | `/admin/audit` | Audit | 3 | Audit log table + verify chain |
 | `/admin/psi` | Private matching | 4 | PSI demo |
 
-Must NOT see: `/students/me` data, any unmasked identifier, student email or mobile, upload row raw PII (upload errors show masked `raw`).
+Must NOT see: `/students/me` data, any unmasked identifier, student email or mobile, upload row raw PII (upload errors show `value_masked`).
 
 ### RO_OFFICER (region scoped)
 Landing: `/ro`
@@ -42,7 +43,8 @@ Landing: `/ro`
 | `/ro/institutions/[id]` | (breadcrumb only) | 1 | Institution detail (404 if outside region) |
 | `/ro/institutions/[id]/enrolments`, `/seats` | (tabs) | 1 | As above |
 | `/ro/cases` | Cases | 2 | Region case queue |
-| `/ro/cases/[flagId]` | (breadcrumb only) | 2 | Flag detail and actions |
+| `/ro/cases/[flagId]` | (breadcrumb only) | 2 | Flag detail and evidence, read only; actions from Week 3 |
+| `/ro/enrolments/[id]` | (breadcrumb only) | 2 | Enrolment detail (404 if outside region) |
 | `/ro/reports` | Reports | 4 | Region reports |
 
 Must NOT see: other regions' institutions (api returns 404; UI never lists them), `/admin/*`, national KPIs, chaos controls.
@@ -57,7 +59,8 @@ Landing: `/college`
 | `/college/uploads/[batchId]` | (breadcrumb only) | 2 | Batch status and row errors |
 | `/college/enrolments` | Enrolments | 1 | Own enrolments with countersign strip (null in Week 1) |
 | `/college/flags` | Flags | 2 | Flags raised against this college with evidence |
-| `/college/flags/[flagId]` | (breadcrumb only) | 3 | Respond to a document request |
+| `/college/enrolments/[id]` | (breadcrumb only) | 2 | Enrolment detail for own students |
+| `/college/flags/[flagId]` | (breadcrumb only) | 2 | Flag evidence, read only; respond to a document request from Week 3 |
 | `/college/score` | Why this score | 4 | Integrity Index breakdown |
 
 Must NOT see: any other institution, region or national numbers, officer notes marked internal, student email or mobile (only masked), other colleges' duplicates (a cross-institution duplicate flag names "another institution in Maharashtra", never the name).
@@ -82,6 +85,7 @@ Landing: `/university`
 |---|---|---|---|
 | `/university` | Affiliated institutions | 1 | Read-only list of affiliates and their numbers |
 | `/university/institutions/[id]` | (breadcrumb only) | 1 | Read-only detail |
+| `/university/enrolments/[id]` | (breadcrumb only) | 2 | Read-only enrolment detail, no recheck, no flag links |
 | `/university/degrees` | Degree print | 3 | Pick a graduating enrolment, print masked APAAR + QR |
 | `/university/degrees/[enrolmentId]/print` | (print view) | 3 | Print layout |
 
@@ -119,7 +123,9 @@ Must NOT see: anything not inside the presented credential; no search by name, n
 | `/aicte/institutions/[id]` | Overview / ABC College of Engineering |
 | `/aicte/institutions/[id]/enrolments` | Overview / ABC College of Engineering / Enrolments |
 | `/aicte/cases/[flagId]` | Overview / Cases / Excess admission, ABC College |
-| `/college/uploads/[batchId]` | Seat ledger / Upload / abc_2026-27.csv |
+| `/college/uploads/[batchId]` | Seat ledger / Upload / 1-ABC-0001_2026-27.csv |
+| `/aicte/enrolments/[id]` | Overview / ABC College of Engineering / Enrolments / Ravi Kumar Sharma |
+| `/college/enrolments/[id]` | Seat ledger / Enrolments / Ravi Kumar Sharma |
 | `/college/flags/[flagId]` | Seat ledger / Flags / Excess admission in CSE |
 | `/student/wallet` | My enrolment / My proofs |
 | `/university/degrees/[id]/print` | Affiliated institutions / Degree print / Ravi Kumar Sharma |
