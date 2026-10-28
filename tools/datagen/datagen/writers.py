@@ -90,7 +90,8 @@ def write_xlsx(path: Path, rows: list[dict]) -> None:
     ws = wb.create_sheet("students")
     ws.append(UPLOAD_COLUMNS)
     for row in rows:
-        ws.append([row[c] for c in UPLOAD_COLUMNS])
+        # A blank stays an empty cell, as in a sheet a registrar fills in by hand.
+        ws.append([None if row[c] == "" else row[c] for c in UPLOAD_COLUMNS])
     wb.save(path)
     normalize_zip(path)
 
