@@ -3,7 +3,7 @@
  * (API_CONTRACT A3.5, A3.7 to A3.14, A3.22 and A3.23).
  *
  * The handler sends every request through `withCases` first. Routes this
- * file owns are answered here; flag and enrolment reads go on to the Week 2
+ * file owns are answered here; flag and enrolment reads go on to the base
  * handler and come back decorated with case state, history and notices;
  * everything else passes straight through.
  *
@@ -1008,7 +1008,7 @@ function seedDenials() {
   });
 }
 
-/** Case work already done on the Week 2 flags, so every state of the action bar can be seen. */
+/** Case work already done on the seeded flags, so every state of the action bar can be seen. */
 function seedCases() {
   const admin = byEmail("admin@aicte.demo");
   const west = byEmail("ro.west@aicte.demo");
@@ -1114,8 +1114,8 @@ function ensureSeeded() {
 /* ---- Router ---------------------------------------------------------------- */
 
 /**
- * Answers the Week 3 officer routes, decorates flag and enrolment reads, and
- * hands everything else to `next` (the Week 2 handler).
+ * Answers the officer routes above, decorates flag and enrolment reads, and
+ * hands everything else to `next` (the base handler).
  */
 export async function withCases(method: string, path: string, query: Query | undefined, body: unknown, next: Next): Promise<unknown> {
   const [pathname] = path.split("?");

@@ -439,12 +439,12 @@ function uploadInScope(user: User, id: string) {
 
 /* ---- Router ------------------------------------------------------------- */
 
-/** Week 3 case, notice, audit and data request routes sit in front of the Week 2 routes (lib/mock/cases.ts). */
+/** Case, notice, audit and data request routes (lib/mock/cases.ts) sit in front of the routes below. */
 export async function mockRequest(method: string, path: string, query?: Query, body?: unknown): Promise<unknown> {
-  return withCases(method, path, query, body, weekTwoRequest);
+  return withCases(method, path, query, body, baseRequest);
 }
 
-async function weekTwoRequest(method: string, path: string, query?: Query, body?: unknown): Promise<unknown> {
+async function baseRequest(method: string, path: string, query?: Query, body?: unknown): Promise<unknown> {
   await wait(120 + Math.round(Math.random() * 180));
   const [pathname] = path.split("?");
   const parts = pathname.split("/").filter(Boolean);
