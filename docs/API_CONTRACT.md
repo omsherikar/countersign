@@ -995,3 +995,97 @@ Stored by the engines in `flags.evidence`, shown verbatim. `summary` is one sent
 Words: `{match_words}` is `Same APAAR`, `Same passport`, or `Name ({name_score} of 100), date of birth and mobile` (whichever matched, joined with "and"); `{mode_word}` is `physical`, `open and distance learning` or `online`; `{route_words}` lists the routes mapped to the pool (`NRI`; `TFW`; `Lateral`; `International`); A is always the flag's own institution and B the other one.
 
 Two changes from copy deck §5, to be mirrored there: QUOTA_BREACH counts `{admitted}` (enrolments by route), because assigned seats can never exceed capacity; LATE_REFILL cites the `rules.yaml` cutoff date instead of APH cl. 6.13(f), which is the lateral-entry vacancy clause.
+
+### A2.18 Seats against admissions: one comparable pair everywhere
+
+Week 1 pages set one year's approved seats against enrolments from every year of study, so ABC College read as 605 enrolled against 540 seats. From Week 2 every place that shows seats also shows `admitted`:
+
+- `admitted` = ACTIVE enrolments whose `cohort_year` equals the academic year asked for (default the current year), counted in the current roll (`enrolments.academic_year` = the current academic year). That is the first-year intake of that year; lateral entrants count in the cohort they join, as `app/core/cohort.py` assigns it (a year-2 lateral in 2026-27 belongs to 2025-26). It is the same rule A.7 already uses for each programme's `enrolments`, so an institution's `admitted` equals the sum of its `programmes[].enrolments` for that year.
+- `approved_seats` stays the approved intake of that year.
+- `enrolments` stays "students on roll, all years of study": every ACTIVE enrolment in the academic year.
+- Any fill or over-admission figure the web shows is `admitted / approved_seats`, never `enrolments / approved_seats`.
+- `seated` (ASSIGNED seats) becomes real once the Seat Ledger runs (Week 2); in Week 1 data it is 0 everywhere and `unseated` equals the admitted count.
+
+### A2.19 `GET /dashboard/summary` changes (A.5, D21)
+
+```json
+200 {
+  "academic_year": "2026-27",
+  "scope": { "kind": "NATIONAL", "label": "All India" },
+  "kpis": {
+    "institutions": 50,
+    "programmes": 187,
+    "approved_seats": 18960,
+    "admitted": 4120,
+    "enrolments": 10342,
+    "flags_open": 214,
+    "countersigned_pct": 0.0,
+    "clear_pct": 91.4
+  },
+  "flags_by_type": [
+    { "type": "EXCESS_ADMISSION", "open": 5 }, { "type": "QUOTA_BREACH", "open": 5 }, { "type": "LATE_REFILL", "open": 2 },
+    { "type": "INVALID_APAAR", "open": 15 }, { "type": "NAME_MISMATCH", "open": 13 },
+    { "type": "DUPLICATE_CROSS_INSTITUTION", "open": 20 }, { "type": "DUPLICATE_WITHIN_UPLOAD", "open": 12 },
+    { "type": "DUAL_ENROLMENT_ALLOWED", "open": 6 }, { "type": "NO_ACADEMIC_ACTIVITY", "open": 12 },
+    { "type": "STUDENT_DENIED", "open": 0 }, { "type": "GHOST_RING", "open": 0 }, { "type": "ANOMALY", "open": 0 }
+  ],
+  "by_state": [
+    { "state_code": "MH", "state_name": "Maharashtra", "region": "WEST", "institutions": 9, "programmes": 41, "approved_seats": 3600, "admitted": 1210, "enrolments": 2011, "flags_open": 38 }
+  ],
+  "by_region": [
+    { "region": "WEST", "region_name": "Western (Mumbai)", "institutions": 12, "approved_seats": 4500, "admitted": 1500, "enrolments": 2600, "flags_open": 51 }
+  ]
+}
+```
+
+(Numbers illustrative.)
+
+- `flags_open` (KPI, per state, per region and per institution everywhere in the api) = flags with status OPEN, DOCS_REQUESTED or ESCALATED whose `academic_year` is the requested year, against institutions in scope.
+- `countersigned_pct` = share of in-scope ACTIVE enrolments of the year whose applicable checks (status not NA) are all PASS; `clear_pct` = share with no FAIL. Both are percentages from 0 to 100 rounded to one decimal, over ACTIVE enrolments that have at least one check row, and null when there are none. With STUDENT PENDING for everyone in Week 2, `countersigned_pct` is 0.0; that is the true state (D21) and the tile says "0% of enrolments fully countersigned".
+- `flags_by_type`: all twelve flag types in ARCHITECTURE §9 order, zeros included, counting `flags_open` by type. The UI may hide zero rows.
+- `admitted`: §A2.18.
+
+### A2.20 Institutions changes (A.6, A.7, Addendum 1)
+
+`GET /institutions` rows:
+
+- `admitted` added (§A2.18); `flags_open` real.
+- `sort=flags_open_desc` is real: `flags_open` descending, then `enrolments` descending, then name. It becomes the default sort ("Ranked by open flags, then enrolments"); `enrolments_desc` and `name_asc` stay available.
+
+`GET /institutions/{id}`:
+
+- `admitted` added beside `approved_seats` and `enrolments` (§A2.18); `flags_open` real (the Flags tab count).
+- each `programmes[]` item gains `mode` (`PHYSICAL`, `ODL`, `ONLINE`) and `seated` (ASSIGNED seats across the approval's pools, equal to the sum of `pools[].assigned`); `pools[].assigned`, `pools[].free` and `unseated` are real once the Seat Ledger has run.
+- `last_upload` is real: `{ "batch_id", "uploaded_at", "rows", "errors", "status" }` for the institution's most recent batch of the year (`rows` = `counts.rows`, `errors` = `counts.errors`), or null.
+
+```json
+{
+  "id": "p1...", "code": "CSE", "name": "B.Tech Computer Science and Engineering", "level": "UG", "discipline": "ENGINEERING",
+  "shift": "FIRST", "mode": "PHYSICAL",
+  "approval": { "academic_year": "2026-27", "approved_intake": 120, "cutoff_date": "2026-09-15" },
+  "enrolments": 132, "seated": 120, "unseated": 12,
+  "pools": [
+    { "seat_type": "REGULAR", "capacity": 114, "is_supernumerary": false, "assigned": 114, "free": 0, "reserved_for": null, "rule_source": "Approval record (approved_intake); minus NRI carve-out (APH 2024-27 cl. 2.8(b))" },
+    { "seat_type": "NRI", "capacity": 6, "is_supernumerary": false, "assigned": 6, "free": 0, "reserved_for": null, "rule_source": "APH 2024-27 cl. 2.8(b)" }
+  ]
+}
+```
+
+`GET /institutions/{id}/seats`: rows are real (holders, `assigned_at`). Unchanged shape.
+
+### A2.21 `GET /students/me` change (A.10)
+
+`enrolments[].countersign` is real, in the compact shape of §A2.10. Nothing else changes in Week 2.
+
+### A2.22 Scoping for Week 2 endpoints
+
+| Endpoint | AICTE_ADMIN | RO_OFFICER | INSTITUTION | STUDENT | UNIVERSITY |
+|---|---|---|---|---|---|
+| `POST /uploads`, `POST /uploads/rows` | any institution (`institution_id` required) | 403 | own only | 403 | 403 |
+| `GET /uploads`, `GET /uploads/{id}`, `/errors`, `/errors.csv` | all | region, else 404 | own, else 404 | 403 | 403 |
+| `GET /uploads/template.csv`, `.xlsx` | ok | ok | ok | 403 | 403 |
+| `GET /enrolments/{id}` | any | region, else 404 | own, else 404 | 403 | affiliate, else 404 |
+| `POST /enrolments/{id}/recheck` | any | region, else 404 | own, else 404 | 403 | 403 |
+| `POST /institutions/{id}/recheck` | any | region, else 404 | 403 | 403 | 403 |
+| `GET /flags`, `GET /flags/{id}` | all | region, else 404 | own, redacted (§A2.16), else 404 | 403 | 403 |
+| `/dashboard/summary`, `/institutions*` | as section B | | | | |
