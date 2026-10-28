@@ -801,9 +801,9 @@ Roles: `AICTE_ADMIN` (any), `RO_OFFICER` (institutions in its region), `INSTITUT
   "seat": { "id": "s1...", "seat_code": "CSE-R-001", "seat_type": "REGULAR", "academic_year": "2026-27", "assigned_at": "2026-10-28T10:02:15Z" },
   "countersign": { "score": { "passes": 3, "applicable": 4 }, "checks": [ { "type": "IDENTITY", "status": "PASS" }, "... five, in order ..." ] },
   "checks": [
-    { "type": "IDENTITY", "status": "PASS", "source": "APAAR", "checked_at": "2026-10-28T10:02:18Z", "attempts": 1,
+    { "type": "IDENTITY", "status": "PASS", "source": "APAAR", "checked_at": "2026-10-28T10:02:18Z", "attempts": 0,
       "detail": { "summary": "Name and date of birth match the APAAR registry (similarity 100 of 100).", "name_score": 100, "dob_match": true, "apaar_last4": "4417" } },
-    { "type": "ADMISSION", "status": "PASS", "source": "COUNSELLING", "checked_at": "2026-10-28T10:02:18Z", "attempts": 1,
+    { "type": "ADMISSION", "status": "PASS", "source": "COUNSELLING", "checked_at": "2026-10-28T10:02:18Z", "attempts": 0,
       "detail": { "summary": "Found in the Maharashtra counselling allotments for CSE (2026), round 1.", "round": 1, "allotment_ref": "MHCET-2026-R1-004512", "ref_mismatch": false } },
     { "type": "SEAT", "status": "PASS", "source": "SEAT_LEDGER", "checked_at": "2026-10-28T10:02:18Z", "attempts": 0,
       "detail": { "summary": "Holds seat CSE-R-001 (Regular, 2026-27 approval).", "seat_code": "CSE-R-001", "seat_type": "REGULAR" } },
