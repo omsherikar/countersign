@@ -3,7 +3,7 @@
 One state's joining-record format, simulated, served for every state. A real authority (a
 state CET cell or technical education directorate) publishes who reported and joined at
 which college, in which programme, by which route; this simulator holds the synthetic
-equivalent from datagen (`mockgov/joining_records.jsonl`). Management, NRI and spot
+equivalent from datagen (`mockgov/admission_joinings.jsonl`). Management, NRI and spot
 admissions are listed too, as the state regulator approves them; international admissions are
 not (Study in India holds those).
 

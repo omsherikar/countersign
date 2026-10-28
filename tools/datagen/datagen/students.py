@@ -154,7 +154,7 @@ class World:
         # history.json (signals.py): last year's first-year admissions per college.
         self.history: dict = {}
         # joining.py: students with a joining record whom their college did not upload, and
-        # mockgov/joining_records.jsonl.
+        # mockgov/admission_joinings.jsonl.
         self.omitted_rows: list[dict] = []
         self.joining_records: list[dict] = []
         # statuses.py: rows behind the PROVISIONAL_CLAIM and SOMEONE_ELSE demo accounts.
