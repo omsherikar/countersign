@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -22,22 +23,37 @@ from app.db.session import dispose_engine, get_engine
 from app.routers import (
     admin,
     auth,
+    cases,
+    credentials,
     dashboard,
     enrolments,
     flags,
     healthz,
     institutions,
+    issuer,
     meta,
     notices,
+    privacy,
     students,
+    university,
     uploads,
+    users,
+    verify,
 )
 
 log = logging.getLogger("countersign.api")
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
-# The one route that takes a form instead of JSON: the file upload (API_CONTRACT §A2.1).
+# The routes that take a form instead of JSON: the file upload (API_CONTRACT §A2.1) and a
+# college's response to a document request (§A3.1).
 MULTIPART_ROUTES = {("POST", "/uploads")}
+MULTIPART_PATTERNS = (("POST", re.compile(r"^/flags/[^/]+/response$")),)
+
+
+def takes_form(method: str, path: str) -> bool:
+    if (method, path) in MULTIPART_ROUTES:
+        return True
+    return any(method == m and pattern.match(path) for m, pattern in MULTIPART_PATTERNS)
 
 
 def run_migrations() -> None:
@@ -99,7 +115,7 @@ def create_app() -> FastAPI:
         started = time.perf_counter()
         if request.method in MUTATING and _has_body(request):
             content_type = request.headers.get("content-type", "")
-            multipart = (request.method, request.url.path) in MULTIPART_ROUTES
+            multipart = takes_form(request.method, request.url.path)
             expected = "multipart/form-data" if multipart else "application/json"
             if not content_type.lower().startswith(expected):
                 response = envelope(
@@ -125,17 +141,24 @@ def create_app() -> FastAPI:
         )
         return response
 
-    # registration order (ENGINES §16.9)
+    # registration order of ENGINES §16.9
     for router in (
         healthz,
         auth,
+        issuer,
         notices,
+        verify,
+        privacy,
         dashboard,
         institutions,
         enrolments,
         flags,
+        cases,
+        users,
         uploads,
         students,
+        credentials,
+        university,
         meta,
         admin,
     ):

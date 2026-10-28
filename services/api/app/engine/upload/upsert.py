@@ -30,6 +30,7 @@ from app.models.enums import AuditAction, ConsentStatus, EnrolmentStatus, Gender
 from app.models.institution import Institution
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
+from app.privacy.service import record_apaar_link
 
 RELEASING = (EnrolmentStatus.WITHDRAWN, EnrolmentStatus.TRANSFERRED)
 # New rows are written with one multi-row INSERT per table; ids are generated here.
@@ -90,6 +91,9 @@ class _Plan:
     passport_hmac: bytes | None
     student: Student | None = None
     student_changes: list[str] | None = None  # None: created
+    # the student was created or its consent changed: an APAAR_LINK consent row is owed
+    consent_changed: bool = False
+    enrolment_id: uuid.UUID | None = None
 
 
 def _by(rows: Sequence[Student], attr: str) -> dict[Any, Student]:
@@ -268,6 +272,7 @@ async def upsert_rows(
         if student is None:
             student = _new_student(plan)
             new_students.append(student)
+            plan.consent_changed = True
             result.students_created += 1
             entries.append(
                 audit.AuditEntry(
@@ -280,6 +285,7 @@ async def upsert_rows(
             )
         else:
             changes = _update_student(student, plan, by_apaar=plan.apaar_hmac is not None)
+            plan.consent_changed = "consent_status" in changes
             if changes:
                 result.students_updated += 1
                 entries.append(
@@ -413,6 +419,7 @@ async def upsert_rows(
                     },
                 )
             )
+        plan.enrolment_id = enrolment.id
         result.outcomes.append(
             RowOutcome(
                 row_no=row.row_no,
@@ -426,6 +433,18 @@ async def upsert_rows(
 
     await _insert(session, Student, new_students, STUDENT_COLUMNS)
     await _insert(session, Enrolment, new_enrolments, ENROLMENT_COLUMNS)
+    # after the inserts, so each consent row finds its student and enrolment
+    for plan in plans:
+        if plan.consent_changed and plan.student is not None and plan.enrolment_id is not None:
+            await record_apaar_link(
+                session,
+                student_id=plan.student.id,
+                enrolment_id=plan.enrolment_id,
+                consent_status=plan.student.consent_status,
+                institution_name=institution.name,
+                actor_id=actor_id,
+                audit_sink=entries,
+            )
     await session.flush()
     await audit.record_many(session, entries)
     return result

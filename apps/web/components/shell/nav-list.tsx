@@ -30,7 +30,8 @@ export function NavList({
         const label = t(item.label);
         const base = cn(
           "group flex items-center gap-2.5 rounded-md text-sm whitespace-nowrap",
-          vertical ? "h-9 px-2.5" : "h-11 px-3",
+          // A phone fits all four student items in one row: icons show from 640 px.
+          vertical ? "h-9 px-2.5" : "h-11 px-2 sm:px-3",
         );
         if (!item.available) {
           const coming = t("shell.coming", { n: item.week });
@@ -70,7 +71,7 @@ export function NavList({
                   : "text-ink-muted hover:bg-paper-raised/70 hover:text-ink",
               )}
             >
-              <Icon className={cn("size-4 shrink-0", active ? "text-ink-blue" : "")} aria-hidden="true" />
+              <Icon className={cn("size-4 shrink-0", active ? "text-ink-blue" : "", !vertical && "hidden sm:block")} aria-hidden="true" />
               <span className="truncate">{label}</span>
             </Link>
           </li>

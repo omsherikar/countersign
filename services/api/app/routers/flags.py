@@ -1,8 +1,9 @@
-"""GET /flags and GET /flags/{id} (API_CONTRACT A2.15, A2.16), read-only in Week 2.
+"""GET /flags and GET /flags/{id} (API_CONTRACT A2.15, A2.16, A3.13).
 
 Scoping: AICTE_ADMIN all; RO_OFFICER flags against institutions of its region;
 INSTITUTION flags against itself, redacted (the other institution of a pair is never
-named, its enrolments are hidden and counted). UNIVERSITY and STUDENT get 403.
+named, its enrolments are hidden and counted, and it never sees who a flag is assigned
+to or the notes officers keep to themselves). UNIVERSITY and STUDENT get 403.
 """
 
 from __future__ import annotations
@@ -11,8 +12,13 @@ import uuid
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Select, case, distinct, false, func, or_, select
+from sqlalchemy import Select, case, distinct, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
+from app.cases import service as cases
+from app.cases import transitions
+from app.cases.service import scope_flags
 from app.core import audit
 from app.core.deps import RequestId, SessionDep, require_roles
 from app.core.errors import ApiError, not_found
@@ -31,8 +37,15 @@ from app.routers._enrolment_rows import (
     visible_facts,
     visible_summary,
 )
-from app.schemas.common import InstitutionRef, PageParams, ProgrammeRef, page_params
-from app.schemas.flags import Evidence, EvidenceFact, FlagDetail, FlagPage, FlagRow
+from app.schemas.common import IdName, InstitutionRef, PageParams, ProgrammeRef, page_params
+from app.schemas.flags import (
+    CaseHistoryItem,
+    Evidence,
+    EvidenceFact,
+    FlagDetail,
+    FlagPage,
+    FlagRow,
+)
 
 router = APIRouter(prefix="/flags", tags=["flags"])
 
@@ -43,17 +56,7 @@ FlagUser = Annotated[
 Paging = Annotated[PageParams, Depends(page_params)]
 FlagSort = Literal["severity_desc", "created_desc"]
 UNRESOLVED = "UNRESOLVED"
-
-
-def scope_flags(stmt: Select, user: User) -> Select:
-    """Restrict a SELECT joined to the flag's institution to what the user may see."""
-    if user.role is UserRole.AICTE_ADMIN:
-        return stmt
-    if user.role is UserRole.RO_OFFICER:
-        return stmt.where(Institution.region_id == user.region_id)
-    if user.role is UserRole.INSTITUTION:
-        return stmt.where(Flag.institution_id == user.institution_id)
-    return stmt.where(false())
+Assignee = aliased(User, name="assignee")
 
 
 def parse_statuses(raw: str | None) -> list[FlagStatus] | None:
@@ -82,13 +85,38 @@ def parse_statuses(raw: str | None) -> list[FlagStatus] | None:
     return out
 
 
+def _bad_query(field: str, message: str) -> ApiError:
+    return ApiError(
+        422,
+        "VALIDATION_ERROR",
+        f"{field}: {message[:1].lower()}{message[1:]}",
+        {"fields": [{"field": field, "message": message}]},
+    )
+
+
+def assignee_filter(raw: str | None, user: User) -> Any:
+    """`me`, `none` or an officer's id; ignored for a college, which never sees assignees."""
+    if raw is None or not raw.strip() or user.role is UserRole.INSTITUTION:
+        return None
+    token = raw.strip()
+    if token.lower() == "me":
+        return Flag.assignee_id == user.id
+    if token.lower() == "none":
+        return Flag.assignee_id.is_(None)
+    try:
+        return Flag.assignee_id == uuid.UUID(token)
+    except ValueError:
+        raise _bad_query("assignee", "Assignee must be me, none or an officer's id") from None
+
+
 def _base() -> Select:
     return (
-        select(Flag, Institution, State, Region, Programme)
+        select(Flag, Institution, State, Region, Programme, Assignee.name)
         .join(Institution, Institution.id == Flag.institution_id)
         .join(State, State.id == Institution.state_id)
         .join(Region, Region.id == Institution.region_id)
         .outerjoin(Programme, Programme.id == Flag.programme_id)
+        .outerjoin(Assignee, Assignee.id == Flag.assignee_id)
     )
 
 
@@ -106,8 +134,12 @@ def _row(
     state: State,
     region: Region,
     programme: Programme | None,
+    assignee_name: str | None,
     related_count: int,
 ) -> dict[str, Any]:
+    assignee = None
+    if flag.assignee_id is not None and is_officer(user):
+        assignee = IdName(id=str(flag.assignee_id), name=assignee_name or "")
     return dict(
         id=str(flag.id),
         type=flag.type.value,
@@ -128,7 +160,10 @@ def _row(
         academic_year=flag.academic_year,
         summary=visible_summary(user, flag.evidence),
         related_count=related_count,
-        assignee=None,
+        assignee=assignee,
+        response_received=flag.response_received,
+        docs_due_on=iso(flag.docs_due_on),
+        last_action_at=iso(flag.last_action_at),
         created_at=iso(flag.created_at) or "",
         updated_at=iso(flag.updated_at or flag.created_at) or "",
     )
@@ -163,9 +198,16 @@ async def list_flags(
     academic_year: Annotated[str | None, Query(pattern=r"^\d{4}-\d{2}$")] = None,
     q: Annotated[str | None, Query(max_length=120)] = None,
     sort: FlagSort = "severity_desc",
+    assignee: Annotated[str | None, Query(max_length=64)] = None,
+    response_received: bool | None = None,
 ) -> FlagPage:
     statuses = parse_statuses(status)
+    by_assignee = assignee_filter(assignee, user)
     stmt = scope_flags(_base(), user)
+    if by_assignee is not None:
+        stmt = stmt.where(by_assignee)
+    if response_received is not None:
+        stmt = stmt.where(Flag.response_received.is_(response_received))
     if type is not None:
         stmt = stmt.where(Flag.type == type)
     if severity is not None:
@@ -210,8 +252,8 @@ async def list_flags(
         else await _owners(session, {i for f, *_ in rows for i in f.related_enrolment_ids})
     )
     items = [
-        FlagRow(**_row(user, f, inst, st, rg, prog, len(_visible_related(user, f, owners))))
-        for f, inst, st, rg, prog in rows
+        FlagRow(**_row(user, f, inst, st, rg, prog, who, len(_visible_related(user, f, owners))))
+        for f, inst, st, rg, prog, who in rows
     ]
     return FlagPage(
         items=items,
@@ -226,10 +268,18 @@ async def list_flags(
 async def flag_detail(
     flag_id: uuid.UUID, session: SessionDep, user: FlagUser, request_id: RequestId
 ) -> FlagDetail:
+    return await build_detail(session, user, flag_id, request_id=request_id)
+
+
+async def build_detail(
+    session: AsyncSession, user: User, flag_id: uuid.UUID, *, request_id: str | None
+) -> FlagDetail:
+    """The flag as the caller may see it, with its history; the students shown are audited
+    as READs. Also the response of every case action."""
     row = (await session.execute(scope_flags(_base().where(Flag.id == flag_id), user))).first()
     if row is None:
         raise not_found("Flag")
-    flag, institution, state, region, programme = row
+    flag, institution, state, region, programme, assignee_name = row
     wanted = list(dict.fromkeys([*flag.related_enrolment_ids, flag.enrolment_id]))
     wanted = [i for i in wanted if i is not None]
     built = {
@@ -252,8 +302,9 @@ async def flag_detail(
     await audit.record_read(session, user.id, "student", shown_students, request_id=request_id)
 
     evidence = flag.evidence
+    college = user.role is UserRole.INSTITUTION
     return FlagDetail(
-        **_row(user, flag, institution, state, region, programme, len(related)),
+        **_row(user, flag, institution, state, region, programme, assignee_name, len(related)),
         evidence=Evidence(
             summary=visible_summary(user, evidence),
             facts=[EvidenceFact(**f) for f in visible_facts(user, evidence)],
@@ -263,5 +314,9 @@ async def flag_detail(
         enrolment=own,
         related_enrolments=related_rows,
         related_hidden=len(flag.related_enrolment_ids) - len(related),
-        history=[],
+        history=[CaseHistoryItem(**item) for item in await cases.history(session, flag, user)],
+        allowed_actions=[]
+        if college
+        else [a.value for a in transitions.allowed_actions(user.role, flag.status)],
+        can_respond=college and flag.status is FlagStatus.DOCS_REQUESTED,
     )

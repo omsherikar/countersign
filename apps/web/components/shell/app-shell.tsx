@@ -83,7 +83,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
   const student = role === "STUDENT";
 
   return (
-    <div className="flex min-h-dvh flex-col bg-paper">
+    <div className="flex min-h-dvh flex-col bg-paper print:min-h-0 print:bg-white">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-paper-raised focus:px-3 focus:py-2"
@@ -93,7 +93,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
       <React.Suspense fallback={null}>
         <DeniedNotice user={user} />
       </React.Suspense>
-      <header className="sticky top-0 z-40 border-b border-rule-strong bg-paper-raised">
+      <header className="sticky top-0 z-40 border-b border-rule-strong bg-paper-raised print:hidden">
         <div className="flex h-14 items-center gap-3 px-4 md:px-5">
           {!student && (
             <Sheet open={open} onOpenChange={setOpen}>
@@ -145,7 +145,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
       <div className="flex flex-1">
         {!student && (
           // The column carries the background and rule for the whole page height; only the nav inside it sticks.
-          <aside className="hidden w-[220px] shrink-0 border-r border-line bg-sidebar md:block">
+          <aside className="hidden w-[220px] shrink-0 border-r border-line bg-sidebar md:block print:hidden">
             <nav aria-label="Main" className="sticky top-14 max-h-[calc(100dvh-3.5rem)] overflow-y-auto p-3">
               <NavList items={items} />
             </nav>
@@ -153,7 +153,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
         )}
         <main
           id="main"
-          className={cn("min-w-0 flex-1 px-4 pt-6 pb-16 md:px-6", student ? "mx-auto max-w-[640px] md:px-4" : "max-w-[1328px]")}
+          className={cn("min-w-0 flex-1 px-4 pt-6 pb-16 md:px-6 print:max-w-none print:p-0", student ? "mx-auto max-w-[640px] md:px-4" : "max-w-[1328px]")}
         >
           {children}
         </main>

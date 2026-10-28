@@ -30,6 +30,10 @@ demo-reset: ## wipe both databases and Mailpit, then reseed: mockgov, uploads an
 	$(COMPOSE) run --rm api python -m app.seed.cli --reset --from /data/generated
 	$(COMPOSE) run --rm api python -m app.seed.replies --from /data/generated
 
+audit-tamper: ## change one audit entry to show the chain break (DEMO_MODE only): make audit-tamper SEQ=n
+	@test -n "$(SEQ)" || { echo "usage: make audit-tamper SEQ=n"; exit 2; }
+	$(COMPOSE) run --rm api python -m app.core.audit_tamper --seq $(SEQ)
+
 test: ## run every test suite inside compose
 	$(COMPOSE) run --rm api pytest -q
 	$(COMPOSE) run --rm mockgov pytest -q
@@ -38,4 +42,4 @@ test: ## run every test suite inside compose
 eval: ## run the accuracy evaluation (Week 4)
 	@echo "eval arrives in Week 4"
 
-.PHONY: help up down nuke logs datagen seed demo-reset test eval
+.PHONY: help up down nuke logs datagen seed demo-reset audit-tamper test eval

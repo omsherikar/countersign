@@ -30,6 +30,8 @@ async def test_audit_list_and_verify(admin):
         "at",
         "actor_id",
         "actor_email",
+        "actor_role",
+        "via",
         "action",
         "entity_type",
         "entity_id",
