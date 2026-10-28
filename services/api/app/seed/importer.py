@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.adapters.base import AdapterSet
 from app.adapters.factory import build_adapters
 from app.core import audit
+from app.core.cohort import start_year
 from app.core.crypto import hmac_bytes, normalise
 from app.core.rules import Rules, get_rules
 from app.core.security import hash_password, verify_password
@@ -51,7 +52,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.geo import Region, State, University
-from app.models.institution import Approval, Institution, Programme
+from app.models.institution import Approval, ApprovalVersion, Institution, Programme
 from app.models.seat import SeatPool
 from app.models.student import Student
 from app.models.upload import UploadBatch
@@ -129,6 +130,31 @@ class SeedError(ValueError):
 
 
 # ------------------------------------------------------------------ public API
+
+
+async def _keep_current_version(session: AsyncSession, approval: Approval) -> None:
+    """The approval's current version carries its intake; a new approval gets version 1,
+    in force from the start of its academic year (1 July), as migration 0004 backfills."""
+    version = (
+        await session.execute(
+            select(ApprovalVersion).where(
+                ApprovalVersion.approval_id == approval.id,
+                ApprovalVersion.version == approval.current_version,
+            )
+        )
+    ).scalar_one_or_none()
+    if version is None:
+        session.add(
+            ApprovalVersion(
+                approval_id=approval.id,
+                version=approval.current_version,
+                approved_intake=approval.approved_intake,
+                effective_from=date(start_year(approval.academic_year), 7, 1),
+                source="SEED",
+            )
+        )
+    else:
+        version.approved_intake = approval.approved_intake
 
 
 async def import_directory(
@@ -367,6 +393,7 @@ async def _import_programmes(
                 if cutoff:
                     approval.cutoff_date = date.fromisoformat(cutoff)
                 summary.bump("approvals", False)
+            await _keep_current_version(session, approval)
 
             has_pools = (
                 await session.execute(
