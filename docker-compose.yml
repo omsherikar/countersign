@@ -40,6 +40,8 @@ services:
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "1"
       MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+      # keeps every notice of a full seed (the default is 500)
+      MP_MAX_MESSAGES: "20000"
 
   api:
     build: ./services/api
@@ -50,6 +52,7 @@ services:
       - ./rules.yaml:/app/rules.yaml:ro
       - generated:/data/generated
       - upload-spool:/data/spool
+      - case-files:/data/case-files
     ports: ["8000:8000"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -71,6 +74,7 @@ services:
       - ./rules.yaml:/app/rules.yaml:ro
       - generated:/data/generated
       - upload-spool:/data/spool
+      - case-files:/data/case-files
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -122,5 +126,6 @@ volumes:
   pgdata:
   generated:
   upload-spool:
+  case-files:
   web_node_modules:
   web_next:
