@@ -28,3 +28,7 @@ test-results/
 playwright-report/
 # nested git worktrees used by build agents
 .worktrees/
+# rules.yaml is bind-mounted into containers at /app/rules.yaml, which creates placeholders in the bind-mounted service dirs
+services/api/rules.yaml
+tools/datagen/rules.yaml
+services/mockgov/rules.yaml
