@@ -14,6 +14,8 @@ from typing import Any
 from openpyxl import Workbook
 
 from . import geo
+from .graduates import records as graduate_records
+from .graduates import registry_records as graduate_registry_records
 from .institutions import ABC_ID, XYZ_ID, public_institution
 from .students import DEMO_APAAR, DEMO_NAME, UPLOAD_COLUMNS, World
 
@@ -234,7 +236,7 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         world.xlsx_written = True
 
     t = time.perf_counter()
-    registry = world.registry_records()
+    registry = world.registry_records() + graduate_registry_records(world.graduates)
     counselling = world.counselling_records()
     abc = world.abc_records()
     sii = world.sii_records()
@@ -243,6 +245,10 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     dump_jsonl(out / "mockgov" / "abc_credits.jsonl", abc)
     dump_jsonl(out / "mockgov" / "sii.jsonl", sii)
     world.timings["write_mockgov"] = time.perf_counter() - t
+
+    t = time.perf_counter()
+    dump_jsonl(out / "graduates.jsonl", graduate_records(world.graduates))
+    world.timings["write_graduates"] = time.perf_counter() - t
 
     ground_truth = finalize_ground_truth(world)
     dump_json(out / "ground_truth.json", ground_truth)
@@ -266,6 +272,7 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "counselling": len(counselling),
         "abc_credits": len(abc),
         "sii": len(sii),
+        "graduates": len(world.graduates),
         "ground_truth": len(ground_truth),
         "ground_truth_by_type": dict(sorted(by_type.items())),
     }

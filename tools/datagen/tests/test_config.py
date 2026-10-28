@@ -43,3 +43,12 @@ def test_update_files_per_size():
     assert (small.colleges, full.colleges) == (3, 20)
     assert small.withdrawals == (2, 4) and small.transfers == (1, 2) and small.refills == (1, 2)
     assert small.status_dates == ("2026-09-16", "2026-10-20")
+
+
+def test_graduates_per_size():
+    small = config.Config.build("small").graduates
+    full = config.Config.build("full").graduates
+    assert (small.count, full.count) == (40, 400)
+    assert small.abc >= 10 and full.abc >= 10
+    assert (small.academic_year, small.year_of_award, small.university) == ("2025-26", 2026, "MSTU")
+    assert small.provisional == (3, 5)

@@ -143,6 +143,8 @@ class World:
         self.refill_programmes: dict[str, str] = {}
         # aicte_id -> rows of its update file, in file order (see updates.py).
         self.update_files: dict[str, list[dict]] = {}
+        # graduates.jsonl records (graduates.py): people who are not on the roll.
+        self.graduates: list[dict] = []
         self._name_keys: dict[tuple[str, str], str] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]

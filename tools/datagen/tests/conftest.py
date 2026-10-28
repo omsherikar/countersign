@@ -23,7 +23,11 @@ class Generated:
         return self._json[name]
 
     def jsonl(self, name: str) -> list[dict]:
-        with open(self.path / "mockgov" / name, encoding="utf-8") as fh:
+        return self.lines(f"mockgov/{name}")
+
+    def lines(self, relative: str) -> list[dict]:
+        """Records of a JSON Lines file, by its path relative to the output directory."""
+        with open(self.path / relative, encoding="utf-8") as fh:
             return [json.loads(line) for line in fh if line.strip()]
 
     def file(self, relative: str) -> list[dict]:
@@ -50,9 +54,7 @@ class Generated:
         return {i["aicte_permanent_id"]: self.upload(i["aicte_permanent_id"]) for i in inst}
 
     def update_files(self) -> list[str]:
-        return sorted(
-            f"uploads/{p.name}" for p in (self.path / "uploads").glob("*_update*.csv")
-        )
+        return sorted(f"uploads/{p.name}" for p in (self.path / "uploads").glob("*_update*.csv"))
 
     def institutions(self) -> dict[str, dict]:
         return {i["aicte_permanent_id"]: i for i in self.json("institutions.json")["institutions"]}
