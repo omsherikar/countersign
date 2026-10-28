@@ -6,6 +6,33 @@ Suggested implementation: `apps/web/lib/copy.ts` exporting a flat object keyed b
 
 Counts: when a number is 1, use the singular noun ("1 flag opened", "1 row"). Sentences the api writes (flag `summary`, evidence facts, check `detail.summary`, row problem `message`, a failed batch's `error`) are printed verbatim; the deck mirrors them for review and the browser never rebuilds them.
 
+## Changes 2026-10-28: notices, cases, proofs and privacy
+
+Reconciled with DECISIONS D23 to D33 (student notices, the Student check, case actions, student-held proofs, the verifier, the degree QR, the audit page, consent and data requests, error codes). Update `apps/web/lib/copy.ts` and every caller.
+
+Renamed ids
+
+| old id | new id |
+|---|---|
+| case.history.response | case.history.COLLEGE_RESPONSE |
+| consent.withdraw | consent.withdraw.NOTICE, consent.withdraw.CREDENTIAL_SHARE and consent.unlink_apaar |
+
+Retired ids: `verify.coming` (the verifier is live), `university.degree_teaser` (Degree print is live), `flag.readonly_officer` (officers act from flag detail).
+
+Same id, new placeholders
+
+| id | change |
+|---|---|
+| verify.revoked_sub | `{revoked_date}` removed; the verifier result carries no revocation date |
+
+Same id, new text: `check.pending.student` (No reply yet; "Notice not sent yet" moves to `check.pending.student_not_sent`), `kpi.countersigned_tip`, `student.check_student_pending`, `notice.expired`, `notice.expired.hi`, `notice.invalid`, `wallet.kind.DEGREE` (Degree proof), `consent.apaar_link`, `consent.notice`, `consent.credential_share`, `verify.lead`, `verify.placeholder` (6 groups of 4), `verify.what`, `verify.revocation` (Revocation checked just now), `verify.expired_sub`, `verify.invalid`, `verify.invalid_sub`, `degree.issue_note`, `college.respond_files` (up to 3 files, 5 MB each, PDF, PNG or JPEG), `flag.readonly_college`, `flag.STUDENT_DENIED.summary` (now raised, High; its facts gain Channel, Reply changed and the officers-only comment), `audit.col.seq` (Entry), `empty.notices_student`, `empty.credentials_student`, `empty.graduates`.
+
+New ids, by prefix: `check.pending.student_not_sent`, `check.pending.student_expired`, `check.detail.STUDENT.*` (§15); `notice_channel.*`, `notice_delivery.*`, `consent_purpose.*`, `consent_state.*`, `data_request_kind.*`, `data_request_status.*`, `audit_action.*` (§4); `flag.STUDENT_DENIED.summary_changed`; the new `notice.*` rows and their `.hi` rows, `provisional.label.hi`, `consent.notice.hi`, `err.NETWORK.hi`, `err.INTERNAL.hi`, `err.retry.hi`; `notices.*`; `student.check_student_sent`, `student.check_student_expired`, `student.check_student_denied`, `student.consent_change`; the new `wallet.*` rows; `verify.*` for the entry page, the result states, the degree QR and the field labels; `degree.*` for the graduates table, the issue sheet and the print view; `case.*` for Reopen, Assign, the status lines and the history rows (`case.history.*`, `case.system_note.*`); the new `college.respond_*` rows; `email.docs_request.*`; `enrolment.section.notice`, `enrolment.notice.*`, `resend.*`; `flags.filter.assignee*`, `flags.filter.response*`; `audit.*` for filters and chain results; `admin.requests.*`; `privacy.*` (§20); `nav.data_requests`; `empty.graduates_search`, `empty.audit_filtered`; `err.NOTICE_NOT_FOUND`, `err.NOTICE_EXPIRED`, `err.NOTICE_ALREADY_CHANGED`, `err.FLAG_TRANSITION_INVALID`, `err.ATTACHMENT_TOO_LARGE`, `err.ATTACHMENT_TYPE`, `err.CREDENTIAL_NOT_ELIGIBLE`, `err.CREDENTIAL_REVOKED`, `err.PRESENTATION_NOT_FOUND`, `err.RESEND_LIMIT`, `err.NOTICE_LIVE`.
+
+Strings the web kept outside the deck and now has ids for: `app.student.consent_change` becomes `student.consent_change`; `app.verify.what_is` becomes `verify.about`; `app.verify.bar` becomes `verify.bar`.
+
+Fields the deck reads that the contract must carry: `detail.notice_state` (`NOT_SENT`, `SENT`, `EXPIRED`) on the Student check, `revoked_reason` codes on a proof (`ENROLMENT_WITHDRAWN`, `ENROLMENT_TRANSFERRED`, `FLAG_CONFIRMED`, else the admin's text), and the student's own data requests with their replies.
+
 ## Changes 2026-10-28
 
 Reconciled with API_CONTRACT Addendum 2, ENGINES.md and DECISIONS D14 to D22. Update `apps/web/lib/copy.ts` and every caller.
