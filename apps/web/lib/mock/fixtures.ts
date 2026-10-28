@@ -488,6 +488,7 @@ export function seatsFor(detail: InstitutionDetail): SeatRow[] {
         rows.push({
           id: `${p.id.slice(0, 8)}-${LETTER[pool.seat_type]}${String(n).padStart(3, "0")}-4000-8000-000000000000`,
           seat_code: `${p.code}-${LETTER[pool.seat_type]}-${String(n).padStart(3, "0")}`,
+          academic_year: p.approval.academic_year,
           programme_code: p.code,
           seat_type: pool.seat_type,
           status: "FREE",

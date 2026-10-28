@@ -181,6 +181,8 @@ export interface InstitutionDetail extends Omit<InstitutionRow, "programmes" | "
 export interface SeatRow {
   id: string;
   seat_code: string;
+  /** Approval year the seat belongs to; the api defaults to the current academic year. */
+  academic_year: string;
   programme_code: string;
   seat_type: SeatType;
   status: SeatStatus;
