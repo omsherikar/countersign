@@ -10,34 +10,29 @@ the file again finishes the job because every stage is idempotent.
 
 from __future__ import annotations
 
-import importlib
 import json
 import logging
 import math
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import jellyfish
 from sqlalchemy import delete, exists, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.base import AdapterSet
 from app.adapters.factory import build_adapters
-from app.core import audit, crypto
+from app.core import audit
 from app.core.config import get_settings
 from app.db.session import session_factory
 from app.engine.contracts import (
     CHUNK_SIZE,
-    DEFAULT_CHECK_CONCURRENCY,
     ChecksResult,
-    DuplicatesResult,
     EngineSuite,
     FlagTally,
-    LedgerResult,
     PoolRef,
 )
 from app.engine.upload.batches import empty_counts
@@ -130,109 +125,14 @@ def chunks[T](items: Sequence[T], size: int = CHUNK_SIZE) -> Iterable[Sequence[T
         yield items[start : start + size]
 
 
-# ------------------------------------------------------------------ engine suites
-
-ENGINE_MODULES = ("matching", "ledger", "checks", "duplicates", "flags")
-
-
-class ModuleEngines:
-    """The engine modules of app.engine behind the EngineSuite protocol."""
-
-    def __init__(self, matching: Any, ledger: Any, checks: Any, duplicates: Any, flags: Any):
-        self._matching = matching
-        self._ledger = ledger
-        self._checks = checks
-        self._duplicates = duplicates
-        self._flags = flags
-
-    def normalise_name(self, raw: str) -> str:
-        return self._matching.normalise_name(raw)
-
-    def name_key(self, name: str, dob: date) -> str:
-        return self._matching.name_key(name, dob)
-
-    async def assign_seats(
-        self, session: AsyncSession, enrolment_ids: Sequence[uuid.UUID], *, actor_id
-    ) -> LedgerResult:
-        return await self._ledger.assign_seats(session, enrolment_ids, actor_id=actor_id)
-
-    async def run_checks(
-        self,
-        session: AsyncSession,
-        enrolment_ids: Sequence[uuid.UUID],
-        adapters: AdapterSet,
-        *,
-        concurrency: int = DEFAULT_CHECK_CONCURRENCY,
-        actor_id: uuid.UUID | None = None,
-    ) -> ChecksResult:
-        return await self._checks.run_checks(
-            session, enrolment_ids, adapters, concurrency=concurrency, actor_id=actor_id
-        )
-
-    async def detect_duplicates(
-        self,
-        session: AsyncSession,
-        institution_id: uuid.UUID,
-        academic_year: str,
-        enrolment_ids: Sequence[uuid.UUID],
-        *,
-        actor_id: uuid.UUID | None = None,
-    ) -> DuplicatesResult:
-        return await self._duplicates.detect_duplicates(
-            session, institution_id, academic_year, enrolment_ids, actor_id=actor_id
-        )
-
-    async def refresh_seat_flags(
-        self, session: AsyncSession, pools: Sequence[PoolRef], *, actor_id=None
-    ) -> FlagTally:
-        return await self._flags.refresh_seat_flags(session, pools, actor_id=actor_id)
-
-
-class UploadOnlyEngines:
-    """Used until the engine modules exist: students and enrolments are saved, nothing else.
-
-    Names are normalised with the Week 1 rule; the blocking key follows ENGINES.md §6.
-    """
-
-    def normalise_name(self, raw: str) -> str:
-        return crypto.normalise_name(raw)
-
-    def name_key(self, name: str, dob: date) -> str:
-        tokens = crypto.normalise_name(name).split()
-        initial = tokens[0][0] if tokens else "?"
-        surname = jellyfish.metaphone(tokens[-1]) if tokens else ""
-        return f"{dob.isoformat()}|{initial}|{surname}"
-
-    async def assign_seats(self, session, enrolment_ids, *, actor_id) -> LedgerResult:
-        return LedgerResult()
-
-    async def run_checks(
-        self, session, enrolment_ids, adapters, *, concurrency=DEFAULT_CHECK_CONCURRENCY,
-        actor_id=None,
-    ) -> ChecksResult:  # fmt: skip
-        return ChecksResult()
-
-    async def detect_duplicates(
-        self, session, institution_id, academic_year, enrolment_ids, *, actor_id=None
-    ) -> DuplicatesResult:
-        return DuplicatesResult()
-
-    async def refresh_seat_flags(self, session, pools, *, actor_id=None) -> FlagTally:
-        return FlagTally()
+# ------------------------------------------------------------------ engine suite
 
 
 def default_engines() -> EngineSuite:
     """The real engine modules, imported here and never at module import time."""
-    modules = []
-    for name in ENGINE_MODULES:
-        try:
-            modules.append(importlib.import_module(f"app.engine.{name}"))
-        except ModuleNotFoundError as exc:
-            if exc.name != f"app.engine.{name}":
-                raise
-            log.warning("engine module app.engine.%s is missing; uploads skip the engines", name)
-            return UploadOnlyEngines()
-    return ModuleEngines(*modules)
+    from app.engine.suite import DefaultEngines
+
+    return DefaultEngines()
 
 
 # ---------------------------------------------------------------------- run_batch

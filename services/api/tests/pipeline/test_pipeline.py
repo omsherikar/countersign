@@ -7,7 +7,6 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -359,23 +358,10 @@ async def test_seed_batches_run_as_the_system(world, tmp_path):
     assert all(actors == {None} for actors in engines.actors.values())
 
 
-def test_default_engines_fall_back_until_the_engine_modules_exist(monkeypatch):
-    real_import = pipeline.importlib.import_module
+def test_default_engines_are_the_engine_modules():
+    from app.engine.suite import DefaultEngines
 
-    def missing(name: str):
-        if name == "app.engine.ledger":
-            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
-        return real_import(name)
-
-    monkeypatch.setattr(pipeline.importlib, "import_module", missing)
-    fallback = pipeline.default_engines()
-    assert isinstance(fallback, pipeline.UploadOnlyEngines)
-    assert fallback.normalise_name("Shri. R. K. Sharma") == "shri r k sharma"
-    assert fallback.name_key("R. K. Sharma", date(2007, 3, 21)) == "2007-03-21|r|XRM"
-
-    def broken(name: str):
-        raise ModuleNotFoundError("No module named 'numpy'", name="numpy")
-
-    monkeypatch.setattr(pipeline.importlib, "import_module", broken)
-    with pytest.raises(ModuleNotFoundError):
-        pipeline.default_engines()
+    engines = pipeline.default_engines()
+    assert isinstance(engines, DefaultEngines)
+    assert engines.normalise_name("Shri. R. K. Sharma") == "r k sharma"
+    assert engines.name_key("R. K. Sharma", date(2007, 3, 21)) == "2007-03-21|r|XRM"
