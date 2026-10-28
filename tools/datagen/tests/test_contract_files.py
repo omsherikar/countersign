@@ -37,7 +37,13 @@ def test_every_contract_file_exists(small):
         aid = inst["aicte_permanent_id"]
         assert (small.path / "uploads" / f"{aid}_2026-27.csv").is_file()
         assert (small.path / "uploads" / f"{aid}_2026-27.xlsx").is_file()
-    assert len(list((small.path / "uploads").glob("*.csv"))) == len(insts)
+    updates = small.update_files()
+    assert updates
+    for name in updates:
+        assert re.fullmatch(r"uploads/[^_]+_2026-27_update1\.csv", name)
+        assert (small.path / name.replace(".csv", ".xlsx")).is_file()
+    assert len(list((small.path / "uploads").glob("*.csv"))) == len(insts) + len(updates)
+    assert len(list((small.path / "uploads").glob("*.xlsx"))) == len(insts) + len(updates)
 
 
 def test_csv_columns_match_contract(small):
@@ -58,6 +64,16 @@ def test_xlsx_mirrors_csv(small):
     assert first[1] == "Ravi Kumar Sharma"
     assert str(first[11]) == "1"
     assert first[18] == rows[0]["admission_date"]
+    for name in small.update_files():
+        csv_rows = small.file(name)
+        wb = load_workbook(small.path / name.replace(".csv", ".xlsx"), read_only=True)
+        values = list(wb["students"].iter_rows(values_only=True))
+        assert list(values[0]) == CONTRACT_COLUMNS
+        assert len(values) - 1 == len(csv_rows)
+        for cells, row in zip(values[1:], csv_rows, strict=True):
+            assert [("" if c is None else str(c)) for c in cells] == [
+                row[c] for c in CONTRACT_COLUMNS
+            ]
 
 
 def admission_window(year_of_study: int) -> tuple[str, str]:
@@ -161,6 +177,8 @@ def test_manifest_and_summary(small):
     assert counts["students"] == sum(len(r) for r in small.all_uploads().values())
     assert counts["apaar_registry"] == len(small.jsonl("apaar_registry.jsonl"))
     assert counts["upload_files"] == len(small.all_uploads())
+    assert counts["update_files"] == len(small.update_files())
+    assert counts["update_rows"] == sum(len(small.file(f)) for f in small.update_files())
     summary = small.json("summary.json")
     assert summary["counts"] == counts
     assert summary["xlsx_written"] is True

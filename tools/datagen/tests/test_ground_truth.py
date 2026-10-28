@@ -195,3 +195,4 @@ def test_scenarios_can_be_switched_off(small_no_scenarios):
     assert small_no_scenarios.summary["xlsx_written"] is False
     assert small_no_scenarios.summary["xlsx_note"]
     assert not list((small_no_scenarios.path / "uploads").glob("*.xlsx"))
+    assert small_no_scenarios.update_files()

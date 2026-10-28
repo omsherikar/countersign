@@ -25,6 +25,20 @@ def upload_filename(aicte_id: str, academic_year: str, ext: str = "csv") -> str:
     return f"uploads/{aicte_id}_{academic_year}.{ext}"
 
 
+def update_filename(aicte_id: str, academic_year: str, n: int = 1, ext: str = "csv") -> str:
+    return f"uploads/{aicte_id}_{academic_year}_update{n}.{ext}"
+
+
+def materialise(row: dict) -> None:
+    """An update row of an existing student repeats every column of its initial row."""
+    initial = row.get("_initial")
+    if initial is None:
+        return
+    for column in UPLOAD_COLUMNS:
+        if column not in {"status", "status_date"}:
+            row[column] = initial[column]
+
+
 def row_sort_key(inst: dict):
     order = {p["code"]: i for i, p in enumerate(inst["programmes"])}
 
@@ -139,29 +153,32 @@ def users_payload(world: World) -> list[dict]:
     return users
 
 
+def row_detail(row: dict) -> dict:
+    detail = {
+        "file": row["_file"],
+        "row_no": row["row_no"],
+        "institution_aicte_id": row["_inst"],
+        "apaar_id": row["apaar_id"] or None,
+        "name": row["name"],
+        "programme_code": row["programme_code"],
+        "year_of_study": row["year_of_study"],
+    }
+    initial = row.get("_initial")
+    if initial is not None:
+        detail["initial_file"] = initial["_file"]
+        detail["initial_row_no"] = initial["row_no"]
+    return detail
+
+
 def finalize_ground_truth(world: World) -> list[dict]:
-    year = world.cfg.academic_year
     out = []
     for rec in world.ground_truth:
         rows = rec.pop("_rows")
-        refs = []
-        details = []
-        for row in rows:
-            file = upload_filename(row["_inst"], year)
-            refs.append(student_ref(row, file))
-            details.append(
-                {
-                    "file": file,
-                    "row_no": row["row_no"],
-                    "institution_aicte_id": row["_inst"],
-                    "apaar_id": row["apaar_id"] or None,
-                    "name": row["name"],
-                    "programme_code": row["programme_code"],
-                    "year_of_study": row["year_of_study"],
-                }
-            )
-        rec["student_refs"] = refs
-        rec["rows"] = details
+        released = rec.pop("_released", None)
+        rec["student_refs"] = [student_ref(row, row["_file"]) for row in rows]
+        rec["rows"] = [row_detail(row) for row in rows]
+        if released is not None:
+            rec["released_rows"] = [row_detail(row) for row in released]
         out.append(rec)
     return out
 
@@ -188,21 +205,31 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
     world.timings["write_institutions_users"] = time.perf_counter() - t
 
     t = time.perf_counter()
+    files: list[tuple[str, list[dict]]] = []
     for inst in world.institutions:
-        rows = world.rows_by_inst[inst["aicte_permanent_id"]]
+        aid = inst["aicte_permanent_id"]
+        rows = world.rows_by_inst[aid]
         rows.sort(key=row_sort_key(inst))
+        files.append((upload_filename(aid, year), rows))
+    updates: list[tuple[str, list[dict]]] = []
+    for inst in world.institutions:
+        aid = inst["aicte_permanent_id"]
+        if world.update_files.get(aid):
+            updates.append((update_filename(aid, year), world.update_files[aid]))
+    for name, rows in files + updates:
         # Spreadsheet numbering, as the api reports it: the header is row 1.
         for i, row in enumerate(rows, start=2):
+            materialise(row)
             row["row_no"] = i
-        write_csv(out / upload_filename(inst["aicte_permanent_id"], year), rows)
+            row["_file"] = name
+        write_csv(out / name, rows)
     world.timings["write_csv"] = time.perf_counter() - t
 
     world.xlsx_written = False
     if xlsx:
         t = time.perf_counter()
-        for inst in world.institutions:
-            rows = world.rows_by_inst[inst["aicte_permanent_id"]]
-            write_xlsx(out / upload_filename(inst["aicte_permanent_id"], year, "xlsx"), rows)
+        for name, rows in files + updates:
+            write_xlsx(out / name.replace(".csv", ".xlsx"), rows)
         world.timings["write_xlsx"] = time.perf_counter() - t
         world.xlsx_written = True
 
@@ -231,7 +258,9 @@ def write_all(world: World, out: Path, *, xlsx: bool = True) -> dict:
         "programmes": sum(len(i["programmes"]) for i in world.institutions),
         "approvals": sum(len(p["approvals"]) for i in world.institutions for p in i["programmes"]),
         "users": 7 + len(world.institutions) - 2,
-        "upload_files": len(world.institutions),
+        "upload_files": len(files),
+        "update_files": len(updates),
+        "update_rows": sum(len(rows) for _, rows in updates),
         "students": len(world.all_rows),
         "apaar_registry": len(registry),
         "counselling": len(counselling),

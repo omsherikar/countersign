@@ -141,6 +141,8 @@ class World:
         self.seat_cases: dict[tuple[str, str], str] = {}
         # aicte_id -> the programme whose first-year REGULAR pool its update file refills.
         self.refill_programmes: dict[str, str] = {}
+        # aicte_id -> rows of its update file, in file order (see updates.py).
+        self.update_files: dict[str, list[dict]] = {}
         self.streets = [self.fake.street_name() for _ in range(1500)]
         self.localities = [self.fake.city() for _ in range(300)]
         self.scale = 1.0
@@ -316,9 +318,10 @@ class World:
             self.y1_count[key] = self.y1_count.get(key, 0) + 1
         return row
 
-    def new_student(
+    def make_student(
         self, inst: dict, prog: dict, year_of_study: int, route: str, lateral: bool = False
     ) -> dict:
+        """A new student's row, not yet placed in any file."""
         start = academic_year_start(self.cfg.academic_year)
         admission_year = start - (year_of_study - 1) if not lateral else start
         row = self.base_row(inst, prog, year_of_study, admission_year)
@@ -328,7 +331,13 @@ class World:
         else:
             self.give_consent(row)
         self.set_route(row, inst, route)
-        return self.add_row(row)
+        return row
+
+    def new_student(
+        self, inst: dict, prog: dict, year_of_study: int, route: str, lateral: bool = False
+    ) -> dict:
+        """A new student on the college's initial file."""
+        return self.add_row(self.make_student(inst, prog, year_of_study, route, lateral))
 
     # --------------------------------------------------------------- cohorts
 
@@ -350,13 +359,17 @@ class World:
         if regular < 0:
             regular = 0
         routes += ["NRI"] * nri + ["TFW"] * tfw + ["INTERNATIONAL"] * intl
-        if govt:
+        routes += self.regular_routes(inst, regular)
+        return routes
+
+    def regular_routes(self, inst: dict, n: int) -> list[str]:
+        """Routes into the REGULAR pool, mixed as the college's type admits them."""
+        if inst["type"] in {"GOVERNMENT", "GOVERNMENT_AIDED", "UNIVERSITY_DEPARTMENT"}:
             weights = {"COUNSELLING": 94, "MANAGEMENT": 0, "SPOT": 6}
         else:
             weights = {"COUNSELLING": 70, "MANAGEMENT": 24, "SPOT": 6}
         keys = list(weights)
-        routes += self.rng.choices(keys, weights=[weights[k] for k in keys], k=regular)
-        return routes
+        return self.rng.choices(keys, weights=[weights[k] for k in keys], k=n)
 
     def estimate_rows(self) -> float:
         """Expected row count at scale 1, used to size cohorts toward target_students."""
@@ -638,7 +651,7 @@ class World:
     def registry_records(self) -> list[dict[str, Any]]:
         seen: set[str] = set()
         out = []
-        for row in self.all_rows:
+        for row in self.all_rows + self.update_only_rows:
             apaar = row["apaar_id"]
             if not apaar or row["_registry"] == "absent" or apaar in seen:
                 continue
