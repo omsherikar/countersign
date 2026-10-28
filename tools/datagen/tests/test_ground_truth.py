@@ -100,7 +100,8 @@ def test_abc_cse_132_against_120(small):
         for p in small.json("institutions.json")["institutions"][0]["programmes"]
         if p["code"] == "CSE"
     )
-    assert {"academic_year": "2026-27", "approved_intake": 120} in cse["approvals"]
+    approval = next(a for a in cse["approvals"] if a["academic_year"] == "2026-27")
+    assert approval["approved_intake"] == 120 and len(approval["versions"]) == 1
     rows = small.upload("1-ABC-0001")
     first_years = [r for r in rows if r["programme_code"] == "CSE" and r["year_of_study"] == "1"]
     assert len(first_years) == 132

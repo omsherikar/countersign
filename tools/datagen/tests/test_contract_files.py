@@ -101,11 +101,14 @@ def test_institutions_json_shape(small):
     inst = data["institutions"][0]
     assert set(inst) == {
         "aicte_permanent_id", "name", "type", "state_code", "university_code",
-        "address_city", "established_year", "programmes",
+        "address_city", "established_year", "autonomous", "programmes",
     }  # fmt: skip
     prog = inst["programmes"][0]
     assert {"code", "name", "level", "discipline", "shift", "approvals"} <= set(prog)
-    assert {"academic_year", "approved_intake"} == set(prog["approvals"][0])
+    assert {"academic_year", "approved_intake", "versions"} == set(prog["approvals"][0])
+    assert {"version", "approved_intake", "effective_from", "source"} == set(
+        prog["approvals"][0]["versions"][0]
+    )
     assert inst["aicte_permanent_id"] == "1-ABC-0001"
     assert inst["name"] == "ABC College of Engineering"
     assert inst["state_code"] == "MH"
@@ -155,7 +158,10 @@ def test_mockgov_jsonl_shapes(small):
     assert any(c["allotment_ref"] == "MHCET-2026-R1-004512" for c in cou)
 
     abc = small.jsonl("abc_credits.jsonl")
-    assert set(abc[0]) == {"apaar_id", "academic_year", "sem", "credits", "uploaded_at", "result"}
+    assert set(abc[0]) == {
+        "apaar_id", "academic_year", "sem", "credits", "uploaded_at", "result", "issuer",
+    }  # fmt: skip
+    assert {"type", "code", "name"} == set(abc[0]["issuer"])
     assert all(a["uploaded_at"].endswith("Z") for a in abc)
     assert all(a["result"] in {"PASS", "FAIL", "PENDING"} for a in abc)
     assert len({(a["apaar_id"], a["academic_year"], a["sem"]) for a in abc}) == len(abc)

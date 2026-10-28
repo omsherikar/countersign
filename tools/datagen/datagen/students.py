@@ -18,7 +18,7 @@ from faker import Faker
 
 from . import geo
 from .config import Config
-from .institutions import InstitutionBuilder, approved_intake
+from .institutions import InstitutionBuilder, approved_intake, assign_autonomy, credit_issuer
 from .matching import name_key
 from .names import NameGenerator
 
@@ -569,6 +569,7 @@ class World:
     def build_institutions(self) -> None:
         self.universities = geo.universities()
         self.institutions = InstitutionBuilder(self.rng, self.cfg).build()
+        assign_autonomy(self.institutions, self.seed, self.cfg.autonomous_share)
         for inst in self.institutions:
             self.inst_by_id[inst["aicte_permanent_id"]] = inst
             self.rows_by_inst[inst["aicte_permanent_id"]] = []
@@ -692,9 +693,13 @@ class World:
         return out
 
     def abc_records(self) -> list[dict[str, Any]]:
+        """Credits of every year a student completed, each naming its issuer: the college's
+        affiliating university, or the college itself when it is autonomous."""
         out = []
         seen: set[tuple[str, str, int]] = set()
         start = academic_year_start(self.cfg.academic_year)
+        names = {u["code"]: u["name"] for u in self.universities}
+        issuers = {aid: credit_issuer(inst, names) for aid, inst in self.inst_by_id.items()}
         for row in self.all_rows:
             apaar = row["apaar_id"]
             if not apaar or row["_registry"] == "absent" or row["year_of_study"] < 2:
@@ -730,6 +735,7 @@ class World:
                             "credits": credits,
                             "uploaded_at": uploaded,
                             "result": result,
+                            "issuer": issuers[row["_inst"]],
                         }
                     )
         return out

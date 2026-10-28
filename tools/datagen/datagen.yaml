@@ -66,3 +66,37 @@ graduates:
   other_universities:  3
   provisional:         [3, 5]
   status_dates:        ["2026-06-15", "2026-07-31"]
+
+# Credits issuers (ABC): this share of colleges is autonomous and issues its own credits
+# (XYZ Institute of Technology and every deemed university among them, ABC College never);
+# every other college's credits are issued by its affiliating university.
+autonomous_share: 0.30
+
+# The state admission authority's joining records (mockgov/joining_records.jsonl) and the
+# cases planted against them. `reporting_deadline` applies when rules.yaml has no
+# reporting.deadline for the year; other years default to 30 September of their start year.
+joining:
+  reporting_deadline: {"2026-27": "2026-09-30"}
+  joined_within_days: [0, 6]
+  late_joiners:         {small: 3,  full: 25}   # clean first-years who joined after the deadline
+  never_joined:         {small: 6,  full: 60}   # NOT_IN_JOINING_RECORD, the deck sample included
+  omitted_colleges:     {small: 3,  full: 25}   # MISSING_FROM_UPLOAD, one record per college
+  omitted_per_college:  [2, 6]
+
+# Eligibility markers on upload rows (tfw_income_certified, nri_sponsored, ciwg).
+eligibility:
+  nri_sponsored_share:  0.30                    # of NRI-route rows; the rest are NRI themselves
+  ciwg_rows:            {small: 2,  full: 12}   # CIWG students on CIWG-reserved seats
+  nri_breach:           {small: 1,  full: 8}    # ELIGIBILITY_BREACH: NRI route, not NRI
+  tfw_not_reported:     {small: 1,  full: 8}    # TFW row without tfw_income_certified
+
+# Colleges planted for the anomaly model (signals, never a status) and history.json.
+signals:
+  admission_spike:      {small: 1,  full: 5}    # first-years far above last year's admissions
+  nri_management_share: {small: 1,  full: 5}    # NRI and management share far above peers
+  retention:            [0.90, 0.98]            # last year's admissions = second-years / this
+
+# DigiLocker sign-in: refused-consent students who answer after claiming their record with
+# the provisional id the college gave them.
+digilocker:
+  provisional_claims:   {small: 4,  full: 30}

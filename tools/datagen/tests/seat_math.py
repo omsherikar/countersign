@@ -3,6 +3,7 @@
 from collections import Counter
 
 from datagen.config import load_rules
+from datagen.institutions import intake_on
 from datagen.students import Pools
 
 RULES = load_rules()
@@ -15,10 +16,19 @@ def cohort_label(year_of_study: int, academic_year: str = "2026-27") -> str:
     return f"{start}-{(start + 1) % 100:02d}"
 
 
+def cutoff_of(label: str) -> str:
+    return RULES["cutoff_dates"].get(label) or f"{label[:4]}-09-30"
+
+
 def intake(prog: dict, label: str) -> int | None:
+    """The intake the cohort was admitted against: the approval version in force on the
+    year's admission cutoff (a later revision, such as ABC College IT's v2, adds seats only
+    after the admissions it would otherwise seem to cover)."""
     for a in prog["approvals"]:
         if a["academic_year"] == label:
-            return a["approved_intake"]
+            if "versions" not in a:
+                return a["approved_intake"]
+            return intake_on(a, cutoff_of(label))
     return None
 
 

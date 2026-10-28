@@ -67,6 +67,21 @@ INSTITUTION_TYPES = (
 ABC_ID = "1-ABC-0001"
 XYZ_ID = "1-XYZ-0002"
 
+# Approval versions (institutions.json `approvals[].versions`). Every approval has version 1,
+# effective from APPROVAL_V1_DAY of its academic year's start; this table adds the revisions.
+# ABC College IT 2026-27: a revised approval raises the intake from 60 to 90 after the
+# admissions closed, so the first-years were admitted against version 1.
+APPROVAL_V1_DAY = "05-15"
+REVISIONS: dict[tuple[str, str, str], list[tuple[int, str, str]]] = {
+    ("1-ABC-0001", "IT", "2026-27"): [
+        (
+            90,
+            "2026-10-21",
+            "AICTE revised approval 2026-27, intake 60 to 90 (sample approval data)",
+        ),
+    ],
+}
+
 ABC_PROGRAMMES = [("CSE", 120), ("IT", 60), ("ECE", 120), ("MECH", 120), ("CIVIL", 60), ("MBA", 60)]
 XYZ_PROGRAMMES = [("CSE", 120), ("ECE", 90), ("EEE", 60), ("MECH", 60), ("CIVIL", 60), ("MCA", 60)]
 
@@ -286,16 +301,84 @@ class InstitutionBuilder:
         return out[:n]
 
 
-def public_institution(inst: dict) -> dict:
-    """The institutions.json shape: internal keys dropped, approvals kept."""
+def approval_versions(aicte_id: str, code: str, approval: dict) -> list[dict]:
+    """Version 1 as generated, then any revision in REVISIONS, oldest first."""
+    year = approval["academic_year"]
+    versions = [
+        {
+            "version": 1,
+            "approved_intake": approval["approved_intake"],
+            "effective_from": f"{year[:4]}-{APPROVAL_V1_DAY}",
+            "source": f"AICTE approval {year} (sample approval data)",
+        }
+    ]
+    for intake, effective_from, source in REVISIONS.get((aicte_id, code, year), []):
+        versions.append(
+            {
+                "version": len(versions) + 1,
+                "approved_intake": intake,
+                "effective_from": effective_from,
+                "source": source,
+            }
+        )
+    return versions
+
+
+def public_approval(aicte_id: str, code: str, approval: dict) -> dict:
+    """`approved_intake` is the current (latest) version's; `versions` keeps the history.
+    Generation itself always uses version 1, the approval the cohorts were admitted against."""
+    versions = approval_versions(aicte_id, code, approval)
     return {
-        "aicte_permanent_id": inst["aicte_permanent_id"],
+        "academic_year": approval["academic_year"],
+        "approved_intake": versions[-1]["approved_intake"],
+        "versions": versions,
+    }
+
+
+def intake_on(approval: dict, day: str) -> int:
+    """The intake in force on `day` (ISO date) for a public approval with versions."""
+    in_force = [v for v in approval["versions"] if v["effective_from"] <= day]
+    return (in_force or approval["versions"][:1])[-1]["approved_intake"]
+
+
+def assign_autonomy(institutions: list[dict], seed: int, share: float) -> None:
+    """Mark about `share` of the colleges autonomous (`_autonomous`), deterministically: XYZ
+    Institute of Technology and every deemed university always, ABC College never, the rest
+    drawn from a stream of its own so nothing else changes."""
+    rng = random.Random(f"autonomous:{seed}")
+    for inst in institutions:
+        inst["_autonomous"] = inst["type"] == "DEEMED" or inst["aicte_permanent_id"] == XYZ_ID
+    target = int(len(institutions) * share + 0.5)
+    pool = [
+        i for i in institutions
+        if not i["_autonomous"] and i["aicte_permanent_id"] != ABC_ID and i["university_code"]
+    ]  # fmt: skip
+    need = max(0, target - sum(i["_autonomous"] for i in institutions))
+    for inst in rng.sample(pool, min(need, len(pool))):
+        inst["_autonomous"] = True
+
+
+def credit_issuer(inst: dict, university_names: dict[str, str]) -> dict:
+    """Who issues the college's ABC credits: itself when autonomous (or a deemed university,
+    which has no affiliating university), else its affiliating university."""
+    if inst.get("_autonomous") or not inst["university_code"]:
+        return {"type": "INSTITUTION", "code": inst["aicte_permanent_id"], "name": inst["name"]}
+    code = inst["university_code"]
+    return {"type": "UNIVERSITY", "code": code, "name": university_names[code]}
+
+
+def public_institution(inst: dict) -> dict:
+    """The institutions.json shape: internal keys dropped, approvals kept with versions."""
+    aicte_id = inst["aicte_permanent_id"]
+    return {
+        "aicte_permanent_id": aicte_id,
         "name": inst["name"],
         "type": inst["type"],
         "state_code": inst["state_code"],
         "university_code": inst["university_code"],
         "address_city": inst["address_city"],
         "established_year": inst["established_year"],
+        "autonomous": bool(inst.get("_autonomous", False)),
         "programmes": [
             {
                 "code": p["code"],
@@ -305,7 +388,7 @@ def public_institution(inst: dict) -> dict:
                 "shift": p["shift"],
                 "mode": p["mode"],
                 "duration_years": p["duration_years"],
-                "approvals": p["approvals"],
+                "approvals": [public_approval(aicte_id, p["code"], a) for a in p["approvals"]],
             }
             for p in inst["programmes"]
         ],
