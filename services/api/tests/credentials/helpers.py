@@ -24,6 +24,11 @@ def b64json(part: str):
     return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
 
 
+def b64(value) -> str:
+    """The base64url JSON form of a value, as a disclosure carries it."""
+    return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+
 @asynccontextmanager
 async def signed_in(email: str) -> AsyncIterator[httpx.AsyncClient]:
     client = await login_as(email)

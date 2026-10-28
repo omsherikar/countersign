@@ -21,6 +21,7 @@ from app.db.session import session_factory
 from app.models.audit import AuditLog
 from app.models.credential import CredentialPresentation
 from tests.credentials.helpers import (
+    b64,
     b64json,
     public,
     ravis_proof,
@@ -29,10 +30,6 @@ from tests.credentials.helpers import (
 )
 
 THREE = ["institution", "programme", "academic_year"]
-
-
-def b64(value) -> str:
-    return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
 
 
 async def _share(student, credential_id, fields=("academic_year",)) -> dict:

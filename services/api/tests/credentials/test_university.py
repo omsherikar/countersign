@@ -5,14 +5,17 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
+from app.credentials import holder, issuer
 from app.db.session import session_factory
 from app.models.audit import AuditLog
+from app.models.credential import CredentialPresentation
 from app.models.enums import EnrolmentStatus
 from app.models.student import Enrolment, Student
+from app.models.user import User
 from tests.credentials.conftest import ravi_enrolment
-from tests.credentials.helpers import b64json, public, signed_in
+from tests.credentials.helpers import b64, b64json, public, signed_in, stored_presentation
 from tests.credentials.test_degree import _pdf_text
 
 
@@ -71,8 +74,6 @@ async def test_graduates_by_scope_and_search(world):
             found = (await university.get("/university/graduates", params={"q": q})).json()
             assert [row["student"]["name"] for row in found["items"]] == names
 
-        xyz = (await admin.get("/meta/regions")).status_code  # any signed-in read works
-        assert xyz == 200
         async with session_factory()() as session:
             sowmya = await session.get(Enrolment, await _graduate("Sowmya Ramesh"))
         outside = await university.get(
@@ -92,7 +93,8 @@ async def test_graduates_by_scope_and_search(world):
             .scalars()
             .all()
         )
-    assert len(reads) >= 3
+    listed = {row["student"]["id"] for row in own["items"]}
+    assert listed <= {str(r.entity_id) for r in reads if r.actor_id is not None}
 
 
 async def test_issue_print_and_verify_a_degree(world):
@@ -265,3 +267,43 @@ async def test_a_provisional_graduate_and_a_shared_degree(world):
         pdf = await admin.get(f"/university/degrees/{gauri}/insert.pdf")
         assert "(Provisional id PRV-XXXXKN7A)" in _pdf_text(pdf.content)
         assert "GQ4DKN7A" not in _pdf_text(pdf.content)
+
+
+async def test_a_shared_degree_is_not_holder_bound_but_still_tamper_evident(world):
+    meera = await _graduate("Meera Kulkarni")
+    async with session_factory()() as session:
+        admin_user = (
+            await session.execute(select(User).where(User.email == "admin@aicte.demo"))
+        ).scalar_one()
+        degree_proof, _ = await issuer.issue_degree(session, meera, actor_id=admin_user.id)
+        share = await holder.present(session, degree_proof, admin_user, fields=["name"])
+        await session.commit()
+
+    assert share["disclosed"] == ["name", "institution", "programme"] and share["total"] == 6
+    row = await stored_presentation(share["id"])
+    assert row.presentation.endswith("~")  # no key binding: a degree has no holder key
+    async with public() as anyone:
+        body = (await anyone.get(f"/verify/{share['code']}")).json()
+        assert body["result"] == "VALID" and body["kind"] == "DEGREE"
+        assert body["holder_bound"] is False
+        assert body["university_name"] is None  # not disclosed
+        assert [d["key"] for d in body["disclosed"]] == ["name", "institution", "programme"]
+
+        # a disclosure the issuer never signed makes the proof invalid, not shorter
+        jwt, *disclosures, tail = row.presentation.split("~")
+        renamed = []
+        for d in disclosures:
+            salt, key, _value = b64json(d)
+            renamed.append(b64([salt, key, "Someone Else"]) if key == "name" else d)
+        tampered = "~".join([jwt, *renamed, tail])
+        async with session_factory()() as session:
+            await session.execute(
+                update(CredentialPresentation)
+                .where(CredentialPresentation.id == row.id)
+                .values(presentation=tampered)
+            )
+            await session.commit()
+        forged = (await anyone.get(f"/verify/{share['code']}")).json()
+        assert forged["result"] == "INVALID" and "Someone" not in str(forged)
+        pasted = (await anyone.post("/verify", json={"presentation": tampered})).json()
+        assert pasted["result"] == "INVALID"
