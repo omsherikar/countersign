@@ -149,7 +149,7 @@ export function AppShell({ role, user: serverUser, children }: { role: ShellRole
         )}
         <main
           id="main"
-          className={cn("min-w-0 flex-1 px-4 pt-6 pb-16 md:px-8", student ? "mx-auto max-w-[640px] md:px-4" : "max-w-[1328px]")}
+          className={cn("min-w-0 flex-1 px-4 pt-6 pb-16 md:px-6", student ? "mx-auto max-w-[640px] md:px-4" : "max-w-[1328px]")}
         >
           {children}
         </main>
