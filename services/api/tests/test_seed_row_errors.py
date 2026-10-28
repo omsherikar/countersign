@@ -36,7 +36,8 @@ async def test_invalid_apaar_rows_are_recorded_not_fatal(clean_db):
             "admission_route",
         }
         batch = await session.get(UploadBatch, error.batch_id)
-        assert (batch.rows_total, batch.rows_ok, batch.rows_error) == (9, 8, 1)
+        assert batch.total_rows == 9
+        assert (batch.counts["accepted"], batch.counts["errors"]) == (8, 1)
         assert batch.status.value == "DONE" and batch.kind.value == "INITIAL"
         lokesh = (
             await session.execute(select(Student).where(Student.name == "Lokesh Patil"))
