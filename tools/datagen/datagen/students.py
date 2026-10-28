@@ -782,7 +782,7 @@ class World:
                             "credits": credits,
                             "uploaded_at": uploaded,
                             "result": result,
-                            "issuer": issuers[row["_inst"]],
+                            **issuers[row["_inst"]],
                         }
                     )
         return out

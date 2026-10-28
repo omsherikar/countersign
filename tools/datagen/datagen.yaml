@@ -83,12 +83,14 @@ joining:
   omitted_colleges:     {small: 3,  full: 25}   # MISSING_FROM_UPLOAD, one record per college
   omitted_per_college:  [2, 6]
 
-# Eligibility markers on upload rows (tfw_income_certified, nri_sponsored, ciwg).
+# Eligibility markers on upload rows (tfw_income_certified, nri_sponsored, ciwg; yes or no,
+# blank when not reported) and the rows planted against them (API_CONTRACT A4.4).
 eligibility:
-  nri_sponsored_share:  0.30                    # of NRI-route rows; the rest are NRI themselves
   ciwg_rows:            {small: 2,  full: 12}   # CIWG students on CIWG-reserved seats
-  nri_breach:           {small: 1,  full: 8}    # ELIGIBILITY_BREACH: NRI route, not NRI
-  tfw_not_reported:     {small: 1,  full: 8}    # TFW row without tfw_income_certified
+  nri_status:           {small: 1,  full: 6}    # ELIGIBILITY_BREACH: NRI seat, nri_sponsored no
+  tfw_income:           {small: 1,  full: 6}    # ELIGIBILITY_BREACH: TFW seat, certificate no
+  international_ciwg:   {small: 1,  full: 4}    # ELIGIBILITY_BREACH: nationality IN, not ciwg
+  tfw_not_reported:     {small: 2,  full: 10}   # TFW row without the certificate: Seat PENDING
 
 # Colleges planted for the anomaly model (signals, never a status) and history.json.
 signals:

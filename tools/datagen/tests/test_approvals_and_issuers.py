@@ -7,38 +7,47 @@ from datagen.config import load_datagen_config
 ABC, XYZ = "1-ABC-0001", "1-XYZ-0002"
 
 
-def test_every_approval_has_version_one_and_the_current_intake(small):
-    revised = []
+def test_every_approval_lists_its_versions_with_the_current_intake(small):
+    revised = 0
+    total = 0
     for inst in small.json("institutions.json")["institutions"]:
         for prog in inst["programmes"]:
             for approval in prog["approvals"]:
+                total += 1
                 versions = approval["versions"]
-                assert [v["version"] for v in versions] == list(range(1, len(versions) + 1))
-                first = versions[0]
                 year = approval["academic_year"]
-                assert first["effective_from"] == f"{year[:4]}-05-15"
-                assert first["source"] == f"AICTE approval {year} (sample approval data)"
+                assert [v["version"] for v in versions] == list(range(1, len(versions) + 1))
                 assert approval["approved_intake"] == versions[-1]["approved_intake"]
-                dates = [v["effective_from"] for v in versions]
-                assert dates == sorted(dates)
-                if len(versions) > 1:
-                    revised.append((inst["aicte_permanent_id"], prog["code"], year))
-    assert revised == [(ABC, "IT", "2026-27")]
+                assert versions[0]["effective_from"] == f"{year[:4]}-03-15"
+                assert versions[0]["source"] == f"AICTE EoA {year}"
+                if len(versions) == 2:
+                    revised += 1
+                    v1, v2 = versions
+                    assert v2["effective_from"] == f"{year[:4]}-05-20"
+                    assert v2["source"] == f"AICTE EoA {year}, revised"
+                    assert v1["approved_intake"] < v2["approved_intake"]
+                assert len(versions) <= 2
+    assert 0.05 <= revised / total <= 0.15
 
 
-def test_abc_it_2026_27_is_raised_mid_year_after_admissions(small):
+def test_abc_cse_2026_27_was_revised_from_90_to_120_before_admissions(small):
     abc = small.institutions()[ABC]
-    it = next(p for p in abc["programmes"] if p["code"] == "IT")
-    approval = next(a for a in it["approvals"] if a["academic_year"] == "2026-27")
-    v1, v2 = approval["versions"]
-    assert (v1["approved_intake"], v2["approved_intake"]) == (60, 90)
-    assert approval["approved_intake"] == 90
-    assert v2["effective_from"] == "2026-10-21" and "60 to 90" in v2["source"]
-    # The first-years were admitted against version 1, before the revision took effect.
-    first_years = [r for r in small.upload(ABC) if r["programme_code"] == "IT"]
+    cse = next(p for p in abc["programmes"] if p["code"] == "CSE")
+    approval = next(a for a in cse["approvals"] if a["academic_year"] == "2026-27")
+    assert approval == {
+        "academic_year": "2026-27",
+        "approved_intake": 120,
+        "versions": [
+            {"version": 1, "approved_intake": 90, "effective_from": "2026-03-15",
+             "source": "AICTE EoA 2026-27"},
+            {"version": 2, "approved_intake": 120, "effective_from": "2026-05-20",
+             "source": "AICTE EoA 2026-27, revised"},
+        ],
+    }  # fmt: skip
+    first_years = [r for r in small.upload(ABC) if r["programme_code"] == "CSE"]
     first_years = [r for r in first_years if r["year_of_study"] == "1"]
-    assert len(first_years) == 60
-    assert max(r["admission_date"] for r in first_years) < v2["effective_from"]
+    assert len(first_years) == 132
+    assert min(r["admission_date"] for r in first_years) > "2026-05-20"
 
 
 def test_about_thirty_percent_of_colleges_are_autonomous(small):
@@ -65,18 +74,15 @@ def test_credits_name_their_issuer(small):
         if credit["apaar_id"] not in college_of:
             continue
         inst = insts[college_of[credit["apaar_id"]]]
-        issuer = credit["issuer"]
-        kinds[issuer["type"]] += 1
+        issuer = (credit["issuer"], credit["issuer_name"])
         if inst["autonomous"]:
-            assert issuer == {
-                "type": "INSTITUTION",
-                "code": inst["aicte_permanent_id"],
-                "name": inst["name"],
-            }
+            kinds["self"] += 1
+            assert issuer == (inst["aicte_permanent_id"], inst["name"])
         else:
+            kinds["university"] += 1
             code = inst["university_code"]
-            assert issuer == {"type": "UNIVERSITY", "code": code, "name": universities[code]}
-    assert kinds["INSTITUTION"] and kinds["UNIVERSITY"]
-    xyz = {c["issuer"]["code"] for c in small.jsonl("abc_credits.jsonl")
+            assert issuer == (code, universities[code])
+    assert kinds["self"] and kinds["university"]
+    xyz = {c["issuer"] for c in small.jsonl("abc_credits.jsonl")
            if college_of.get(c["apaar_id"]) == XYZ}  # fmt: skip
     assert xyz == {XYZ}

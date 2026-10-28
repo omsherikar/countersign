@@ -26,7 +26,6 @@ FIXED_SEVERITY = {
     "DUPLICATE_CROSS_INSTITUTION": "HIGH",
     "DUAL_ENROLMENT_ALLOWED": "LOW",
     "NO_ACADEMIC_ACTIVITY": "MEDIUM",
-    "ELIGIBILITY_BREACH": "MEDIUM",
     "NOT_IN_JOINING_RECORD": "MEDIUM",
     "MISSING_FROM_UPLOAD": "MEDIUM",
 }
@@ -77,6 +76,9 @@ def test_severity_follows_the_engine_rules(small):
         elif flag == "INVALID_APAAR":
             want = "HIGH" if rec["kind"] == "UNKNOWN" else "MEDIUM"
             assert rec["severity_expected"] == want
+        elif flag == "ELIGIBILITY_BREACH":
+            want = "HIGH" if rec["eligibility_rule"] == "INTERNATIONAL_CIWG" else "MEDIUM"
+            assert rec["severity_expected"] == want
         elif flag == "QUOTA_BREACH":
             high = rec["seat_type"] in {"NRI", "INTERNATIONAL"} and rec["unseated"] > 2
             assert rec["severity_expected"] == ("HIGH" if high else "MEDIUM")
@@ -111,7 +113,7 @@ def test_abc_cse_132_against_120(small):
         if p["code"] == "CSE"
     )
     approval = next(a for a in cse["approvals"] if a["academic_year"] == "2026-27")
-    assert approval["approved_intake"] == 120 and len(approval["versions"]) == 1
+    assert approval["approved_intake"] == 120 and approval["versions"][-1]["version"] == 2
     rows = small.upload("1-ABC-0001")
     first_years = [r for r in rows if r["programme_code"] == "CSE" and r["year_of_study"] == "1"]
     assert len(first_years) == 132

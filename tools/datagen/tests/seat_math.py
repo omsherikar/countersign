@@ -22,8 +22,7 @@ def cutoff_of(label: str) -> str:
 
 def intake(prog: dict, label: str) -> int | None:
     """The intake the cohort was admitted against: the approval version in force on the
-    year's admission cutoff (a later revision, such as ABC College IT's v2, adds seats only
-    after the admissions it would otherwise seem to cover)."""
+    year's admission cutoff (every revision takes effect before admissions open)."""
     for a in prog["approvals"]:
         if a["academic_year"] == label:
             if "versions" not in a:

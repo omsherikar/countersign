@@ -165,8 +165,8 @@ def test_mockgov_jsonl_shapes(small):
     abc = small.jsonl("abc_credits.jsonl")
     assert set(abc[0]) == {
         "apaar_id", "academic_year", "sem", "credits", "uploaded_at", "result", "issuer",
+        "issuer_name",
     }  # fmt: skip
-    assert {"type", "code", "name"} == set(abc[0]["issuer"])
     assert all(a["uploaded_at"].endswith("Z") for a in abc)
     assert all(a["result"] in {"PASS", "FAIL", "PENDING"} for a in abc)
     assert len({(a["apaar_id"], a["academic_year"], a["sem"]) for a in abc}) == len(abc)

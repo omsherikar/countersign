@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import zlib
 from typing import Any
 
 from . import geo
@@ -67,20 +68,15 @@ INSTITUTION_TYPES = (
 ABC_ID = "1-ABC-0001"
 XYZ_ID = "1-XYZ-0002"
 
-# Approval versions (institutions.json `approvals[].versions`). Every approval has version 1,
-# effective from APPROVAL_V1_DAY of its academic year's start; this table adds the revisions.
-# ABC College IT 2026-27: a revised approval raises the intake from 60 to 90 after the
-# admissions closed, so the first-years were admitted against version 1.
-APPROVAL_V1_DAY = "05-15"
-REVISIONS: dict[tuple[str, str, str], list[tuple[int, str, str]]] = {
-    ("1-ABC-0001", "IT", "2026-27"): [
-        (
-            90,
-            "2026-10-21",
-            "AICTE revised approval 2026-27, intake 60 to 90 (sample approval data)",
-        ),
-    ],
-}
+# Approval versions (institutions.json `approvals[].versions`, API_CONTRACT A4.25). An
+# approval is version 1 ("AICTE EoA <year>", effective 15 March) unless it was revised: then
+# version 1 holds the earlier intake and version 2 ("..., revised", effective 20 May, before
+# admissions open) the generated one, which every cohort was admitted against. ABC College
+# CSE 2026-27 goes from 90 to 120, so its 132 first-years still exceed it; about one approval
+# in ten elsewhere is revised up one step of the intake ladder.
+V1_DAY, V2_DAY = "03-15", "05-20"
+ABC_CSE_V1 = 90
+REVISED_ONE_IN = 10
 
 ABC_PROGRAMMES = [("CSE", 120), ("IT", 60), ("ECE", 120), ("MECH", 120), ("CIVIL", 60), ("MBA", 60)]
 XYZ_PROGRAMMES = [("CSE", 120), ("ECE", 90), ("EEE", 60), ("MECH", 60), ("CIVIL", 60), ("MCA", 60)]
@@ -301,32 +297,51 @@ class InstitutionBuilder:
         return out[:n]
 
 
+def first_intake(aicte_id: str, code: str, approval: dict) -> int | None:
+    """Version 1's intake when the approval was revised, else None (one version)."""
+    year, intake = approval["academic_year"], approval["approved_intake"]
+    if (aicte_id, code, year) == (ABC_ID, "CSE", "2026-27"):
+        return ABC_CSE_V1
+    if aicte_id in {ABC_ID, XYZ_ID} or intake not in INTAKE_LADDER[1:]:
+        return None
+    if zlib.crc32(f"{aicte_id}:{code}:{year}".encode()) % REVISED_ONE_IN:
+        return None
+    return INTAKE_LADDER[INTAKE_LADDER.index(intake) - 1]
+
+
 def approval_versions(aicte_id: str, code: str, approval: dict) -> list[dict]:
-    """Version 1 as generated, then any revision in REVISIONS, oldest first."""
-    year = approval["academic_year"]
-    versions = [
+    """Ascending versions, the last one's intake the approval's."""
+    year, intake = approval["academic_year"], approval["approved_intake"]
+    start = year[:4]
+    first = first_intake(aicte_id, code, approval)
+    if first is None:
+        return [
+            {
+                "version": 1,
+                "approved_intake": intake,
+                "effective_from": f"{start}-{V1_DAY}",
+                "source": f"AICTE EoA {year}",
+            }
+        ]
+    return [
         {
             "version": 1,
-            "approved_intake": approval["approved_intake"],
-            "effective_from": f"{year[:4]}-{APPROVAL_V1_DAY}",
-            "source": f"AICTE approval {year} (sample approval data)",
-        }
+            "approved_intake": first,
+            "effective_from": f"{start}-{V1_DAY}",
+            "source": f"AICTE EoA {year}",
+        },
+        {
+            "version": 2,
+            "approved_intake": intake,
+            "effective_from": f"{start}-{V2_DAY}",
+            "source": f"AICTE EoA {year}, revised",
+        },
     ]
-    for intake, effective_from, source in REVISIONS.get((aicte_id, code, year), []):
-        versions.append(
-            {
-                "version": len(versions) + 1,
-                "approved_intake": intake,
-                "effective_from": effective_from,
-                "source": source,
-            }
-        )
-    return versions
 
 
 def public_approval(aicte_id: str, code: str, approval: dict) -> dict:
-    """`approved_intake` is the current (latest) version's; `versions` keeps the history.
-    Generation itself always uses version 1, the approval the cohorts were admitted against."""
+    """`approved_intake` is the current (latest) version's, the one generation used;
+    `versions` keeps the history."""
     versions = approval_versions(aicte_id, code, approval)
     return {
         "academic_year": approval["academic_year"],
@@ -359,12 +374,13 @@ def assign_autonomy(institutions: list[dict], seed: int, share: float) -> None:
 
 
 def credit_issuer(inst: dict, university_names: dict[str, str]) -> dict:
-    """Who issues the college's ABC credits: itself when autonomous (or a deemed university,
-    which has no affiliating university), else its affiliating university."""
+    """Who issues the college's ABC credits (`issuer`, `issuer_name`): the college itself, by
+    its AICTE permanent id, when autonomous (or a deemed university, which has no affiliating
+    university), else its affiliating university by code."""
     if inst.get("_autonomous") or not inst["university_code"]:
-        return {"type": "INSTITUTION", "code": inst["aicte_permanent_id"], "name": inst["name"]}
+        return {"issuer": inst["aicte_permanent_id"], "issuer_name": inst["name"]}
     code = inst["university_code"]
-    return {"type": "UNIVERSITY", "code": code, "name": university_names[code]}
+    return {"issuer": code, "issuer_name": university_names[code]}
 
 
 def public_institution(inst: dict) -> dict:

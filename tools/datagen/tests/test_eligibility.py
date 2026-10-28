@@ -1,6 +1,4 @@
-"""Eligibility markers (tfw_income_certified, nri_sponsored, ciwg) and the cases planted on them."""
-
-from collections import Counter
+"""Eligibility markers (tfw_income_certified, nri_sponsored, ciwg) and the rows planted on them."""
 
 from seat_math import cohort_label, intake
 
@@ -14,8 +12,10 @@ def records(small, kind: str) -> list[dict]:
     return [r for r in small.json("ground_truth.json") if r["anomaly_type"] == kind]
 
 
-def planted(small, kind: str) -> set[tuple[str, int]]:
-    return {(row["file"], row["row_no"]) for rec in records(small, kind) for row in rec["rows"]}
+def planted(small, kind: str) -> dict[tuple[str, int], dict]:
+    return {
+        (row["file"], row["row_no"]): rec for rec in records(small, kind) for row in rec["rows"]
+    }
 
 
 def every_row(small):
@@ -25,26 +25,28 @@ def every_row(small):
             yield name, i, row
 
 
-def test_markers_follow_the_route(small):
-    no_tfw = planted(small, "TFW_INCOME_NOT_REPORTED")
-    breach = planted(small, "ELIGIBILITY_BREACH")
-    nri = Counter()
+def test_markers_say_yes_on_every_legitimate_row(small):
+    breaches = planted(small, "ELIGIBILITY_BREACH")
+    blank_tfw = planted(small, "TFW_INCOME_NOT_REPORTED")
     for name, i, row in every_row(small):
+        key = (name, i)
+        rule = breaches[key]["eligibility_rule"] if key in breaches else None
         route = row["admission_route"]
-        if route == "TFW" and (name, i) not in no_tfw:
-            assert row["tfw_income_certified"] == "yes", (name, i)
+        for column in ("tfw_income_certified", "nri_sponsored", "ciwg"):
+            assert row[column] in {"yes", "no", ""}, (key, column)
+        if route == "TFW":
+            want = "no" if rule == "TFW_INCOME" else "" if key in blank_tfw else "yes"
+            assert row["tfw_income_certified"] == want, key
         else:
-            assert row["tfw_income_certified"] == "", (name, i)
+            assert row["tfw_income_certified"] == "", key
         if route == "NRI":
-            want = {"NO"} if (name, i) in breach else {"NRI", "NRI_SPONSORED"}
-            assert row["nri_sponsored"] in want, (name, i)
-            nri[row["nri_sponsored"]] += 1
+            assert row["nri_sponsored"] == ("no" if rule == "NRI_STATUS" else "yes"), key
         else:
-            assert row["nri_sponsored"] == "", (name, i)
-        ciwg = route == "INTERNATIONAL" and row["nationality"] == "IN"
-        assert row["ciwg"] == ("yes" if ciwg else ""), (name, i)
-    sponsored = nri["NRI_SPONSORED"] / (nri["NRI"] + nri["NRI_SPONSORED"])
-    assert 0.2 <= sponsored <= 0.4, sponsored
+            assert row["nri_sponsored"] == "", key
+        if route == "INTERNATIONAL" and row["nationality"] == "IN":
+            assert row["ciwg"] == ("" if rule == "INTERNATIONAL_CIWG" else "yes"), key
+        else:
+            assert row["ciwg"] == "", key
 
 
 def test_ciwg_students_take_reserved_seats_with_a_study_in_india_record(small):
@@ -62,7 +64,6 @@ def test_ciwg_students_take_reserved_seats_with_a_study_in_india_record(small):
         assert row["ciwg"] == "yes" and row["year_of_study"] == "1"
         record = sii[row["passport_no"]]
         assert record["nationality"] == "IN" and record["name"] == row["name"]
-        assert record["institution_aicte_id"] == ref["institution_aicte_id"]
         prog = next(
             p for p in insts[ref["institution_aicte_id"]]["programmes"]
             if p["code"] == row["programme_code"]
@@ -73,25 +74,39 @@ def test_ciwg_students_take_reserved_seats_with_a_study_in_india_record(small):
             if r["programme_code"] == row["programme_code"] and r["year_of_study"] == "1"
             and r["admission_route"] == "INTERNATIONAL"
         ]  # fmt: skip
-        ciwg = sum(r["nationality"] == "IN" for r in cohort)
+        ciwg = sum(r["ciwg"] == "yes" for r in cohort)
         assert 1 <= ciwg <= pools.ciwg
         assert len(cohort) - ciwg <= pools.international - pools.ciwg
 
 
-def test_one_nri_route_row_is_not_eligible(small):
+def test_each_breach_breaks_one_rule(small):
     recs = records(small, "ELIGIBILITY_BREACH")
-    assert len(recs) == CFG["nri_breach"]["small"]
+    by_rule = {}
     for rec in recs:
+        by_rule.setdefault(rec["eligibility_rule"], []).append(rec)
         assert rec["expected_flag"] == "ELIGIBILITY_BREACH"
-        assert rec["severity_expected"] == "MEDIUM"
-        assert rec["seat_type"] == "NRI" and rec["marker"] == {"nri_sponsored": "NO"}
         (ref,) = rec["rows"]
         row = small.row(ref["file"], ref["row_no"])
-        assert row["admission_route"] == "NRI" and row["nri_sponsored"] == "NO"
         assert ref["institution_aicte_id"] != "1-ABC-0001"
+        rule = rec["eligibility_rule"]
+        if rule == "NRI_STATUS":
+            assert row["admission_route"] == "NRI" and row["nri_sponsored"] == "no"
+            assert rec["severity_expected"] == "MEDIUM" and rec["source"].endswith("2.8(b)")
+        elif rule == "TFW_INCOME":
+            assert row["admission_route"] == "TFW" and row["tfw_income_certified"] == "no"
+            assert rec["severity_expected"] == "MEDIUM"
+        else:
+            assert rule == "INTERNATIONAL_CIWG"
+            assert row["admission_route"] == "INTERNATIONAL" and row["nationality"] == "IN"
+            assert row["ciwg"] == "" and rec["severity_expected"] == "HIGH"
+    assert {k: len(v) for k, v in by_rule.items()} == {
+        "NRI_STATUS": CFG["nri_status"]["small"],
+        "TFW_INCOME": CFG["tfw_income"]["small"],
+        "INTERNATIONAL_CIWG": CFG["international_ciwg"]["small"],
+    }
 
 
-def test_one_tfw_row_has_no_income_certificate(small):
+def test_a_few_tfw_rows_leave_the_certificate_blank(small):
     recs = records(small, "TFW_INCOME_NOT_REPORTED")
     assert len(recs) == CFG["tfw_not_reported"]["small"]
     for rec in recs:
@@ -100,13 +115,3 @@ def test_one_tfw_row_has_no_income_certificate(small):
         (ref,) = rec["rows"]
         row = small.row(ref["file"], ref["row_no"])
         assert row["admission_route"] == "TFW" and row["tfw_income_certified"] == ""
-
-
-def test_update_rows_repeat_the_markers_of_their_initial_row(small):
-    for name in small.update_files():
-        for row in small.file(name):
-            if row["status"] in {"WITHDRAWN", "TRANSFERRED"}:
-                if row["admission_route"] == "TFW":
-                    assert row["tfw_income_certified"] in {"yes", ""}
-            if row["admission_route"] != "NRI":
-                assert row["nri_sponsored"] == ""

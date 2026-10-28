@@ -45,7 +45,7 @@ def generate(size: str, seed: int, out: Path, *, scenarios: bool = True, xlsx: b
     # Everything below draws from streams of its own, so the rows above keep their values.
     t = time.perf_counter()
     eligibility = EligibilityPlanner(world, planter)
-    added = eligibility.add_ciwg_rows()
+    added = eligibility.add_rows()
     signals = SignalPlanner(world, planter)
     added += signals.plant()
     world.history = signals.history
