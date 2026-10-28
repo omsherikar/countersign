@@ -29,7 +29,9 @@ export function SlowHint({ className }: { className?: string }) {
 }
 
 /** Message for an ApiError, using the deck wording per code and the envelope message otherwise. */
-export function errorMessage(err: unknown, role?: Role | null, entity?: "institution"): string {
+export type ErrorEntity = "institution" | "enrolment" | "flag" | "upload";
+
+export function errorMessage(err: unknown, role?: Role | null, entity?: ErrorEntity): string {
   if (!(err instanceof ApiError)) return t("err.INTERNAL");
   switch (err.code) {
     case "NETWORK":
@@ -47,7 +49,7 @@ export function errorMessage(err: unknown, role?: Role | null, entity?: "institu
       return err.message;
     }
     case "NOT_FOUND":
-      return entity === "institution" ? t("err.NOT_FOUND_institution") : err.message || t("err.NOT_FOUND_generic");
+      return entity ? t(`err.NOT_FOUND_${entity}`) : err.message || t("err.NOT_FOUND_generic");
     case "RATE_LIMITED":
       return err.retryAfter !== null ? t("err.RATE_LIMITED", { seconds: err.retryAfter }) : err.message;
     case "INTERNAL":
@@ -70,13 +72,16 @@ export function ErrorBlock({
   onRetry,
   entity,
   backHref,
+  backLabel,
   className,
   compact = false,
 }: {
   error: unknown;
   onRetry?: () => void;
-  entity?: "institution";
+  entity?: ErrorEntity;
   backHref?: string;
+  /** Words on the way-back button; defaults to "Back to overview". */
+  backLabel?: string;
   className?: string;
   compact?: boolean;
 }) {
@@ -99,7 +104,7 @@ export function ErrorBlock({
         <div className="flex flex-wrap items-center gap-3">
           {final && backHref ? (
             <Button asChild variant="outline" size="sm">
-              <Link href={backHref}>{code === "FORBIDDEN" ? t("err.go_home") : t("err.back_overview")}</Link>
+              <Link href={backHref}>{code === "FORBIDDEN" ? t("err.go_home") : (backLabel ?? t("err.back_overview"))}</Link>
             </Button>
           ) : (
             onRetry && (
