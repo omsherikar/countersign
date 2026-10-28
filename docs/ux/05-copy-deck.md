@@ -453,32 +453,129 @@ Rules for every template: no verdict words (never "fraud", "fake", "illegal"); c
 
 ## 6. Case actions
 
+Officer flag detail (`/aicte/cases/[flagId]`, `/ro/cases/[flagId]`) and the registrar's flag detail (`/college/flags/[flagId]`), from `POST /flags/{id}/actions {action, note, due_date?, assignee_id?}`, `POST /flags/{id}/response` and the `history` of `GET /flags/{id}` (D25).
+
+Actions and sheets
+
 | id | text |
 |---|---|
 | case.clear | Clear flag |
 | case.request_docs | Request documents |
 | case.escalate | Escalate |
 | case.confirm | Confirm |
+| case.reopen | Reopen |
 | case.note | Add note |
+| case.assign | Assign |
+| case.cancel | Cancel |
 | case.note_label | Note (shown to the college) |
 | case.note_required | Add a note before you continue. |
 | case.clear_confirm | Clear this flag? Your note is shown to the college and kept in the case history. |
 | case.request_docs_prompt | What should the college send? Be specific, e.g. "Admission register extract for CSE, 2026-27". |
+| case.request_docs_email | Every registrar account of {institution_name} gets an email with your request. |
+| case.request_docs_send | Send request |
 | case.due_date | Reply by (optional) |
+| case.due_date_hint | Shown to the college with your request. |
 | case.escalate_prompt | Why does this need a senior officer? |
+| case.escalate_note | After escalation only an AICTE officer can clear it, confirm it or request documents. Regional officers can still add notes. |
 | case.confirm_confirm | Confirming records this flag as a confirmed irregularity against {institution_name}. Nothing is deleted; the enrolment keeps its status. Your note becomes part of the formal record. |
+| case.confirm_revokes | Any enrolment proof AICTE issued for this enrolment is revoked now. A verifier who checks it will see Revoked. |
+| case.reopen_prompt | Why reopen this case? It goes back to Open, and the earlier decision stays in the history. |
+| case.assign_label | Assign to |
+| case.assign_search | Search officers by name |
+| case.assign_me | Assign to me |
+| case.assign_none | Remove assignee |
+| case.assign_option | {name}, {role_word} |
+| case.assign_empty | No officer matches "{q}". |
+| case.assignee_none | Unassigned |
 | case.cleared_toast | Flag cleared. {institution_name} can see your note. |
 | case.docs_toast | Request sent to the registrar. |
 | case.escalated_toast | Escalated. |
 | case.confirmed_toast | Recorded as confirmed. |
+| case.reopened_toast | Reopened. The flag is Open again. |
+| case.note_toast | Note added. |
+| case.assigned_toast | Assigned to {name}. |
+| case.unassigned_toast | Assignee removed. |
 | case.back | Back to queue |
+
+Case status lines
+
+| id | text |
+|---|---|
+| case.response_badge | Response received |
+| case.response_badge_tip | The college responded on {date}. The flag stays at Documents requested until an officer decides. |
+| case.due_line | Reply due by {due_date} |
+| case.due_passed | Reply date {due_date} has passed |
+| case.escalated_ro | Only AICTE can act on an escalated flag. You can still add a note. |
+| case.closed_line | This case is closed. Only an AICTE officer can reopen it. |
+| case.closed_admin | This case is closed. Reopen it to act on it again. |
+| case.attachment | {filename}, {size} |
+| case.attachment_download | Download {filename} |
+| case.attachments_logged | Each download is logged. |
+
+History (one row per `history[]` entry, oldest first, after [case.history.opened])
+
+| id | text |
+|---|---|
 | case.history.opened | Flag opened |
-| case.history.response | Response from the college |
+| case.history.col.when | When |
+| case.history.col.who | Who |
+| case.history.col.what | What |
+| case.history.who | {actor_name}, {role_word} |
+| case.history.system | System |
+| case.history.REQUEST_DOCS | Requested documents |
+| case.history.COLLEGE_RESPONSE | Responded |
+| case.history.ESCALATE | Escalated |
+| case.history.CLEAR | Cleared the flag |
+| case.history.CONFIRM | Confirmed the flag |
+| case.history.NOTE | Added a note |
+| case.history.ASSIGN | Assigned to {assignee_name} |
+| case.history.ASSIGN_none | Removed the assignee |
+| case.history.REOPEN | Reopened the flag |
+| case.history.SYSTEM_NOTE | Evidence updated after the decision |
+| case.history.status_change | {from_word} to {to_word} |
+| case.history.due | Reply by {due_date} |
+| case.system_note.reply_changed | The student changed the reply from No to Yes on {changed_date}. The flag keeps its status until an officer decides. |
+
+A history row reads When (`at`, `14 Jul 2026, 09:31 IST`), Who (`case.history.who` with `{role_word}` from `shell.role.*`, or `case.history.system` when the actor is null), What (the `case.history.<ACTION>` words, then `case.history.status_change` in small text when `from_status` and `to_status` differ, then `case.history.due` when `due_date` is set), and under it the note in quotes and one `case.attachment` link per file. A SYSTEM_NOTE row prints its `note` verbatim when the api sends one other than `case.history.SYSTEM_NOTE`; the deck mirrors the one other note the engines write, `case.system_note.reply_changed`. Status words come from `flag_status.*`.
+
+Which actions show (D25). AICTE officer: on Open and Documents requested, Clear flag, Request documents, Escalate, Confirm, Add note, Assign; on Escalated, the same without Escalate; on Cleared and Confirmed, Reopen, Add note, Assign, with `case.closed_admin`. Regional officer, for its region: on Open and Documents requested, the same as the AICTE officer; on Escalated, only Add note, with `case.escalated_ro`; on Cleared and Confirmed, Add note and Assign, with `case.closed_line`. Registrar: only Respond, and only while the flag is Documents requested. University: none. Every sheet needs a note except Assign; `case.note_required` shows under the empty field. The Confirm sheet shows `case.confirm_confirm`, then `case.confirm_revokes` when the flag names an enrolment (D25: confirming revokes any active proof for that enrolment and changes nothing else). A 409 `FLAG_TRANSITION_INVALID` shows [err.FLAG_TRANSITION_INVALID] in the sheet and refetches the flag.
+
+College response
+
+| id | text |
+|---|---|
 | college.respond | Respond |
+| college.respond_heading | Respond to the document request |
+| college.request_line | {role_word} asked on {requested_date}: |
+| college.due_line | Reply by {due_date} |
 | college.respond_note | Your reply to the officer |
-| college.respond_files | Attach documents (PDF, JPG, PNG, up to 10 MB each) |
+| college.respond_note_hint | Required. Say what you are sending and how it answers the request. |
+| college.respond_note_required | Write a reply before you send. |
+| college.respond_files | Attach documents (PDF, PNG or JPEG, up to 3 files, 5 MB each) |
+| college.respond_add_file | Add file |
+| college.respond_remove_file | Remove {filename} |
+| college.respond_file_count | {n} of 3 files |
+| college.respond_too_many | You can attach up to 3 files. Remove one to add another. |
+| college.respond_file_type | {filename} is not a PDF, PNG or JPEG file. |
+| college.respond_file_size | {filename} is larger than 5 MB. Attach a smaller copy. |
+| college.respond_submit | Send to the officer |
+| college.respond_sending | Sending |
 | college.respond_sent | Sent to the officer. You will see their decision here. |
+| college.respond_waiting | You responded on {date}. The flag stays at Documents requested until the officer decides. |
+| college.respond_more | Send more documents |
 | college.other_institution | another institution in {state_name} |
+
+`college.respond_file_type` and `college.respond_file_size` are checked in the browser before anything is sent; the server answers the same cases with 415 [err.ATTACHMENT_TYPE] and 413 [err.ATTACHMENT_TOO_LARGE]. `{size}` in `case.attachment` reads like `412 KB` or `1.8 MB`.
+
+Email to the registrar when documents are requested (sent to every registrar account of the college, D25)
+
+| id | text |
+|---|---|
+| email.docs_request.subject | Documents requested by AICTE: {flag_name}, {where} |
+| email.docs_request.body | {role_word} has asked {institution_name} for documents about a flag. Flag: {flag_name}, {where}. Evidence: {summary} Request: "{note}" {due_sentence}Sign in to Countersign and open the flag to respond: {link}. Attach PDF, PNG or JPEG files, up to 3, 5 MB each. Nothing about your college or its students has changed; an officer decides after reading your response. This email went to every registrar account of your college. |
+| email.docs_request.due | Please reply by {due_date}. |
+
+`{where}` is `{programme_code}, {academic_year}`, or `{academic_year}` alone for a flag without a programme. `{summary}` is the summary the registrar sees (the redacted one for a cross-institution duplicate). `{due_sentence}` is `email.docs_request.due` followed by a space, or nothing when no date was set. `{link}` is `{WEB_ORIGIN}/college/flags/{flag_id}`. The email names no student and no officer.
 
 ## 7. Upload
 
@@ -1092,6 +1189,9 @@ Print view text under the QR: `degree.print.proof_id` and `degree.scan_line`, wi
 | err.CREDENTIAL_NOT_ELIGIBLE | A proof cannot be issued for this record yet. Refresh the page to see its current status. |
 | err.CREDENTIAL_REVOKED | This proof has been withdrawn, so it cannot be shared or printed. |
 | err.PRESENTATION_NOT_FOUND | No proof matches this code. Check each group of four and try again. |
+| err.FLAG_TRANSITION_INVALID | This action is not possible from the flag's current status. The page now shows the latest status. |
+| err.ATTACHMENT_TOO_LARGE | A file is larger than 5 MB. Attach a smaller copy, for example a scan at a lower resolution. |
+| err.ATTACHMENT_TYPE | Only PDF, PNG and JPEG files can be attached. |
 | err.INTERNAL | Something went wrong on our side. Try again. |
 | err.NETWORK | Could not reach Countersign. Check your connection and try again. |
 | err.ref | Ref: {code} |
@@ -1270,7 +1370,7 @@ The enrolment button shows only when a check other than Student is PENDING. Each
 
 ## 18. Flag list and detail
 
-Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/flags`, and flag detail, from `GET /flags` and `GET /flags/{id}` (API_CONTRACT §A2.15, §A2.16). Read only until officer actions arrive in Week 3.
+Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/flags`, and flag detail, from `GET /flags` and `GET /flags/{id}` (API_CONTRACT §A2.15, §A2.16). Officers act from flag detail and the registrar responds there (§6).
 
 | id | text |
 |---|---|
@@ -1287,6 +1387,11 @@ Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/
 | flags.sort.severity_desc | Most severe first |
 | flags.sort.created_desc | Newest first |
 | flags.sort_tip | Most severe first, then oldest first |
+| flags.filter.assignee | Assignee |
+| flags.filter.assignee_me | Assigned to me |
+| flags.filter.assignee_none | Unassigned |
+| flags.filter.response | Response |
+| flags.filter.response_received | Response received |
 | table.count.flags_any | {total} flags in {institutions} institutions |
 | table.count.flags_one | {total} open flags |
 | table.count.flags_one_any | {total} flags |
@@ -1320,10 +1425,9 @@ Case queue `/aicte/cases` and `/ro/cases`, the institution Flags tab, `/college/
 | flag.enrolment_heading | Enrolment this flag is about |
 | flag.related_heading | Related enrolments ({n}) |
 | flag.related_hidden | {n} related enrolments at another institution are not shown to your college. |
-| flag.readonly_officer | Read only for now. Clearing, requesting documents, escalating and confirming open in Week 3. |
-| flag.readonly_college | Read only. An officer reviews every flag. If they ask for documents, you will be able to respond here from Week 3. |
+| flag.readonly_college | An officer reviews every flag. If they ask for documents, you can respond here. |
 
-Count line: with the status filter on Open use [table.count.flags]; with any other status filter use `table.count.flags_any`; on one institution's Flags tab and on `/college/flags` use `table.count.flags_one`, or `table.count.flags_one_any` when the status filter is not Open. `{institutions}` is the response's `institutions`. The Evidence cell prints `summary` verbatim on one line, truncated, with the full sentence on focus and hover. Opened prints the `created_at` date. The Assignee column is hidden while every `assignee` is null. History shows one line, [case.history.opened] with the `created_at` time. `flag.related_hidden` shows when `related_hidden` is above 0. `flag.chip` is the accessible name of a flag chip in an enrolment row; after two chips the rest collapse into `flags.more`. The enrolments table's Result filter uses `check.status.*` words and its Check filter `check.*` words.
+Count line: with the status filter on Open use [table.count.flags]; with any other status filter use `table.count.flags_any`; on one institution's Flags tab and on `/college/flags` use `table.count.flags_one`, or `table.count.flags_one_any` when the status filter is not Open. `{institutions}` is the response's `institutions`. The Evidence cell prints `summary` verbatim on one line, truncated, with the full sentence on focus and hover. Opened prints the `created_at` date. The Assignee column shows on the officers' case queue; a null assignee reads [case.assignee_none]. The Assignee filter sends `assignee=me`, `none` or an officer's id; the Response filter sends `response_received=true`. A row with `response_received` carries the [case.response_badge] chip beside its status. History starts with [case.history.opened] at the `created_at` time, then the rows of §6. `flag.readonly_college` shows to the registrar when the flag is not Documents requested. `flag.related_hidden` shows when `related_hidden` is above 0. `flag.chip` is the accessible name of a flag chip in an enrolment row; after two chips the rest collapse into `flags.more`. The enrolments table's Result filter uses `check.status.*` words and its Check filter `check.*` words.
 
 ## 19. Dashboard flags
 
