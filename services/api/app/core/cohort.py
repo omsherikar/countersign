@@ -11,8 +11,16 @@ Academic years are labelled "YYYY-YY", e.g. "2026-27".
 
 from __future__ import annotations
 
+from datetime import date
+from typing import TYPE_CHECKING
+
 from sqlalchemy import Integer, String, cast, func
 from sqlalchemy.sql.elements import ColumnElement
+
+from app.models.enums import AdmissionRoute
+
+if TYPE_CHECKING:
+    from app.core.rules import Rules
 
 
 def start_year(academic_year: str) -> int:
@@ -36,3 +44,18 @@ def cohort_year_sql(
     """cohort_year() as a SQL expression, for filtering or joining enrolments to approvals."""
     start = cast(func.substr(academic_year, 1, 4), Integer) - (year_of_study - 1)
     return func.concat(cast(start, String), "-", func.lpad(cast((start + 1) % 100, String), 2, "0"))
+
+
+def joining_year(academic_year: str, year_of_study: int, route: AdmissionRoute) -> str:
+    """The year the student joined this programme, as the admission authority files it:
+    the cohort year, or for a lateral entrant the year it entered year 2 ("2026-27" for a
+    year-2 lateral in "2026-27", "2025-26" for a year-3 one)."""
+    if route is AdmissionRoute.LATERAL:
+        return year_label(start_year(academic_year) - (year_of_study - 2))
+    return cohort_year(academic_year, year_of_study)
+
+
+def reporting_deadline(academic_year: str, rules: Rules) -> date:
+    """The admission authority's reporting deadline for a joining year (rules.yaml
+    `reporting.deadline`; 30 September of the start year when the year is not listed)."""
+    return rules.reporting.deadline_for(academic_year)

@@ -52,14 +52,29 @@ reservation:
     source: "APH 2024-27 cl. 4.6"
 
 admission_routes:
-  # which seat pool an admission route may consume, and what ADMISSION check applies
-  COUNSELLING:   {pool: REGULAR,       admission_check: COUNSELLING_LIST}
-  MANAGEMENT:    {pool: REGULAR,       admission_check: SEAT_TYPE_RULES}
-  NRI:           {pool: NRI,           admission_check: SEAT_TYPE_RULES}
-  TFW:           {pool: TFW,           admission_check: COUNSELLING_LIST}
-  LATERAL:       {pool: LATERAL,       admission_check: COUNSELLING_LIST}
-  SPOT:          {pool: REGULAR,       admission_check: SEAT_TYPE_RULES}
+  # which seat pool an admission route may consume, and which source holds the joining:
+  # the state admission authority approves management, NRI and spot admissions too (D39);
+  # international admissions are in Study in India
+  COUNSELLING:   {pool: REGULAR,       admission_check: JOINING_RECORD}
+  MANAGEMENT:    {pool: REGULAR,       admission_check: JOINING_RECORD}
+  NRI:           {pool: NRI,           admission_check: JOINING_RECORD}
+  TFW:           {pool: TFW,           admission_check: JOINING_RECORD}
+  LATERAL:       {pool: LATERAL,       admission_check: JOINING_RECORD}
+  SPOT:          {pool: REGULAR,       admission_check: JOINING_RECORD}
   INTERNATIONAL: {pool: INTERNATIONAL, admission_check: STUDY_IN_INDIA}
+
+eligibility:
+  # who may hold each seat type, as the college reports it (D41); a breach makes the Seat
+  # row Contradicted with the clause
+  INTERNATIONAL_CIWG:
+    clause: "APH 2024-27 cl. 2.9"
+    allowed: "Foreign nationals, OCI, PIO and CIWG students"
+  NRI_STATUS:
+    clause: "APH 2024-27 cl. 2.8(b)"
+    allowed: "NRI or NRI-sponsored students"
+  TFW_INCOME:
+    clause: "APH 2024-27 cl. 6.42(d)"
+    allowed: "Students with a family income certificate"
 
 apaar:
   format: "^[0-9]{12}$"
@@ -98,13 +113,10 @@ ghost_ring:
   min_colleges: 2
   min_component_single_college: 5
 
-integrity_index:
-  weights:   # penalties per rate; filled and tuned in Week 4
-    invalid_id: 15
-    mismatch: 10
-    duplicate: 15
-    excess_admission: 20
-    no_activity: 15
-    student_denied: 15
-    ghost_ring: 20
-    anomaly: 10
+signals:
+  # officer-only signals (D45); never a record's status
+  anomaly:
+    contamination: 0.05
+    n_estimators: 200
+    random_state: 0
+    min_records: 20
