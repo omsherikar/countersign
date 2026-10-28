@@ -12,7 +12,6 @@ import type { FlagListParams, FlagSort, FlagStatusFilter, FlagType, Region, Seve
 import { useUrlParams } from "@/lib/use-url-params";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ErrorBlock, SkeletonRows, SlowHint, TableMessage } from "@/components/common/query-state";
 import { FilterSelect, SearchInput } from "@/components/common/filter-select";
 import { Pager } from "@/components/common/pager";
@@ -274,17 +273,11 @@ export function FlagsTable({
                   </td>
                 )}
                 <td className="code">{f.programme?.code ?? ""}</td>
-                <td className="max-w-[28rem] min-w-[14rem]">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link href={`${detailBase}/${f.id}`} data-row-link className="block truncate">
-                        {f.summary}
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" align="start" className="max-w-md">
-                      {f.summary}
-                    </TooltipContent>
-                  </Tooltip>
+                {/* The evidence sentence wraps rather than being cut to one line; a tooltip never reached touch screens. */}
+                <td className="wrap !h-auto min-w-[16rem] py-2 leading-snug">
+                  <Link href={`${detailBase}/${f.id}`} data-row-link className="block">
+                    {f.summary}
+                  </Link>
                 </td>
                 <td className="num">{formatCount(f.related_count)}</td>
                 <td className="num text-ink-muted">{formatDate(f.created_at)}</td>
