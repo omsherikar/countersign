@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     allow_real_gov_apis: bool = False
     gov_timeout_seconds: float = 3.0
 
+    # Upload pipeline
+    checks_concurrency: int = 32
+    upload_max_bytes: int = 20 * 1024 * 1024
+    upload_max_rows: int = 50_000
+    upload_rows_api_max: int = 5_000
+    upload_spool_dir: str = "/data/spool"
+    upload_inline: bool = False
+
     # Mail
     smtp_host: str = "mailpit"
     smtp_port: int = 1025
