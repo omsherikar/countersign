@@ -101,6 +101,25 @@ class DigiLockerInboxResponse(BaseModel):
     items: list[DigiLockerInboxItem]
 
 
+class DigiLockerTokenRequest(BaseModel):
+    grant_type: Literal["authorization_code"] = "authorization_code"
+    code: str = Field(min_length=1, max_length=256)
+    client_id: str = Field(min_length=1, max_length=200)
+    client_secret: str = Field(max_length=500)
+    redirect_uri: str = Field(min_length=1, max_length=2000)
+
+
+class DigiLockerTokenResponse(BaseModel):
+    id_token: str
+    access_token: str
+    token_type: Literal["Bearer"]
+    expires_in: int
+
+
+class DigiLockerJwks(BaseModel):
+    keys: list[dict[str, str]]
+
+
 class SiiVerifyRequest(BaseModel):
     passport_no: str = Field(min_length=1)
     name: str = Field(min_length=1)

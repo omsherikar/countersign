@@ -84,6 +84,46 @@ class DigiLockerMessage(Base):
     read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class DigiLockerAccount(Base):
+    """A synthetic DigiLocker account for the sign-in simulator. `apaar_id` is null when the
+    student has not linked an APAAR (consent refused or pending)."""
+
+    __tablename__ = "digilocker_accounts"
+
+    digilocker_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    name_normalized: Mapped[str] = mapped_column(Text, nullable=False)
+    dob: Mapped[date] = mapped_column(Date, nullable=False)
+    gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    apaar_id: Mapped[str | None] = mapped_column(String(12), nullable=True, index=True)
+    apaar_last4: Mapped[str | None] = mapped_column(String(4), nullable=True, index=True)
+
+
+class DigiLockerAuthCode(Base):
+    """A one-time authorisation code of the sign-in simulator."""
+
+    __tablename__ = "digilocker_auth_codes"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    digilocker_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    client_id: Mapped[str] = mapped_column(Text, nullable=False)
+    redirect_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    nonce: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DigiLockerSigningKey(Base):
+    """The simulator's id-token signing key (EC P-256), kept so restarts keep it."""
+
+    __tablename__ = "digilocker_signing_keys"
+
+    kid: Mapped[str] = mapped_column(String(64), primary_key=True)
+    private_pem: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class SiiAdmission(Base):
     __tablename__ = "sii_admissions"
     __table_args__ = (UniqueConstraint("passport_no", name="uq_sii_passport_no"),)
@@ -152,5 +192,6 @@ SEED_TABLES = (
     AbcCredit.__table__,
     SiiAdmission.__table__,
     AdmissionJoining.__table__,
+    DigiLockerAccount.__table__,
     DigiLockerMessage.__table__,
 )

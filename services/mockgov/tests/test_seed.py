@@ -10,7 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import seed
 from app.config import Settings
-from app.models import AbcCredit, ApaarRecord, CounsellingAllotment, DigiLockerMessage, SiiAdmission
+from app.models import (
+    AbcCredit,
+    ApaarRecord,
+    CounsellingAllotment,
+    DigiLockerAccount,
+    DigiLockerMessage,
+    SiiAdmission,
+)
 from tests.conftest import FIXTURES
 
 EXPECTED = {
@@ -19,6 +26,7 @@ EXPECTED = {
     "abc_credits": 3,
     "sii_admissions": 2,
     "admission_joinings": 5,
+    "digilocker_accounts": 4,
 }
 
 
@@ -177,3 +185,13 @@ async def test_an_older_abc_table_gains_the_issuer_columns(
     await seed.run(FIXTURES, reset=False, settings=settings)
     credit = await session.scalar(select(AbcCredit).where(AbcCredit.apaar_id == "123456780004"))
     assert (credit.issuer_type, credit.issuer_code) == ("INSTITUTION", "1-XYZ-0002")
+
+
+async def test_digilocker_accounts_keep_the_last_four_for_search(
+    app: FastAPI, settings: Settings, session: AsyncSession
+) -> None:
+    await seed.run(FIXTURES, reset=False, settings=settings)
+    ravi = await session.get(DigiLockerAccount, "DL-RAVI-4417")
+    assert (ravi.apaar_id, ravi.apaar_last4) == ("123456784417", "4417")
+    meena = await session.get(DigiLockerAccount, "DL-4HXP-2WZA")
+    assert (meena.apaar_id, meena.apaar_last4, meena.name_normalized) == (None, None, "meena iyer")

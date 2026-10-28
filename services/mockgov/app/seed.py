@@ -4,10 +4,11 @@
 
 Reads apaar_registry.jsonl, counselling.jsonl, abc_credits.jsonl and sii.jsonl (file contract
 in docs/API_CONTRACT.md section E) and joining_records.jsonl (the state admission authority's
-joinings; tools/datagen/README.md), streams them through COPY into a staging table and merges
+joinings) and digilocker_accounts.jsonl (the sign-in simulator's synthetic accounts; both in
+tools/datagen/README.md), streams them through COPY into a staging table and merges
 on each registry's natural key, so a second run with the same files changes nothing and a run
 with updated rows overwrites them. A file that is missing is skipped. --reset truncates the
-registries and the DigiLocker inbox first.
+registries, the DigiLocker inbox and its unspent sign-in codes first.
 """
 
 import argparse
@@ -118,6 +119,19 @@ def _joining(record: dict) -> tuple:
     )
 
 
+def _digilocker_account(record: dict) -> tuple:
+    apaar = record.get("apaar_id") or None
+    return (
+        str(record["digilocker_id"]).upper(),
+        record["name"],
+        normalize_name(record["name"]),
+        _date(record["dob"]),
+        record.get("gender"),
+        None if apaar is None else str(apaar),
+        None if apaar is None else str(apaar)[-4:],
+    )
+
+
 REGISTRIES: tuple[RegistryFile, ...] = (
     RegistryFile(
         "apaar_registry.jsonl",
@@ -198,6 +212,21 @@ REGISTRIES: tuple[RegistryFile, ...] = (
         ("roll_no",),
         _joining,
     ),
+    RegistryFile(
+        "digilocker_accounts.jsonl",
+        "digilocker_accounts",
+        (
+            "digilocker_id",
+            "name",
+            "name_normalized",
+            "dob",
+            "gender",
+            "apaar_id",
+            "apaar_last4",
+        ),
+        ("digilocker_id",),
+        _digilocker_account,
+    ),
 )
 
 RESET_TABLES = (
@@ -206,6 +235,8 @@ RESET_TABLES = (
     "abc_credits",
     "sii_admissions",
     "admission_joinings",
+    "digilocker_accounts",
+    "digilocker_auth_codes",
     "digilocker_inbox",
 )
 
