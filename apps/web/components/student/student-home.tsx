@@ -28,7 +28,13 @@ function EnrolmentCard({ e }: { e: StudentEnrolment }) {
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium">{t("col.countersign")}</span>
           <CountersignStrip countersign={e.countersign} size="md" />
+          {e.countersign.score && (
+            <span className="text-md text-ink-muted">{t("student.strip_caption", { passes: e.countersign.score.passes, applicable: e.countersign.score.applicable })}</span>
+          )}
         </div>
+        {e.countersign.checks.some((c) => c.type === "STUDENT" && c.status === "PENDING") && (
+          <p className="max-w-[60ch] text-md text-ink-muted">{t("student.check_student_pending")}</p>
+        )}
         <p className="text-md text-ink-muted">{CHECK_ORDER.map((c) => tk(`check.${c}`)).join(" · ")}</p>
       </div>
     </section>
