@@ -20,7 +20,9 @@ import { COVERS, allFlags, flagById, type StoredFact, type StoredFlag } from "@/
 import { recordFor, withRecord } from "@/lib/mock/records";
 import { CHECKED_AT, LATER_VERSIONS, entryById, entryByName, evaluate, programmesFor, rollFor, seatsFor, setRows, versionsOf, type RollEntry } from "@/lib/mock/roll";
 import { readBrowserToken, userFromToken } from "@/lib/mock/session";
+import { writePendingClaim } from "@/lib/mock/digilocker";
 import { listReports } from "@/lib/mock/reports";
+import { ashaEntry } from "@/lib/mock/student-loop";
 import { allSignals, dismissSignal, featureFacts, listSignals, membersOf, ruleOf, signalDetail, signalInScope, REGION_OF, type StoredSignal } from "@/lib/mock/signals";
 import type {
   ActorRef,
@@ -1781,6 +1783,7 @@ function ensureSeeded() {
   seedCases();
   seedRequests();
   seedSignalCases();
+  ashaEntry();
   for (const s of SEEDS) syncInstitution(s.id);
 }
 
@@ -1792,6 +1795,15 @@ function ensureSeeded() {
  */
 export async function withCases(method: string, path: string, query: Query | undefined, body: unknown, next: Next): Promise<unknown> {
   const [pathname] = path.split("?");
+  if (pathname === "/auth/login" && method === "POST") {
+    // A4.12: a student account never signs in with a password; it answers like a wrong one.
+    const email = String((body as { email?: string } | undefined)?.email ?? "").trim().toLowerCase();
+    if (USERS.some((u) => u.email === email && u.role === "STUDENT")) {
+      await latency();
+      throw new ApiError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    }
+  }
+  if (pathname === "/auth/logout" && method === "POST") writePendingClaim(null);
   if (pathname.startsWith("/auth/") || pathname === "/healthz") return next(method, path, query, body);
   ensureSeeded();
   const parts = pathname.split("/").filter(Boolean);

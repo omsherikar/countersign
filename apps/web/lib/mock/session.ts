@@ -3,6 +3,7 @@
  * mode the browser writes a readable `cs_access=mock.<email>` cookie so the
  * proxy, the server layouts and the mock handler all see the same signed-in user.
  */
+import { DIGILOCKER_USERS } from "@/lib/mock/digilocker";
 import { USERS } from "@/lib/mock/fixtures";
 import type { User } from "@/lib/types";
 
@@ -12,7 +13,7 @@ const PREFIX = "mock.";
 export function userFromToken(token: string | undefined | null): User | null {
   if (!token || !token.startsWith(PREFIX)) return null;
   const email = decodeURIComponent(token.slice(PREFIX.length));
-  return USERS.find((u) => u.email === email) ?? null;
+  return USERS.find((u) => u.email === email) ?? DIGILOCKER_USERS.find((u) => u.email === email) ?? null;
 }
 
 export function tokenFor(email: string): string {

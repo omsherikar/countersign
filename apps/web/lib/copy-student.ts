@@ -71,7 +71,7 @@ export const studentCopy = {
   "notice.change_closed.hi": "उत्तर बदलने के 7 दिन पूरे हो चुके हैं। अगर इसमें सुधार चाहिए, तो अपने Privacy पेज से अनुरोध करें।",
   "notice.invalid.hi": "यह लिंक मान्य नहीं है। जाँचें कि आपने संदेश का पूरा लिंक खोला है, या अपने कॉलेज से नई सूचना भेजने को कहें।",
   "notice.rate_limited.hi": "इस नेटवर्क से बहुत अधिक प्रयास हुए हैं। {seconds} सेकंड बाद फिर कोशिश करें।",
-  "consent.notice.hi": "उत्तर देकर आप AICTE को इस नामांकन के साथ आज की तारीख में अपना उत्तर दर्ज करने की अनुमति देते हैं। आपका उत्तर AICTE के अधिकारियों और {institution_name} को केवल \"पुष्टि की\" या \"अस्वीकार किया\" के रूप में दिखता है, किसी और व्यक्तिगत जानकारी के बिना। अगर आप टिप्पणी लिखते हैं, तो उसे केवल AICTE के अधिकारी देखते हैं।",
+  "consent.notice.hi": "उत्तर देकर आप AICTE को इस नामांकन के साथ अपना उत्तर, तारीख और आपका DigiLocker साइन-इन दर्ज करने की अनुमति देते हैं। आपका उत्तर AICTE के अधिकारियों और {institution_name} को केवल \"प्रवेश लिया\" या \"कभी प्रवेश नहीं लिया\" के रूप में दिखता है, किसी और व्यक्तिगत जानकारी के बिना। अगर आप टिप्पणी लिखते हैं, तो उसे केवल AICTE के अधिकारी देखते हैं।",
   "err.NETWORK.hi": "Countersign से संपर्क नहीं हो सका। अपना इंटरनेट कनेक्शन जाँचें और फिर कोशिश करें।",
   "err.INTERNAL.hi": "हमारी ओर से कुछ गड़बड़ हुई। फिर कोशिश करें।",
   "err.retry.hi": "फिर कोशिश करें",
@@ -481,4 +481,8 @@ export const studentCopy = {
   "student.decision.WITHDRAWN.hi": "AICTE के एक अधिकारी ने आपकी बात मानी: {institution_name} का यह दावा कि आपने प्रवेश लिया था, वापस ले लिया गया है।",
   "student.decision.CORRECTED.hi": "AICTE के एक अधिकारी ने आपके नामांकन के बारे में {institution_name} के रिकॉर्ड में सुधार किया है। क्या बदला, यह \"History\" में देखें।",
   "student.decision.ESCALATED.hi": "आपका विवाद निर्णय के लिए AICTE को भेजा गया है। उनके निर्णय तक आपके लिए कुछ नहीं बदलता।",
+
+  /* ---- Web-only strings for sign-in and the claim page, not in the deck yet ---- */
+  "claim.nothing_to_claim": "You are signed in, and there is no record waiting to be claimed with this sign-in.",
+  "claim.demo_hint": "Demo: the notice email for this record carries the provisional ID {provisional_id}.",
 } as const;
