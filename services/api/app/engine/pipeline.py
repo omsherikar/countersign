@@ -185,8 +185,11 @@ class _BatchRun:
         self.seated: list[uuid.UUID] = []
         self.pools: set[PoolRef] = set()
         self.checks = ChecksResult()
-        # every flag the batch raised or refreshed: the records they name need a new status
+        # flags raised or refreshed after the CHECKS stage: the records they name need a new
+        # status once the batch is done (CHECKS settles its own records chunk by chunk)
         self.flag_ids: set[uuid.UUID] = set()
+        # records whose status the CHECKS stage computed from their final rows
+        self.settled: set[uuid.UUID] = set()
 
     # -- batch row helpers
 
@@ -247,10 +250,11 @@ class _BatchRun:
         for part in chunks(values, ISSUE_INSERT_BATCH):
             await session.execute(insert(UploadRowError).values(list(part)))
 
-    def _tally(self, tally: FlagTally) -> None:
+    def _tally(self, tally: FlagTally, *, settled: bool = False) -> None:
         self.counts["flags_raised"] += tally.created
         self.counts["flags_updated"] += tally.updated
-        self.flag_ids.update(tally.flag_ids)
+        if not settled:
+            self.flag_ids.update(tally.flag_ids)
 
     # -- the run
 
@@ -528,7 +532,10 @@ class _BatchRun:
                     actor_id=self.actor_id,
                 )
                 self.checks.merge(result)
-                self._tally(result.flags)
+                # run_checks computed these records' status after writing their rows, and
+                # its flags name only the record that raised them
+                self._tally(result.flags, settled=True)
+                self.settled.update(part)
 
             await self._chunk(work, done)
         sources = set(self.checks.calls) | set(self.checks.unavailable)
@@ -583,10 +590,15 @@ class _BatchRun:
         await self._record_statuses()
 
     async def _record_statuses(self) -> None:
-        """The records of the batch, and every record a flag of the batch names, get their
+        """The records of the batch the CHECKS stage did not settle (unchanged, withdrawn
+        or transferred ones), and every record a flag raised after it names, get their
         status from their final rows and cases (D35): duplicates and seat flags are raised
-        after the checks stage."""
-        targets = [o.enrolment_id for o in self.outcomes] + list(self.seated)
+        after the checks stage. Records CHECKS settled are not computed a second time."""
+        targets = [
+            e
+            for e in [o.enrolment_id for o in self.outcomes] + list(self.seated)
+            if e not in self.settled
+        ]
         async with self.factory() as session:
             for part in chunks(sorted(self.flag_ids, key=str)):
                 named = await session.execute(
