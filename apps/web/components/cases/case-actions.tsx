@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronsUp, CircleCheck, FileQuestion, Info, MessageSquarePlus, RotateCcw, Stamp, UserRoundPlus, type LucideIcon } from "lucide-react";
+import { ChevronsUp, CircleCheck, FileQuestion, Info, MessageSquarePlus, PencilLine, RotateCcw, Stamp, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { t } from "@/lib/copy";
 import { formatDate } from "@/lib/format";
 import type { FlagDetail, OfficerAction, Role } from "@/lib/types";
@@ -19,6 +19,7 @@ const ICON: Record<OfficerAction, LucideIcon> = {
   NOTE: MessageSquarePlus,
   ASSIGN: UserRoundPlus,
   REOPEN: RotateCcw,
+  CORRECT: PencilLine,
 };
 
 /** Decisions sit on the left, record-keeping on the right (W3-8). */

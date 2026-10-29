@@ -102,6 +102,10 @@ export function RegionTable({ summary, regions }: { summary: DashboardSummary; r
               admitted: 0,
               enrolments: 0,
               flags_open: 0,
+              records: { AWAITING_EVIDENCE: 0, COUNTERSIGNED: 0, UNDER_REVIEW: 0, DISPUTED: 0 },
+              countersigned_pct: null,
+              completeness_pct: null,
+              missing_from_upload: 0,
             },
         )
     : summary.by_region;

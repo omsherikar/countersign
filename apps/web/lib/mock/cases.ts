@@ -15,8 +15,10 @@
 import { ApiError, type Query } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { IDS, INSTITUTIONS, SEEDS, USERS } from "@/lib/mock/fixtures";
+import { makeRow, sentenceDate } from "@/lib/mock/evidence";
 import { allFlags, flagById, type StoredFact, type StoredFlag } from "@/lib/mock/flags";
-import { CHECKED_AT, compact, entryById, rollFor, type RollEntry } from "@/lib/mock/roll";
+import { withRecord } from "@/lib/mock/records";
+import { CHECKED_AT, entryById, entryByName, rollFor, setRows, type RollEntry } from "@/lib/mock/roll";
 import { readBrowserToken, userFromToken } from "@/lib/mock/session";
 import type {
   ActorRef,
@@ -26,13 +28,13 @@ import type {
   CaseActionRequest,
   CaseAttachment,
   CaseHistoryItem,
-  Check,
   CredentialRef,
   DataRequestAdminRow,
   DataRequestResolve,
   EnrolmentDetail,
   EnrolmentNotice,
   EnrolmentRecheck,
+  EvidenceRow,
   FlagDetail,
   FlagPage,
   FlagRow,
@@ -373,45 +375,86 @@ const isLive = (n: StoredNotice) => {
   return s === "AWAITING" || s === "QUEUED";
 };
 
-const channelWord = (c: NoticeChannel) => (c === "EMAIL" ? "email" : "DigiLocker");
 const decidedAt = (n: StoredNotice) => n.changed_at ?? n.responded_at ?? "";
 
-function studentCheck(e: RollEntry, file: NoticeFile): Check {
+/** The Student row from the notices and the answer given after DigiLocker sign-in (A4.4, copy deck §15). */
+function studentCheck(e: RollEntry, file: NoticeFile): EvidenceRow {
   const all = file.notices;
   const earliest = (resp: NoticeResponse) => all.filter((n) => n.response === resp).sort((a, b) => decidedAt(a).localeCompare(decidedAt(b)))[0];
-  const make = (status: Check["status"], summary: string, state: StudentNoticeState, extra: Record<string, unknown>, at: string | null): Check => ({
-    type: "STUDENT",
-    status,
-    source: "STUDENT_NOTICE",
-    checked_at: at ?? CHECKED_AT,
-    attempts: 0,
-    detail: { summary, notice_state: state, ...extra },
-  });
+  const digilocker = { supplied_by: "Student via DigiLocker sign-in", independent: true };
+  const make = (
+    state: EvidenceRow["state"],
+    basis: string,
+    finding: string,
+    sourceLine: string,
+    summary: string,
+    noticeState: StudentNoticeState,
+    extra: Record<string, unknown>,
+    observedAt: string | null,
+    provenance: { supplied_by?: string; independent?: boolean } = {},
+  ): EvidenceRow =>
+    makeRow(
+      "STUDENT",
+      { state, basis, finding, source: "STUDENT_NOTICE", source_line: sourceLine, summary, observed_at: observedAt, ...provenance, detail: { notice_state: noticeState, ...extra } },
+      observedAt ?? CHECKED_AT,
+    );
   const decided = (n: StoredNotice) => ({ channel: n.channel, sent_at: n.sent_at, responded_at: decidedAt(n), changed: Boolean(n.changed_at) });
   const no = earliest("NO");
-  if (no) return make("CONTRADICTED", `Denied by the student on ${formatDate(decidedAt(no))} (${channelWord(no.channel)}).`, "DENIED", decided(no), decidedAt(no));
+  if (no) {
+    const at = decidedAt(no);
+    return make("CONTRADICTED", "DENIED", "\"I never joined\"", `Student sign-in via DigiLocker · ${sentenceDate(at)}`, `The student signed in with DigiLocker on ${sentenceDate(at)} and said they never joined.`, "DENIED", { ...decided(no), case_type: "STUDENT_DENIED" }, at, digilocker);
+  }
   const yes = earliest("YES");
-  if (yes) return make("CONFIRMED", `Confirmed by the student on ${formatDate(decidedAt(yes))} (${channelWord(yes.channel)}).`, "CONFIRMED", decided(yes), decidedAt(yes));
+  if (yes) {
+    const at = decidedAt(yes);
+    const changed = yes.previous_response === "NO" && yes.changed_at;
+    return make(
+      "CONFIRMED",
+      changed ? "CONFIRMED_CHANGED" : "CONFIRMED",
+      "\"I joined\"",
+      `Student sign-in via DigiLocker · ${sentenceDate(at)}`,
+      changed
+        ? `The student said they never joined on ${sentenceDate(yes.responded_at)}, then changed the answer to Yes on ${sentenceDate(yes.changed_at)}.`
+        : `The student signed in with DigiLocker on ${sentenceDate(at)} and said they joined.`,
+      "CONFIRMED",
+      decided(yes),
+      at,
+      digilocker,
+    );
+  }
   const delivered = all.filter((n) => n.delivery_status === "SENT").sort((a, b) => (b.sent_at ?? "").localeCompare(a.sent_at ?? ""));
   if (delivered.length === 0) {
-    if (!file.hasEmail && !linked(e)) return make("PENDING", "No email or APAAR on record, so no notice can be sent.", "UNREACHABLE", {}, null);
+    const unreachable = !file.hasEmail && !linked(e);
     const extra: Record<string, unknown> = {};
     if (all.some((n) => n.delivery_status === "FAILED")) extra.delivery_failed = true;
     if (file.consentWithdrawnAt) extra.consent_withdrawn = true;
-    return make("PENDING", "Notice not sent yet.", "NOT_SENT", extra, null);
+    return make("PENDING", unreachable ? "UNREACHABLE" : "NOT_SENT", "notice not sent yet", "No notice sent yet", "Notice not sent yet.", unreachable ? "UNREACHABLE" : "NOT_SENT", extra, null);
   }
   const live = delivered.filter((n) => stateOf(n) === "AWAITING");
   if (live.length > 0) {
-    return make("PENDING", `Notice sent on ${formatDate(live[0].sent_at)}; no reply yet.`, "SENT", { channel: live[0].channel, sent_at: live[0].sent_at }, live[0].sent_at);
+    const sent = live[0].sent_at;
+    return make("PENDING", "SENT", "no answer yet", `Notice sent ${sentenceDate(sent)}`, `Notice sent on ${sentenceDate(sent)}; no answer yet.`, "SENT", { channel: live[0].channel, sent_at: sent }, null);
   }
-  return make("PENDING", "No reply (expired).", "EXPIRED", { channel: delivered[0].channel, sent_at: delivered[0].sent_at }, delivered[0].sent_at);
+  const expired = delivered[0];
+  return make(
+    "PENDING",
+    "EXPIRED",
+    "no answer",
+    `Notice expired ${sentenceDate(expired.expires_at)}`,
+    `No answer before the notice expired on ${sentenceDate(expired.expires_at)}. Silence never counts against the record.`,
+    "EXPIRED",
+    { channel: expired.channel, sent_at: expired.sent_at },
+    null,
+  );
 }
 
 function syncEntry(e: RollEntry) {
   if (e.checks.length === 0) return;
   const check = studentCheck(e, noticesOf(e));
-  e.checks = e.checks.map((c) => (c.type === "STUDENT" ? check : c));
-  e.row.countersign = compact(e.checks);
+  setRows(
+    e,
+    e.checks.map((c) => (c.type === "STUDENT" ? check : c)),
+  );
 }
 
 function syncInstitution(id: string) {
@@ -448,23 +491,22 @@ function wireNotices(file: NoticeFile): EnrolmentNotice[] {
 
 const REVOKED = new Map<string, string>();
 
+/** An enrolment attestation is issued once the record is Countersigned (A4.14); an officer's revocation holds. */
 function credentialsFor(e: RollEntry): CredentialRef[] {
-  const student = e.checks.find((c) => c.type === "STUDENT");
-  if (!student || student.status !== "CONFIRMED" || e.checks.some((c) => c.status === "CONTRADICTED")) return [];
-  const highOpen = allFlags().some(
-    (f) => f.severity === "HIGH" && ["OPEN", "DOCS_REQUESTED", "ESCALATED"].includes(f.status) && (f.enrolmentId === e.row.id || f.related.includes(e.row.id)),
-  );
   const revokedAt = REVOKED.get(e.row.id) ?? null;
-  if (highOpen && !revokedAt) return [];
+  const record = withRecord(e);
+  if (record.record_status !== "COUNTERSIGNED" && !revokedAt) return [];
+  const student = e.checks.find((c) => c.type === "STUDENT");
+  const issuedAt = student?.state === "CONFIRMED" && student.observed_at ? addHours(student.observed_at, 0.02) : addHours(CHECKED_AT, 0.05);
   return [
     {
       id: uuid(`credential:${e.row.id}`),
       kind: "ENROLMENT",
       status: revokedAt ? "REVOKED" : "ACTIVE",
       short_id: hex(`short:${e.row.id}`, 8).toUpperCase(),
-      issued_at: student.detail.responded_at ? addHours(String(student.detail.responded_at), 0.02) : CHECKED_AT,
+      issued_at: issuedAt,
       revoked_at: revokedAt,
-      revoked_reason_code: revokedAt ? "FLAG_CONFIRMED" : null,
+      revoked_reason_code: revokedAt ? "CLAIM_WITHDRAWN" : null,
       revoked_reason: null,
     },
   ];
@@ -481,6 +523,14 @@ interface CaseState {
 }
 
 const CASES = new Map<string, CaseState>();
+/** The A4.11 keys every history item carries; the decision sheets fill them. */
+const EXTRA = (): Pick<CaseHistoryItem, "reason_code" | "docs_kind" | "approval_version" | "correction" | "withdrawn_enrolment_ids"> => ({
+  reason_code: null,
+  docs_kind: null,
+  approval_version: null,
+  correction: null,
+  withdrawn_enrolment_ids: [],
+});
 const FILES = new Map<string, { flagId: string; blob: Blob; meta: CaseAttachment }>();
 let SEQ = 60;
 
@@ -642,7 +692,11 @@ async function act(user: User, id: string, body: unknown, next: Next): Promise<F
     const e = entryById(f.enrolmentId);
     if (e && credentialsFor(e).some((x) => x.status === "ACTIVE")) REVOKED.set(f.enrolmentId, at);
   }
+  if (req.action === "REQUEST_DOCS") f.progress.docs = { kind: req.docs_kind ?? "OTHER", due_on: due, responded_at: null };
+  if (req.action === "ESCALATE") f.progress.escalated_at = at;
+  if (req.action === "REOPEN") f.progress = { docs: null, escalated_at: null };
   c.history.push({
+    ...EXTRA(),
     seq: ++SEQ,
     at,
     action: req.action,
@@ -653,6 +707,10 @@ async function act(user: User, id: string, body: unknown, next: Next): Promise<F
     due_date: req.action === "REQUEST_DOCS" ? due : null,
     assignee: req.action === "ASSIGN" || req.action === "ESCALATE" ? (assignee ?? null) : null,
     attachments: [],
+    reason_code: req.reason_code ?? null,
+    docs_kind: req.action === "REQUEST_DOCS" ? (req.docs_kind ?? "OTHER") : null,
+    approval_version: req.approval_version ?? null,
+    withdrawn_enrolment_ids: req.action === "WITHDRAW" ? (req.withdrawn_enrolment_ids ?? (f.enrolmentId ? [f.enrolmentId] : [])) : [],
   });
   c.lastActionAt = at;
   appendAudit(user, "UPDATE", "flag", id);
@@ -727,7 +785,9 @@ export async function casesUpload(path: string, form: FormData, request: Next): 
     return meta;
   });
   const c = caseOf(f.id);
+  if (f.progress.docs) f.progress.docs.responded_at = at;
   c.history.push({
+    ...EXTRA(),
     seq: ++SEQ,
     at,
     action: "COLLEGE_RESPONSE",
@@ -922,13 +982,14 @@ function deniedFlag(n: number, e: RollEntry, file: NoticeFile, comment: string |
   const denied = file.notices.find((x) => x.response === "NO" || x.previous_response === "NO")!;
   const changed = denied.previous_response === "NO";
   const sentDate = formatDate(denied.sent_at);
-  const replied = formatDate(denied.responded_at);
+  const replied = sentenceDate(denied.responded_at);
+  const via = "Student sign-in via DigiLocker";
   const facts: StoredFact[] = [
-    { label: "Channel", value: denied.channel === "EMAIL" ? "Email" : "DigiLocker", source: "Student reply" },
-    { label: "Notice sent", value: sentDate, source: "Student reply" },
-    { label: "Replied on", value: replied, source: "Student reply" },
-    ...(changed ? [{ label: "Reply changed", value: `Yes on ${formatDate(denied.changed_at)}`, source: "Student reply" }] : []),
-    { label: "Comment from the student", value: comment ?? "None", source: "Student reply", audience: "OFFICER" as const },
+    { label: "Signed in with", value: "DigiLocker", source: via },
+    { label: "Notice sent", value: sentDate, source: "Countersign" },
+    { label: "Answered on", value: formatDate(denied.responded_at), source: via },
+    ...(changed ? [{ label: "Answer changed", value: `Yes on ${formatDate(denied.changed_at)}`, source: via }] : []),
+    { label: "Comment from the student", value: comment ?? "None", source: via, audience: "OFFICER" as const },
   ];
   return {
     id: `f${String(n).padStart(7, "0")}-7777-4888-8999-000011112222`,
@@ -940,13 +1001,14 @@ function deniedFlag(n: number, e: RollEntry, file: NoticeFile, comment: string |
     enrolmentId: e.row.id,
     academic_year: e.row.academic_year,
     summary: changed
-      ? `Student replied "not me" to the notice sent on ${sentDate}, then changed the reply to Yes on ${formatDate(denied.changed_at)}.`
-      : `Student replied "not me" to the notice sent on ${sentDate}.`,
+      ? `The student said they never joined on ${replied}, then changed the answer to Yes on ${sentenceDate(denied.changed_at)}.`
+      : `The student said they never joined, after signing in with DigiLocker on ${replied}.`,
     facts,
     related: [e.row.id],
-    rule_source: "Student reply",
+    rule_source: "Student's answer after DigiLocker sign-in",
     created_at: denied.responded_at!,
     updated_at: denied.changed_at ?? denied.responded_at!,
+    progress: { docs: null, escalated_at: null },
   };
 }
 
@@ -994,6 +1056,7 @@ function seedDenials() {
     if (email.changed_at) {
       const c = caseOf(f.id);
       c.history.push({
+        ...EXTRA(),
         seq: 59,
         at: email.changed_at,
         action: "SYSTEM_NOTE",
@@ -1010,6 +1073,47 @@ function seedDenials() {
   });
 }
 
+/**
+ * The deck's sample card (A4.25 sample_card): Ananya Deshmukh at ABC College,
+ * B.Tech CSE 2026. Her joining record is not found, she answered No after
+ * DigiLocker sign-in, and the officer asked the college for admission
+ * documents: the record reads Disputed (priority).
+ */
+function seedSampleCard() {
+  const e = entryByName(IDS.abc, "Ananya Deshmukh");
+  const file: NoticeFile = { notices: [], hasEmail: true, noDigiLocker: false, resendsUsed: 0, consentWithdrawnAt: null };
+  const email = notice(e, "EMAIL", "first", SENT_AT, EXPIRES_AT);
+  const digi = notice(e, "DIGILOCKER", "first", SENT_AT, EXPIRES_AT);
+  digi.response = "NO";
+  digi.responded_at = "2026-10-28T05:40:00Z";
+  file.notices.push(email, digi);
+  NOTICES.set(e.row.id, file);
+  const f = deniedFlag(30, e, file, "I never joined this college.");
+  allFlags().push(f);
+  const west = byEmail("ro.west@aicte.demo");
+  const asked = "2026-10-28T07:15:00Z";
+  f.status = "DOCS_REQUESTED";
+  f.updated_at = asked;
+  f.progress.docs = { kind: "ADMISSION", due_on: "2026-11-05", responded_at: null };
+  const c = caseOf(f.id);
+  c.history.push({
+    ...EXTRA(),
+    seq: 58,
+    at: asked,
+    action: "REQUEST_DOCS",
+    from_status: "OPEN",
+    to_status: "DOCS_REQUESTED",
+    actor: west,
+    note: "Send the admission form, the fee receipt and the joining report for Ananya Deshmukh.",
+    due_date: "2026-11-05",
+    assignee: null,
+    attachments: [],
+    docs_kind: "ADMISSION",
+  });
+  c.docsDueOn = "2026-11-05";
+  c.lastActionAt = asked;
+}
+
 /** Case work already done on the seeded flags, so every state of the action bar can be seen. */
 function seedCases() {
   const admin = byEmail("admin@aicte.demo");
@@ -1019,6 +1123,7 @@ function seedCases() {
   const puneRegistrar: ActorRef = { id: "6f1c0a8e-0021-4c9a-9e51-1c2f1a0b7d33", name: "Registrar, Pune Institute of Technology and Management", role: "INSTITUTION" };
   const id = (n: number) => (n === 1 ? "f1f1f1f1-7777-4888-8999-000011112222" : `f${String(n).padStart(7, "0")}-7777-4888-8999-000011112222`);
   const item = (seq: number, at: string, action: CaseHistoryItem["action"], from: FlagStatus, to: FlagStatus, actor: ActorRef | null, note: string | null, extra: Partial<CaseHistoryItem> = {}): CaseHistoryItem => ({
+    ...EXTRA(),
     seq,
     at,
     action,
@@ -1037,12 +1142,17 @@ function seedCases() {
     f.status = status;
     const c = caseOf(f.id);
     c.history.push(...history);
+    for (const h of history) {
+      if (h.action === "REQUEST_DOCS") f.progress.docs = { kind: h.docs_kind ?? "OTHER", due_on: h.due_date, responded_at: null };
+      if (h.action === "COLLEGE_RESPONSE" && f.progress.docs) f.progress.docs.responded_at = h.at;
+      if (h.action === "ESCALATE") f.progress.escalated_at = h.at;
+    }
     c.lastActionAt = history[history.length - 1]?.at ?? null;
     Object.assign(c, patch);
   };
 
   // ABC, Rahul Pawar: documents requested by AICTE, the reply date has passed.
-  apply(3, "DOCS_REQUESTED", [item(36, "2026-10-27T10:02:00Z", "REQUEST_DOCS", "OPEN", "DOCS_REQUESTED", admin, "Send the APAAR card or the DigiLocker APAAR record for Rahul Pawar.", { due_date: "2026-10-27" })], {
+  apply(3, "DOCS_REQUESTED", [item(36, "2026-10-27T10:02:00Z", "REQUEST_DOCS", "OPEN", "DOCS_REQUESTED", admin, "Send the APAAR card or the DigiLocker APAAR record for Rahul Pawar.", { due_date: "2026-10-27", docs_kind: "IDENTITY" })], {
     docsDueOn: "2026-10-27",
   });
 
@@ -1053,7 +1163,7 @@ function seedCases() {
     4,
     "DOCS_REQUESTED",
     [
-      item(41, "2026-10-27T10:35:00Z", "REQUEST_DOCS", "OPEN", "DOCS_REQUESTED", west, "Send the admission form and an ID copy for Mohd. Faizan Shaikh.", { due_date: "2026-11-04" }),
+      item(41, "2026-10-27T10:35:00Z", "REQUEST_DOCS", "OPEN", "DOCS_REQUESTED", west, "Send the admission form and an ID copy for Mohd. Faizan Shaikh.", { due_date: "2026-11-04", docs_kind: "IDENTITY" }),
       item(44, "2026-10-28T04:50:00Z", "COLLEGE_RESPONSE", "DOCS_REQUESTED", "DOCS_REQUESTED", abc, "The student's full name on the 10th certificate is Mohammed Faizan Shaikh. Admission form and ID copy attached.", {
         attachments: [form, idCopy],
       }),
@@ -1084,18 +1194,22 @@ function seedCases() {
     11,
     "WITHDRAWN",
     [
-      item(47, "2026-10-26T16:10:00Z", "REQUEST_DOCS", "OPEN", "DOCS_REQUESTED", west, "Send the NRI admission register for CSE, 2026-27, and any supernumerary approval.", { due_date: "2026-10-28" }),
+      item(47, "2026-10-26T16:10:00Z", "REQUEST_DOCS", "OPEN", "DOCS_REQUESTED", west, "Send the NRI admission register for CSE, 2026-27, and any supernumerary approval.", { due_date: "2026-10-28", docs_kind: "ADMISSION" }),
       item(49, "2026-10-27T07:25:00Z", "COLLEGE_RESPONSE", "DOCS_REQUESTED", "DOCS_REQUESTED", puneRegistrar, "Register attached. We have no supernumerary approval for NRI seats this year.", {
         attachments: [storeSample(id(11), "nri_register_cse_2026-27.pdf", "application/pdf", 1_887_436)],
       }),
-      item(55, "2026-10-27T13:45:00Z", "WITHDRAW", "DOCS_REQUESTED", "WITHDRAWN", admin, "Three NRI admissions beyond the 5% carve-out with no supernumerary approval. Recorded as a confirmed irregularity."),
+      item(55, "2026-10-27T13:45:00Z", "WITHDRAW", "DOCS_REQUESTED", "WITHDRAWN", admin, "Three NRI admissions beyond the 5% carve-out with no supernumerary approval. Recorded as a confirmed irregularity.", {
+        reason_code: "BEYOND_APPROVED_INTAKE",
+      }),
     ],
     { docsDueOn: "2026-10-28", responseReceived: true },
   );
 
   // GCE Karad, late refill: cleared, then the engines refreshed the evidence.
   apply(12, "UPHELD", [
-    item(52, "2026-10-28T09:05:00Z", "UPHOLD", "OPEN", "UPHELD", west, "The seat was released on 28 Sep and refilled on 5 Oct with the state counselling authority's written approval, which is on file."),
+    item(52, "2026-10-28T09:05:00Z", "UPHOLD", "OPEN", "UPHELD", west, "The seat was released on 28 Sep and refilled on 5 Oct with the state counselling authority's written approval, which is on file.", {
+      reason_code: "DOCUMENTS_SUPPORT_CLAIM",
+    }),
     item(57, "2026-10-28T09:40:00Z", "SYSTEM_NOTE", "UPHELD", "UPHELD", null, "Evidence updated after the decision."),
   ]);
 }
@@ -1108,6 +1222,7 @@ function ensureSeeded() {
   for (const s of SEEDS) rollFor(s.id);
   seedAudit();
   seedDenials();
+  seedSampleCard();
   seedCases();
   seedRequests();
   for (const s of SEEDS) syncInstitution(s.id);
@@ -1139,7 +1254,8 @@ export async function withCases(method: string, path: string, query: Query | und
       const e = entryById(parts[1]);
       if (e) {
         syncEntry(e);
-        result.countersign = e.row.countersign;
+        result.checks = e.row.checks;
+        result.record_status = withRecord(e).record_status;
       }
       return result;
     }

@@ -78,13 +78,6 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
               hint: data && data.kpis.countersigned_pct !== null ? t("kpi.countersigned_value", { pct: formatPct(data.kpis.countersigned_pct).replace("%", "") }) : undefined,
               tip: t("kpi.countersigned_tip"),
             },
-            {
-              label: "kpi.clear",
-              value: data ? (data.kpis.clear_pct ?? null) : undefined,
-              format: formatPct,
-              hint: data && typeof data.kpis.clear_pct === "number" ? t("kpi.clear_value", { pct: formatPct(data.kpis.clear_pct).replace("%", "") }) : undefined,
-              tip: t("kpi.clear_tip"),
-            },
           ]}
         />
         {variant === "aicte" ? (

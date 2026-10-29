@@ -1,7 +1,9 @@
-"""Upload endpoints (API_CONTRACT §A2.4 to §A2.9, scoping §A2.22).
+"""Upload endpoints (API_CONTRACT §A2.4 to §A2.9, §A4.16, scoping §A2.22).
 
 POST /uploads takes multipart/form-data (the one exemption from the JSON-only rule) and
-POST /uploads/rows takes JSON. Both check the header synchronously, spool the upload
+POST /uploads/rows takes JSON. Both check the header synchronously, through the college's
+saved column mapping (422 UPLOAD_HEADER_UNMAPPED when unknown headers leave a required
+column missing; nothing is saved then), spool the upload
 encrypted, commit the batch as QUEUED and hand it to run_batch: inline after the response
 when UPLOAD_INLINE is true (then the batch's student notices follow it), otherwise on the
 Celery worker, which queues the notices itself.
@@ -28,7 +30,9 @@ from starlette.datastructures import UploadFile
 from app.core.config import get_settings
 from app.core.deps import RequestId, SessionDep, require_roles
 from app.core.errors import ApiError, not_found
+from app.db.session import session_factory
 from app.engine import pipeline
+from app.engine.upload import mapping as column_mapping
 from app.engine.upload.batches import COUNT_KEYS, batch_in_progress, create_batch
 from app.engine.upload.parse import file_kind, parse_rows, parse_upload, too_many_rows
 from app.engine.upload.spool import canonical_rows, delete_spool, write_spool
@@ -39,6 +43,7 @@ from app.models.upload import UploadBatch, UploadRowError
 from app.models.user import User
 from app.schemas.common import Page, PageParams, page_params
 from app.schemas.uploads import (
+    MappedColumn,
     SameFile,
     UploadAccepted,
     UploadBatchOut,
@@ -67,6 +72,7 @@ XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 HTTP_STATUS = {
     "UNSUPPORTED_FILE_TYPE": 415,
     "UPLOAD_HEADER_INVALID": 422,
+    "UPLOAD_HEADER_UNMAPPED": 422,
     "UPLOAD_EMPTY": 422,
     "TOO_MANY_ROWS": 413,
 }
@@ -154,6 +160,11 @@ async def _batch_out(
         timings_ms={k: int(v) for k, v in (counts.get("timings_ms") or {}).items()},
         error=batch.error,
         ignored_columns=list(batch.ignored_columns or []),
+        column_mapping=[
+            MappedColumn(header=str(m.get("header", "")), column=str(m.get("column", "")))
+            for m in counts.get("column_mapping") or []
+            if isinstance(m, dict)
+        ],
         same_file_as=await _same_file(session, batch),
         uploaded_by=Uploader(
             id=str(batch.uploaded_by), name=uploader.name if uploader is not None else ""
@@ -331,17 +342,23 @@ async def _accept(
 
 
 async def _run_inline(batch_id: uuid.UUID) -> None:
-    """UPLOAD_INLINE: the batch, then its student notices once it is DONE, as the worker
-    would chain them. A notice failure is logged; the batch stays DONE."""
+    """UPLOAD_INLINE: the batch, then its student notices and the college's completeness
+    once it is DONE, as the worker would chain them. A failure in either is logged; the batch
+    stays DONE."""
     batch = await pipeline.run_batch(batch_id)
     if batch.status is not UploadStatus.DONE:
         return
+    from app.engine.completeness import refresh_one
     from app.notices.dispatch import send_notices_for_batch
 
     try:
         await send_notices_for_batch(batch_id)
     except Exception:
         log.exception("could not send student notices", extra={"batch_id": str(batch_id)})
+    try:
+        await refresh_one(session_factory(), batch.institution_id, batch.academic_year)
+    except Exception:
+        log.exception("could not refresh completeness", extra={"batch_id": str(batch_id)})
 
 
 async def _start(session: AsyncSession, batch: UploadBatch, background: BackgroundTasks) -> None:
@@ -404,8 +421,9 @@ async def create_upload(
     data = await upload.read(settings.upload_max_bytes + 1)
     if len(data) > settings.upload_max_bytes:
         raise _too_large()
+    saved = await column_mapping.load(session, institution.id)
     try:
-        await asyncio.to_thread(parse_upload, data, filename)
+        await asyncio.to_thread(parse_upload, data, filename, mapping=saved)
     except UploadFileError as exc:
         raise _file_error(exc) from None
     return await _accept(
@@ -445,8 +463,9 @@ async def create_upload_rows(
     assert institution is not None
     if len(body.rows) > settings.upload_rows_api_max:
         raise _file_error(too_many_rows(settings.upload_rows_api_max))
+    saved = await column_mapping.load(session, institution.id)
     try:
-        parse_rows(body.rows, max_rows=settings.upload_rows_api_max)
+        parse_rows(body.rows, max_rows=settings.upload_rows_api_max, mapping=saved)
     except UploadFileError as exc:
         raise _file_error(exc) from None
     return await _accept(

@@ -9,12 +9,13 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 
 from app import credentials
-from app.cases.service import apply_action, college_response, today_ist
+from app.cases.service import apply_action as _apply_action
+from app.cases.service import college_response, today_ist
 from app.core.security import hash_password
 from app.engine import status_text as text
 from app.engine.checks import refresh_student, run_checks
 from app.engine.ledger import assign_seats
-from app.engine.status import refresh
+from app.engine.status import refresh, settle
 from app.models.audit import AuditLog
 from app.models.credential import Credential
 from app.models.enums import (
@@ -40,6 +41,13 @@ from tests.engines.test_checks import _checks, _ravi
 COUNTERSIGNED_BY_COUNSELLING = (
     "Identity, seat and the joining record confirm the record, and nothing is unresolved."
 )
+
+
+async def apply_action(session, *args, **kwargs):
+    """The case service, then the settle the request's transaction owner does."""
+    result = await _apply_action(session, *args, **kwargs)
+    await settle(session)
+    return result
 
 
 def _today():
@@ -168,6 +176,7 @@ async def test_a_student_no_disputes_the_record_until_an_officer_upholds_the_cla
         admin,
         dispute.id,
         action=CaseActionKind.REQUEST_DOCS,
+        docs_kind="OTHER",
         note="Send the admission register.",
         due_date=due,
         assignee_id=None,
@@ -182,6 +191,7 @@ async def test_a_student_no_disputes_the_record_until_an_officer_upholds_the_cla
         admin,
         dispute.id,
         action=CaseActionKind.UPHOLD,
+        reason_code="DOCUMENTS_SUPPORT_CLAIM",
         note="The register shows the student joined.",
         due_date=None,
         assignee_id=None,
@@ -192,7 +202,7 @@ async def test_a_student_no_disputes_the_record_until_an_officer_upholds_the_cla
     assert (student.resolved["outcome"], student.resolved["by_id"]) == ("UPHELD", str(admin.id))
     assert student.resolved["case_id"] == str(dispute.id)
     assert isinstance(student.resolved["case_action_seq"], int)
-    assert student.resolved["reason_code"] is None
+    assert student.resolved["reason_code"] == "DOCUMENTS_SUPPORT_CLAIM"
     record = await _record(session, enrolment.id)
     # the joining record is still the independent evidence that countersigns
     assert record.record_status is RecordStatus.COUNTERSIGNED
@@ -226,6 +236,7 @@ async def test_an_upheld_record_without_independent_evidence_awaits_it(world, se
         admin,
         dispute.id,
         action=CaseActionKind.UPHOLD,
+        reason_code="STUDENT_ANSWER_MISTAKEN",
         note="Upheld.",
         due_date=None,
         assignee_id=None,
@@ -250,6 +261,7 @@ async def test_a_college_response_moves_the_next_step(world, session, gov) -> No
         admin,
         dispute.id,
         action=CaseActionKind.REQUEST_DOCS,
+        docs_kind="OTHER",
         note="Send the register.",
         due_date=None,
         assignee_id=None,
@@ -264,6 +276,7 @@ async def test_a_college_response_moves_the_next_step(world, session, gov) -> No
     session.add(registrar)
     await session.flush()
     await college_response(session, registrar, dispute.id, note="Attached.", files=[])
+    await settle(session)
     record = await _record(session, enrolment.id)
     assert record.next_step == (
         f"College responded on {text.day(datetime.now(UTC), _today())}; waiting for an "

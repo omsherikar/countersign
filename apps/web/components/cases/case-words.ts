@@ -15,6 +15,7 @@ export const ACTION_WORD: Record<OfficerAction, CopyId> = {
   NOTE: "case.note",
   ASSIGN: "case.assign",
   REOPEN: "case.reopen",
+  CORRECT: "case.correct",
 };
 
 /** Actions whose note the college reads; every other note stays with officers. */

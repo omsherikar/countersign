@@ -24,6 +24,8 @@ from app.routers import (
     admin,
     auth,
     cases,
+    column_mapping,
+    completeness,
     credentials,
     dashboard,
     enrolments,
@@ -143,7 +145,7 @@ def create_app() -> FastAPI:
         )
         return response
 
-    # registration order of ENGINES §16.9
+    # registration order of ENGINES §17.15
     for router in (
         healthz,
         auth,
@@ -153,6 +155,8 @@ def create_app() -> FastAPI:
         privacy,
         dashboard,
         institutions,
+        column_mapping,
+        completeness,
         enrolments,
         flags,
         cases,

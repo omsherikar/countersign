@@ -24,7 +24,7 @@ import { deckError, errorCodeOf } from "@/components/student/errors";
 const PAGE_SIZE = 25;
 const COLS = 6;
 
-export function DegreeStatus({ degree }: { degree: GraduateRow["degree"] }) {
+export function DegreeStatus({ degree }: { degree: GraduateRow["attestation"] }) {
   if (!degree)
     return (
       <StatusWord tone="neutral" icon={Minus}>
@@ -133,7 +133,7 @@ export function IssueDialog({
 
 function RowActions({ g }: { g: GraduateRow }) {
   const [issuing, setIssuing] = React.useState(false);
-  const active = g.degree?.status === "ACTIVE";
+  const active = g.attestation?.status === "ACTIVE";
   const printId = `print-${g.enrolment_id}`;
   if (active) {
     return (
@@ -232,7 +232,7 @@ export function DegreesPage() {
                 <td className="num">{g.year_of_award}</td>
                 <td className="!h-auto py-1.5">
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <DegreeStatus degree={g.degree} />
+                    <DegreeStatus degree={g.attestation} />
                     <RowActions g={g} />
                   </div>
                 </td>
