@@ -150,7 +150,7 @@ async def test_enrolment_detail_lists_notices_resend_and_proofs(
     assert body["resend"] == {"allowed": False, "blocked_by": "LIVE", "resends_left": 3}
     assert body["credentials"] == [ref]
     [student_check] = [c for c in body["checks"] if c["type"] == "STUDENT"]
-    assert student_check["status"] == "PENDING"
+    assert student_check["state"] == "PENDING"
     assert student_check["source"] == "STUDENT_NOTICE"
     assert student_check["detail"]["notice_state"] == "SENT"
     # the university may read the enrolment but never resend
