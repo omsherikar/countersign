@@ -22,6 +22,7 @@ from app.core.ratelimit import limiter
 from app.db.session import dispose_engine, get_engine
 from app.routers import (
     admin,
+    approvals,
     auth,
     cases,
     credentials,
@@ -152,6 +153,7 @@ def create_app() -> FastAPI:
         dashboard,
         institutions,
         enrolments,
+        approvals,
         flags,
         cases,
         users,
