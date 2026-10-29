@@ -37,6 +37,7 @@ from app.routers import (
     meta,
     notices,
     privacy,
+    psi,
     reports,
     signals,
     students,
@@ -171,6 +172,7 @@ def create_app() -> FastAPI:
         university,
         meta,
         admin,
+        psi,
     ):
         app.include_router(router.router)
     return app
