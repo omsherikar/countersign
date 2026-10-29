@@ -8,6 +8,9 @@ x-api-env: &api-env
     MOCKGOV_BASE_URL: http://mockgov:8001
     SMTP_HOST: mailpit
     SMTP_PORT: "1025"
+    # source calls in flight per batch: mockgov's one process keeps 5 database connections and
+    # opens a new one for every request beyond them
+    CHECKS_CONCURRENCY: "5"
 
 services:
   postgres:
@@ -98,6 +101,60 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+
+  # `make eval` only. The same simulator image and database as mockgov, with several worker
+  # processes and no reload, so the 50,000-row run is not limited by one simulator process.
+  # The demo's mockgov keeps its single reloading process: chaos toggles live in process
+  # memory, and several workers would each keep their own.
+  mockgov-eval:
+    image: countersign-mockgov
+    pull_policy: never
+    profiles: ["eval"]
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 4 --no-access-log
+    volumes:
+      - ./services/mockgov:/app
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8001/healthz')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # `make eval`: python -m eval in the api image, with tools/eval mounted at /eval. It runs
+  # the engine in process against mockgov-eval and writes tools/eval/out/.
+  eval:
+    image: countersign-api
+    pull_policy: never
+    profiles: ["eval"]
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_URL: redis://redis:6379/0
+      MOCKGOV_BASE_URL: http://mockgov-eval:8001
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      PYTHONPATH: /eval
+      # the evaluation asks for thousands of pages from one process
+      RATE_LIMITS_ENABLED: "false"
+      # four checking processes with four calls each, inside the 20 database connections
+      # mockgov-eval's four workers keep
+      CHECKS_CONCURRENCY: "16"
+    working_dir: /app
+    entrypoint: ["python", "-m", "eval"]
+    volumes:
+      - ./services/api:/app
+      - ./rules.yaml:/app/rules.yaml:ro
+      - ./tools/eval:/eval
+      - generated:/data/generated
+      - upload-spool:/data/spool
+      - case-files:/data/case-files
+    depends_on:
+      postgres: { condition: service_healthy }
+      mockgov-eval: { condition: service_healthy }
 
   datagen:
     build: ./tools/datagen
