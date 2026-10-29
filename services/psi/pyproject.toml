@@ -1,0 +1,37 @@
+[project]
+name = "psi"
+version = "0.1.0"
+description = "Private set intersection demo for Countersign: two regulators learn only how many students they share"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "httpx>=0.27",
+  # wheels exist for linux x86_64 and macOS arm64 only, so the image is linux/amd64
+  "openmined.psi==2.0.6",
+]
+
+[dependency-groups]
+test = [
+  "pytest>=8",
+]
+dev = [
+  { include-group = "test" },
+  "ruff>=0.6",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "protocol: needs the openmined.psi wheel (linux x86_64 or macOS arm64)",
+]
