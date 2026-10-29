@@ -168,12 +168,18 @@ export function DecisionSheet({
     }
   }
 
-  const multi = flag.scope === "MULTI_RECORD";
+  // A multi-record case names several records; a record case without its own record (a duplicate) names one of its related records.
+  const multi = flag.scope === "MULTI_RECORD" || (flag.scope === "RECORD" && !flag.enrolment_id);
   const all = React.useMemo(() => {
     const list = [flag.enrolment, ...flag.related_enrolments].filter((r): r is RelatedEnrolmentRow => Boolean(r));
     return list.filter((r, i) => list.findIndex((x) => x.id === r.id) === i);
   }, [flag.enrolment, flag.related_enrolments]);
-  const named = multi ? all.filter((r) => flag.outstanding_enrolment_ids.includes(r.id)) : all.filter((r) => r.id === flag.enrolment_id);
+  const named =
+    flag.scope === "MULTI_RECORD"
+      ? all.filter((r) => flag.outstanding_enrolment_ids.includes(r.id))
+      : flag.enrolment_id
+        ? all.filter((r) => r.id === flag.enrolment_id)
+        : all.filter((r) => r.institution.id === flag.institution.id && r.status === "ACTIVE");
   const seatCase = flag.type === "EXCESS_ADMISSION" || flag.type === "QUOTA_BREACH";
   const versionMissing = action === "UPHOLD" && seatCase && !flag.approval?.covers;
   const target = action === "CORRECT" ? (multi ? record : (flag.enrolment_id ?? "")) : "";
@@ -339,7 +345,7 @@ export function DecisionSheet({
       open
       onOpenChange={(o) => !o && onClose()}
       title={t(HEADING[action])}
-      lead={action === "WITHDRAW" && multi ? t("case.withdraw_lead_programme") : t(action === "UPHOLD" ? "case.uphold_lead" : action === "CORRECT" ? "case.correct_lead" : "case.withdraw_lead")}
+      lead={action === "WITHDRAW" && flag.scope === "MULTI_RECORD" ? t("case.withdraw_lead_programme") : t(action === "UPHOLD" ? "case.uphold_lead" : action === "CORRECT" ? "case.correct_lead" : "case.withdraw_lead")}
       initialFocus={() => (action === "CORRECT" && multi ? document.getElementById(`${ids}-record`) : reasonRef.current)}
       returnFocus={returnFocus}
       busy={busy}
