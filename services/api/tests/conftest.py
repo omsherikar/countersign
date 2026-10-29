@@ -43,12 +43,14 @@ from sqlalchemy import func, select, text, update  # noqa: E402
 from sqlalchemy.ext.asyncio import create_async_engine  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
+from app.core.security import COOKIE_NAME, create_access_token  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import dispose_engine, session_factory  # noqa: E402
 from app.main import app, run_migrations  # noqa: E402
-from app.models.enums import EnrolmentStatus  # noqa: E402
+from app.models.enums import EnrolmentStatus, UserRole  # noqa: E402
 from app.models.institution import Institution  # noqa: E402
 from app.models.student import Enrolment  # noqa: E402
+from app.models.user import User  # noqa: E402
 from app.seed.importer import Summary, import_directory  # noqa: E402
 
 
@@ -106,9 +108,18 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
 
 
 async def login_as(email: str) -> httpx.AsyncClient:
-    """A client holding the cs_access cookie for one of the demo users."""
+    """A client holding the cs_access cookie for one of the demo users.
+
+    A student has no password and signs in only through DigiLocker (D37): the client gets
+    the session cookie that sign-in ends with. Everyone else signs in with the password.
+    """
     transport = httpx.ASGITransport(app=app)
     c = httpx.AsyncClient(transport=transport, base_url="http://test")
+    async with session_factory()() as session:
+        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    if user is not None and user.role is UserRole.STUDENT:
+        c.cookies.set(COOKIE_NAME, create_access_token(user.id, user.role.value))
+        return c
     response = await c.post("/auth/login", json={"email": email, "password": PASSWORD})
     assert response.status_code == 200, response.text
     return c

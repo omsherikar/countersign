@@ -1,10 +1,15 @@
-"""The notice page, replies, resends and the notice lists (D23, D24, API_CONTRACT §A3.3 to §A3.7).
+"""The notice page, replies, resends and the notice lists (D23, D24, D37; API_CONTRACT §A3.3
+to §A3.7, §A4.13).
 
-`apply_reply` is the one code path for a reply, whether it comes through the public link or
-the demo seed: it records the answer, the student's notice consent on a Yes, re-derives the
-STUDENT check (which raises or refreshes STUDENT_DENIED), notes a No changed to Yes on the
-flag's history, and asks for the enrolment proof. Services raise ApiError with the Addendum
-3 codes, so the routers stay thin.
+The notice page shows the claim to whoever holds the link, but an answer is recorded only
+for the record's own student, signed in through DigiLocker; the link and the email only
+point there. `apply_reply` is the one code path for a reply, whether it comes from the
+notice page, the student's enrolments page or the demo seed (whose replies stand for
+answers given after DigiLocker sign-in): it records the answer, the student's notice
+consent on a Yes, re-derives the STUDENT check (which raises or refreshes STUDENT_DENIED
+and recomputes the record status), notes a No changed to Yes on the case's history, and
+asks for the enrolment attestation. Services raise ApiError with the Addendum 3 and 4
+codes, so the routers stay thin.
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import credentials
+from app.auth import digilocker
+from app.auth.digilocker import PendingClaim
 from app.cases.service import add_system_note
 from app.core import audit
 from app.core.audit import AuditEntry
@@ -47,7 +54,7 @@ from app.models.institution import Institution, Programme
 from app.models.student import Enrolment, Student
 from app.models.user import User
 from app.models.verification import Flag, Notification
-from app.notices.dispatch import channels_for, create_notices
+from app.notices.dispatch import channels_for, create_notices, placeholder_hash
 from app.notices.student_check import REPLY_CHANGED_NOTE, fmt_day, wire_time
 from app.privacy.notice import NOTICE_VERSION, consent_text
 from app.privacy.service import notice_consent_withdrawn, record_consent
@@ -60,6 +67,9 @@ CONSENT_CHANNELS = {
 }
 VIA_LINK = "notice-link"
 VIA_SEED = "demo-seed"
+VIA_SIGNIN = "digilocker-sign-in"
+# the notice written when a signed-in student answers a record that never had one (§A4.13)
+ANSWERED_AFTER_SIGNIN = "Answered after DigiLocker sign-in."
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,28 +194,171 @@ async def public_body(
     }
 
 
-async def open_notice(session: AsyncSession, token: str) -> dict[str, Any]:
+def can_answer(notice: Notification, viewer: dict[str, Any], now: datetime) -> bool:
+    """Yes and No show for the record's own student while §A3.4 allows a reply or a change."""
+    if viewer.get("match") != digilocker.MATCH:
+        return False
+    if notice.response is None:
+        return notice.expires_at > now
+    return can_change_until(notice, now) is not None
+
+
+def page_body(
+    body: dict[str, Any], notice: Notification, token: str, viewer: dict[str, Any], now: datetime
+) -> dict[str, Any]:
+    """The §A3.3 body with who is looking (§A4.13)."""
+    page = f"/student/notices/{token}"
+    claim_needed = viewer.get("match") == digilocker.CLAIM_NEEDED
+    return {
+        **body,
+        "viewer": viewer,
+        "can_answer": can_answer(notice, viewer, now),
+        "sign_in_url": digilocker.sign_in_url(page),
+        "claim_url": digilocker.claim_location(page) if claim_needed else None,
+    }
+
+
+async def open_notice(
+    session: AsyncSession,
+    token: str,
+    *,
+    user: User | None = None,
+    pending: PendingClaim | None = None,
+) -> dict[str, Any]:
     """GET /notices/{token}: 410 for an unanswered notice past its expiry; the first view
-    sets `opened_at`; every view is a READ in the audit chain with no actor."""
+    sets `opened_at`; every view is a READ in the audit chain with no actor, saying whether
+    the person looking is the record's student."""
     notice = await find_by_token(session, token, for_update=True)
     now = datetime.now(UTC)
     if notice.response is None and notice.expires_at <= now:
         raise _expired()
     if notice.opened_at is None:
         notice.opened_at = now
+    viewer = await digilocker.notice_viewer(session, notice, user, pending)
     await audit.record(
-        session, None, AuditAction.READ, "notification", notice.id, after={"via": VIA_LINK}
+        session,
+        None,
+        AuditAction.READ,
+        "notification",
+        notice.id,
+        after={"via": VIA_LINK, "match": viewer["match"]},
     )
-    return await public_body(session, notice, now=now)
+    body = await public_body(session, notice, now=now)
+    return page_body(body, notice, token, viewer, now)
+
+
+def signin_required() -> ApiError:
+    return ApiError(401, "SIGNIN_REQUIRED", "Sign in with DigiLocker to answer this notice.", {})
+
+
+def identity_mismatch() -> ApiError:
+    return ApiError(
+        403,
+        "NOTICE_IDENTITY_MISMATCH",
+        "This notice is for someone else. Nothing was recorded.",
+        {},
+    )
 
 
 async def respond(
-    session: AsyncSession, token: str, response: NoticeResponse, comment: str | None
+    session: AsyncSession,
+    token: str,
+    response: NoticeResponse,
+    comment: str | None,
+    *,
+    user: User | None,
 ) -> dict[str, Any]:
-    """POST /notices/{token}/respond: the §A3.3 body after the reply."""
+    """POST /notices/{token}/respond (§A4.13): the token rules, then a signed-in STUDENT who
+    is the notice's student, then rules 3 to 5 of §A3.4. Nothing is recorded on 401 or 403."""
     notice = await find_by_token(session, token, for_update=True)
-    outcome = await apply_reply(session, notice, response, comment, via=VIA_LINK)
-    return await public_body(session, outcome.notice)
+    now = datetime.now(UTC)
+    if notice.response is None and notice.expires_at <= now:
+        raise _expired()
+    if user is None:
+        raise signin_required()
+    if user.role is not UserRole.STUDENT or user.student_id != notice.student_id:
+        raise identity_mismatch()
+    outcome = await apply_reply(
+        session, notice, response, comment, via=VIA_SIGNIN, actor_id=user.id
+    )
+    viewer = await digilocker.notice_viewer(session, outcome.notice, user, None)
+    body = await public_body(session, outcome.notice)
+    return page_body(body, outcome.notice, token, viewer, datetime.now(UTC))
+
+
+async def respond_as_student(
+    session: AsyncSession,
+    user: User,
+    enrolment_id: uuid.UUID,
+    response: NoticeResponse,
+    comment: str | None,
+) -> ReplyOutcome:
+    """POST /students/me/enrolments/{id}/respond (§A4.13): the student answers on their own
+    enrolments page. The answer goes to the enrolment's latest delivered notice, else its
+    latest notice, else to one written now (the Student row is derived from notices); rules
+    3 to 5 of §A3.4 apply to it."""
+    enrolment = (
+        await session.execute(
+            select(Enrolment).where(Enrolment.id == enrolment_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    if enrolment is None or user.student_id is None or enrolment.student_id != user.student_id:
+        raise ApiError(404, "NOT_FOUND", "Enrolment not found.")
+    if enrolment.status is not EnrolmentStatus.ACTIVE:
+        raise ApiError(
+            409,
+            "CONFLICT",
+            "Only an active enrolment can be answered.",
+            {"reason": "NOT_ACTIVE"},
+        )
+    notices = await _notices_of(session, enrolment.id)
+    sent = [n for n in notices if n.delivery_status is NoticeDelivery.SENT]
+    notice = (sent or notices or [None])[0]
+    if notice is None:
+        notice = await _signin_notice(session, enrolment)
+    return await apply_reply(
+        session,
+        notice,
+        response,
+        comment,
+        via=VIA_SIGNIN,
+        actor_id=user.id,
+        enforce_expiry=False,
+    )
+
+
+async def _signin_notice(session: AsyncSession, enrolment: Enrolment) -> Notification:
+    """A DIGILOCKER notice for a record that never had one, so the answer has a home: SENT
+    now, with a token hash nobody holds (§A4.13)."""
+    now = datetime.now(UTC)
+    notice = Notification(
+        id=uuid.uuid4(),
+        student_id=enrolment.student_id,
+        enrolment_id=enrolment.id,
+        channel=NoticeChannel.DIGILOCKER,
+        token_hash=placeholder_hash(),
+        message=ANSWERED_AFTER_SIGNIN,
+        delivery_status=NoticeDelivery.SENT,
+        attempts=0,
+        sent_at=now,
+        expires_at=now + timedelta(days=get_rules().notices.expiry_days),
+    )
+    session.add(notice)
+    await session.flush()
+    await audit.record(
+        session,
+        None,
+        AuditAction.CREATE,
+        "notification",
+        notice.id,
+        after={
+            "enrolment_id": str(enrolment.id),
+            "channel": NoticeChannel.DIGILOCKER.value,
+            "resent": False,
+            "via": VIA_SIGNIN,
+        },
+    )
+    return notice
 
 
 async def respond_for_enrolment(
@@ -280,14 +433,18 @@ async def apply_reply(
     comment: str | None,
     *,
     via: str,
+    actor_id: uuid.UUID | None = None,
     now: datetime | None = None,
     finish: bool = True,
     audit_sink: list[AuditEntry] | None = None,
+    enforce_expiry: bool = True,
 ) -> ReplyOutcome:
     """Rules 2 to 5 of §A3.4 and their effects, in the caller's transaction.
 
-    Every refusal is raised before anything is written. With `finish` False the reply and
-    its consent are recorded and the caller passes the outcomes of a whole chunk to
+    Every refusal is raised before anything is written. `actor_id` is the signed-in student
+    (none for the demo seed). With `enforce_expiry` False an expired notice still takes a
+    first answer (the student's own enrolments page, §A4.13). With `finish` False the reply
+    and its consent are recorded and the caller passes the outcomes of a whole chunk to
     `finish_replies` (the seed does, so the STUDENT check is re-derived once per chunk);
     with `audit_sink` the reply's audit entry is appended there for one `record_many`.
     """
@@ -303,7 +460,7 @@ async def apply_reply(
     first = notice.response
     changed = False
     if first is None:
-        if notice.expires_at <= now:
+        if enforce_expiry and notice.expires_at <= now:
             raise _expired()
         notice.response = response
         notice.responded_at = now
@@ -337,6 +494,7 @@ async def apply_reply(
         action=AuditAction.UPDATE,
         entity_type="notification",
         entity_id=notice.id,
+        actor_id=actor_id,
         before={"response": _value(first)},
         after={
             "response": response.value,
@@ -375,8 +533,9 @@ async def finish_replies(
     session: AsyncSession, outcomes: Sequence[ReplyOutcome]
 ) -> list[ReplyOutcome]:
     """The effects that follow recorded replies: re-derive the STUDENT check (raising or
-    refreshing STUDENT_DENIED), note a No changed to Yes on the flag's history, then ask
-    for each enrolment's proof. Returns the outcomes with any credential issued."""
+    refreshing STUDENT_DENIED, recomputing the record status), note a No changed to Yes on
+    the case's history, then ask for each enrolment's attestation, which only a
+    COUNTERSIGNED record gets. Returns the outcomes with any attestation issued."""
     recorded = [o for o in outcomes if o.recorded]
     enrolment_ids = list(dict.fromkeys(o.notice.enrolment_id for o in recorded))
     if not enrolment_ids:

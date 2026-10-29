@@ -1,9 +1,10 @@
-"""Student-held credentials (SD-JWT VC, DECISIONS D26).
+"""Student-held attestations (SD-JWT VC, DECISIONS D26, D44).
 
 These two functions are what the rest of the api calls: the Seat Ledger revokes when an
-enrolment is withdrawn or transferred, and the checks, the notice loop and case actions
-ask for issuance once an enrolment may have become eligible. The ledger imports this
-package on every batch, so the SD-JWT code is loaded only when something is issued.
+enrolment is withdrawn or transferred, an officer's withdrawal revokes for good, the record
+status revokes when a record becomes DISPUTED, and every recomputation that finds a record
+COUNTERSIGNED asks for issuance. The ledger imports this package on every batch, so the
+SD-JWT code is loaded only when something is issued.
 """
 
 from __future__ import annotations
@@ -20,14 +21,16 @@ from app.credentials import status_list
 from app.models.credential import Credential
 from app.models.enums import AuditAction
 
-# What the system revokes for, stored as is in `revoked_reason` (API_CONTRACT A3.18). An
-# officer's revocation stores the officer's words instead, and reads back as ADMIN.
-# STUDENT_DISPUTE: the record became DISPUTED (R6)
+# What the system revokes for, stored as is in `revoked_reason` (API_CONTRACT A3.18,
+# §A4.14). An officer's revocation stores the officer's words instead, and reads back as
+# ADMIN. CLAIM_WITHDRAWN: an officer's WITHDRAW decision; STUDENT_DISPUTE: the record
+# became DISPUTED (R6). FLAG_CONFIRMED is no longer written but still reads back.
 SYSTEM_REASON_CODES = (
     "ENROLMENT_WITHDRAWN",
     "ENROLMENT_TRANSFERRED",
-    "FLAG_CONFIRMED",
+    "CLAIM_WITHDRAWN",
     "STUDENT_DISPUTE",
+    "FLAG_CONFIRMED",
 )
 # the Seat Ledger's words for the same causes
 _LEDGER_REASONS = {
@@ -53,11 +56,11 @@ async def revoke_for_enrolment(
     *,
     audit_sink: list[AuditEntry] | None = None,
 ) -> int:
-    """Revoke every unrevoked credential of the enrolment, in the caller's transaction.
+    """Revoke every unrevoked attestation of the enrolment, in the caller's transaction.
 
-    `reason` is a reason code (ENROLMENT_WITHDRAWN, ENROLMENT_TRANSFERRED, FLAG_CONFIRMED,
-    STUDENT_DISPUTE) or
-    the ledger's words for the first two; the code is what is stored and audited. Sets
+    `reason` is a reason code (ENROLMENT_WITHDRAWN, ENROLMENT_TRANSFERRED, CLAIM_WITHDRAWN,
+    STUDENT_DISPUTE) or the ledger's words for the first two; the code is what is stored
+    and audited. Sets
     `revoked`, `revoked_at`, `revoked_reason` and `revoked_by_id` (null when the system
     revokes) and writes one audit UPDATE per credential; returns how many it revoked.
     Revoked credentials are left as they are, so calling it again does nothing. With
@@ -113,12 +116,13 @@ async def revoke_for_enrolment(
 
 
 async def issue_if_eligible(session: AsyncSession, enrolment_id: uuid.UUID) -> Credential | None:
-    """Issue the ENROLMENT credential if the enrolment is eligible and has none live.
+    """Issue the enrolment attestation if the enrolment is eligible and has none live.
 
-    Eligible means the enrolment is ACTIVE, its STUDENT check is PASS, no check is FAIL and
-    no unresolved HIGH flag names it (issuer.eligibility). Runs in the caller's transaction,
-    never raises for an ineligible enrolment, and returns the credential issued or None.
-    Callers: after a recheck, after a Yes reply to a notice and after a case is cleared.
+    Eligible means the enrolment is ACTIVE, its record is COUNTERSIGNED and no earlier
+    enrolment attestation was revoked with a code that holds (issuer.eligibility, D44).
+    Runs in the caller's transaction, never raises for an ineligible enrolment, and returns
+    the attestation issued or None. Callers: `status.refresh` for every COUNTERSIGNED
+    record, the batch notices task, and a reply to a notice.
     """
     from app.credentials import issuer
 

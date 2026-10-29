@@ -27,7 +27,7 @@ from app.models.enums import (
 )
 from app.models.verification import CaseAction, Check, Flag, Notification
 from app.notices.student_check import fmt_day
-from tests.notices.conftest import delivered, notices_of
+from tests.notices.conftest import confirm_rows, delivered, notices_of, signed_in_owner
 
 EMAIL, DIGILOCKER = NoticeChannel.EMAIL, NoticeChannel.DIGILOCKER
 
@@ -64,8 +64,10 @@ async def denied_flag(enrolment_id) -> Flag | None:
 
 
 async def reply(public, token: str, response: str, comment: str | None = None):
+    """The answer of the notice's own student, signed in through DigiLocker (D37)."""
     body = {"response": response} if comment is None else {"response": response, "comment": comment}
-    return await public.post(f"/notices/{token}/respond", json=body)
+    async with await signed_in_owner(token) as student:
+        return await student.post(f"/notices/{token}/respond", json=body)
 
 
 async def test_a_yes_countersigns_records_consent_and_asks_for_the_proof(
@@ -99,7 +101,7 @@ async def test_a_yes_countersigns_records_consent_and_asks_for_the_proof(
                         AuditLog.entity_type == "notification",
                         AuditLog.action == AuditAction.UPDATE,
                         AuditLog.entity_id == email.id,
-                        AuditLog.after["via"].astext == "notice-link",
+                        AuditLog.after["via"].astext == "digilocker-sign-in",
                     )
                 )
             )
@@ -113,8 +115,13 @@ async def test_a_yes_countersigns_records_consent_and_asks_for_the_proof(
     )
     assert consent.enrolment_id == enrolment.id and consent.notice_version == "v1"
     assert consent.notice_text == body["consent_text"]
-    assert audit.actor_id is None
-    assert audit.after == {"response": "YES", "previous_response": None, "via": "notice-link"}
+    # the answer is the signed-in student's own (D37)
+    assert audit.actor_id is not None
+    assert audit.after == {
+        "response": "YES",
+        "previous_response": None,
+        "via": "digilocker-sign-in",
+    }
     assert issued == [enrolment.id]
     assert await denied_flag(enrolment.id) is None
 
@@ -335,6 +342,9 @@ async def test_a_reupload_keeps_the_derived_status(world, mailer, public, issued
 async def test_a_yes_issues_the_enrolment_proof_and_a_no_does_not(world, mailer, public, clients):
     confirmed, yes_tokens = await delivered(world, mailer)
     denied, no_tokens = await delivered(world, mailer)
+    # identity and seat are confirmed, so the Yes (independent of the college) countersigns
+    await confirm_rows(confirmed.id)
+    await confirm_rows(denied.id)
     await reply(public, yes_tokens[DIGILOCKER], "YES")
     await reply(public, no_tokens[EMAIL], "NO")
     async with session_factory()() as s:

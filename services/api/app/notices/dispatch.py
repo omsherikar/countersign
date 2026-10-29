@@ -39,18 +39,17 @@ from app.engine.checks import refresh_student
 from app.engine.contracts import CHUNK_SIZE
 from app.models.enums import (
     AuditAction,
-    CheckStatus,
-    CheckType,
     ConsentStatus,
     EnrolmentStatus,
     NoticeChannel,
     NoticeDelivery,
+    RecordStatus,
     UploadStatus,
 )
 from app.models.institution import Institution, Programme
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
-from app.models.verification import Check, Notification
+from app.models.verification import Notification
 from app.notices.mailer import NO_ANSWER, Mailer, MailMessage, build_mailer
 from app.notices.student_check import fmt_day
 from app.privacy.service import notice_consent_withdrawn
@@ -61,16 +60,33 @@ RETRY_PAUSES_SECONDS = (5, 20)  # before the second and the third try
 MAX_ATTEMPTS = 3
 DIGILOCKER_TRIP = 5  # consecutive unavailable calls that end a DigiLocker pass
 
-# copy deck §8: notice.email_subject, notice.email_body, notice.digilocker
-EMAIL_SUBJECT = "{institution_name} says you joined {programme_short}. Is that right?"
+# copy deck §8 and §23: notice.email_subject, notice.email_body (sent in English with the
+# Hindi text under it), notice.digilocker. A notice only points to DigiLocker sign-in (D37):
+# nothing in it can record an answer.
+EMAIL_SUBJECT = "{institution_name} has reported an enrolment in your name"
 EMAIL_BODY = (
-    "{institution_name} has told AICTE that you joined {programme_name} for {academic_year}. "
-    "Please confirm whether this is right. It takes one tap: {link}. If this is not you, "
-    "tell us and an AICTE officer will look into it. This link works until {expires_date}. "
-    "You will not be asked for a password or any payment."
+    "{institution_name} has told AICTE that you joined {programme_name} in {academic_year}. "
+    "To see what they reported and to answer, open {link} and sign in with DigiLocker. "
+    "Your answer is recorded only after you sign in with DigiLocker; nothing in this email "
+    "can record it. The link works until {expires_date}. Never share your DigiLocker OTP "
+    "with anyone, including AICTE or your college."
+)
+EMAIL_BODY_HI = (
+    "{institution_name} ने AICTE को बताया है कि आपने {academic_year} में {programme_name} में "
+    "प्रवेश लिया है। उन्होंने क्या बताया है यह देखने और उत्तर देने के लिए {link} खोलें और "
+    "DigiLocker से साइन इन करें। आपका उत्तर DigiLocker से साइन इन करने के बाद ही दर्ज होता है; "
+    "इस ईमेल से कुछ भी दर्ज नहीं हो सकता। यह लिंक {expires_date} तक काम करेगा। अपना DigiLocker "
+    "OTP किसी के साथ साझा न करें, AICTE या अपने कॉलेज के साथ भी नहीं।"
+)
+# proposed notice.email_provisional_line (API_CONTRACT §A4.13): a student without a linked
+# APAAR needs the provisional id to claim the record after signing in
+EMAIL_PROVISIONAL_LINE = (
+    "Your college recorded you without an APAAR. Your provisional ID is {provisional_id}; "
+    "you need it to claim the record after signing in."
 )
 DIGILOCKER_TEXT = (
-    "{institution_name} says you joined {programme_short} ({academic_year}). Is that right?"
+    "{institution_name} has reported that you joined {programme_short} ({academic_year}). "
+    "Sign in to Countersign with DigiLocker to answer."
 )
 # The stored email text keeps this slot where the link goes; the link is put in only
 # when the message is sent, so it is never stored.
@@ -95,6 +111,8 @@ class NoticeContext:
     programme_code: str
     academic_year: str
     expires_at: datetime
+    # in full, only for a student without a linked APAAR (the email carries it)
+    provisional_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -143,10 +161,12 @@ def notice_text(channel: NoticeChannel, facts: NoticeContext) -> tuple[str, str]
         "academic_year": facts.academic_year,
     }
     if channel is NoticeChannel.EMAIL:
-        return (
-            EMAIL_SUBJECT.format(**values),
-            EMAIL_BODY.format(**values, link=LINK_SLOT, expires_date=fmt_day(facts.expires_at)),
-        )
+        expires_date = fmt_day(facts.expires_at)
+        english = EMAIL_BODY.format(**values, link=LINK_SLOT, expires_date=expires_date)
+        if facts.provisional_id:
+            english += " " + EMAIL_PROVISIONAL_LINE.format(provisional_id=facts.provisional_id)
+        hindi = EMAIL_BODY_HI.format(**values, link=LINK_SLOT, expires_date=expires_date)
+        return EMAIL_SUBJECT.format(**values), f"{english}\n\n{hindi}"
     return "", DIGILOCKER_TEXT.format(**values)
 
 
@@ -224,6 +244,7 @@ async def create_notices(
                 Student.email,
                 Student.consent_status,
                 Student.apaar_last4,
+                Student.provisional_id,
                 Institution.name,
                 Programme.name,
                 Programme.code,
@@ -240,8 +261,13 @@ async def create_notices(
         row = by_id.get(enrolment_id)
         if row is None:
             continue
-        _, student_id, year, email, consent, last4, inst_name, prog_name, prog_code = row
-        facts = NoticeContext(inst_name, prog_name, prog_code, year, expires_at)
+        _, student_id, year, email, consent, last4, provisional, inst_name, prog_name, prog_code = (
+            row
+        )
+        linked = consent is ConsentStatus.LINKED and last4 is not None
+        facts = NoticeContext(
+            inst_name, prog_name, prog_code, year, expires_at, None if linked else provisional
+        )
         for channel in channels_for(email, consent, last4):
             created.append(
                 Notification(
@@ -383,7 +409,7 @@ async def _send_emails(jobs: Sequence[_Job], mailer: Mailer) -> dict[uuid.UUID, 
         MailMessage(
             to=job.email or "",
             subject=job.subject,
-            body=job.text.replace(LINK_SLOT, job.link, 1),
+            body=job.text.replace(LINK_SLOT, job.link),
             headers={NOTICE_HEADER: str(job.id)},
         )
         for job in sendable
@@ -570,23 +596,25 @@ async def deliver(
 
 
 async def issue_due_proofs(session: AsyncSession, enrolment_ids: Sequence[uuid.UUID]) -> int:
-    """`credentials.issue_if_eligible` for those among the enrolments whose STUDENT check
-    is PASS, the first condition of eligibility; returns how many proofs were issued."""
+    """`credentials.issue_if_eligible` for those among the ACTIVE enrolments whose record is
+    COUNTERSIGNED, the first condition of eligibility (D44); returns how many attestations
+    were issued. This is where an upload's records get theirs: after the batch, never inside
+    it (ENGINES §17.13)."""
     ids = list(dict.fromkeys(enrolment_ids))
     issued = 0
     for chunk in _chunks(ids):
-        passed = (
+        countersigned = (
             await session.execute(
-                select(Check.enrolment_id)
+                select(Enrolment.id)
                 .where(
-                    Check.enrolment_id.in_(list(chunk)),
-                    Check.type == CheckType.STUDENT,
-                    Check.status == CheckStatus.CONFIRMED,
+                    Enrolment.id.in_(list(chunk)),
+                    Enrolment.status == EnrolmentStatus.ACTIVE,
+                    Enrolment.record_status == RecordStatus.COUNTERSIGNED,
                 )
-                .order_by(Check.enrolment_id)
+                .order_by(Enrolment.id)
             )
         ).scalars()
-        for enrolment_id in list(passed):
+        for enrolment_id in list(countersigned):
             if await credentials.issue_if_eligible(session, enrolment_id) is not None:
                 issued += 1
     return issued
@@ -598,7 +626,8 @@ async def _refresh(
     *,
     issue: bool,
 ) -> None:
-    """In chunks, one transaction each: re-derive STUDENT, then issue proofs that are due."""
+    """In chunks, one transaction each: re-derive STUDENT (which recomputes the record
+    status), then issue the attestations that are due."""
     for chunk in _chunks(list(dict.fromkeys(enrolment_ids))):
         async with factory() as session:
             await refresh_student(session, chunk)

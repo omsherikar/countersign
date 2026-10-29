@@ -7,13 +7,16 @@ from typing import Any
 
 import httpx
 
+from app.adapters import digilocker_oidc
 from app.adapters.base import (
     PROBE_APAAR_ID,
     AbcResult,
     AdapterRequestError,
     ApaarResult,
     CounsellingResult,
+    DigiLockerIdentity,
     DigiLockerResult,
+    IdTokenInvalid,
     Semester,
     SiiResult,
     SourceUnavailable,
@@ -39,11 +42,20 @@ class MockGovClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def request(self, source: str, method: str, path: str, json: Any | None = None) -> Any:
+    async def request(
+        self,
+        source: str,
+        method: str,
+        path: str,
+        json: Any | None = None,
+        *,
+        data: dict[str, str] | None = None,
+    ) -> Any:
+        """`json` for mockgov's own routes; `data` sends a form (the DigiLocker token call)."""
         last_error: SourceUnavailable | None = None
         for _attempt in range(RETRIES + 1):
             try:
-                response = await self._client.request(method, path, json=json)
+                response = await self._client.request(method, path, json=json, data=data)
             except httpx.TimeoutException:
                 last_error = SourceUnavailable(
                     source, f"timeout after {int(self.timeout * 1000)} ms"
@@ -159,6 +171,44 @@ class MockGovAbc(_MockGovBase):
 
 class MockGovDigiLocker(_MockGovBase):
     source = "digilocker"
+
+    def __init__(
+        self, client: MockGovClient, oauth: digilocker_oidc.OAuthClient | None = None
+    ) -> None:
+        super().__init__(client)
+        self.oauth = oauth
+
+    def _oauth(self) -> digilocker_oidc.OAuthClient:
+        return self.oauth or digilocker_oidc.OAuthClient.from_settings()
+
+    def authorize_url(self, *, state: str, nonce: str, redirect_uri: str) -> str:
+        """The simulator's sign-in page, which the browser opens (DIGILOCKER_AUTHORIZE_URL)."""
+        return digilocker_oidc.authorize_url(
+            self._oauth(), state=state, nonce=nonce, redirect_uri=redirect_uri
+        )
+
+    async def exchange_code(
+        self, *, code: str, redirect_uri: str, nonce: str
+    ) -> DigiLockerIdentity:
+        """POST /digilocker/oauth/token (API_CONTRACT C.12), then verify the id token. OAuth
+        errors arrive as AdapterRequestError; an outage as SourceUnavailable."""
+        oauth = self._oauth()
+        data = await self.client.request(
+            self.source,
+            "POST",
+            "/digilocker/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+                "client_id": oauth.client_id,
+                "client_secret": oauth.client_secret,
+            },
+        )
+        token = data.get("id_token") if isinstance(data, dict) else None
+        if not isinstance(token, str):
+            raise IdTokenInvalid("no id_token in the answer")
+        return digilocker_oidc.read_id_token(token, oauth, nonce=nonce)
 
     async def notify(self, apaar_id: str, message: str, callback_url: str) -> DigiLockerResult:
         data = await self.client.request(
