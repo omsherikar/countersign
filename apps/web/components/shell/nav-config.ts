@@ -45,7 +45,7 @@ export const NAV: Record<Exclude<Role, "VERIFIER">, NavItem[]> = {
     { label: "nav.system", href: "/admin/system", icon: Server, week: 1, available: true },
     { label: "nav.audit", href: "/admin/audit", icon: ScrollText, week: 3, available: true },
     { label: "nav.data_requests", href: "/admin/data-requests", icon: Shield, week: 3, available: true },
-    { label: "nav.psi", href: "/admin/psi", icon: Lock, week: 4, available: false },
+    { label: "nav.psi", href: "/admin/psi", icon: Lock, week: 4, available: true },
   ],
   RO_OFFICER: [
     { label: "nav.overview", href: "/ro", icon: LayoutDashboard, week: 1, available: true, alsoActive: ["/ro/institutions", "/ro/enrolments"] },
