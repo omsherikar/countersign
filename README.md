@@ -159,12 +159,17 @@ make e2e          # about 2 minutes once the web has compiled its pages
 
 A clean run starts from `make demo-reset`, because the tests answer the two notices the seed keeps for the live demo, clear one ABC College flag and issue one degree proof. A second run without a reset still passes: it answers other unanswered ABC College notices found through Mailpit, skips sharing Ravi's proof (an officer's revocation holds, so it is not issued again), and takes the next flag and graduate, printing a `note:` line for each of these. `E2E_BASE_URL`, `E2E_API_URL`, `E2E_MAILPIT_URL` and `E2E_MOCKGOV_URL` move the addresses; a failed test keeps its trace and screenshot under `apps/web/test-results`.
 
+## Private matching (stretch)
+
+`/admin/psi` (AICTE officer) shows how many APAAR-linked students Countersign and a mock UGC registry both hold, by private set intersection: neither side sees the other's list, and Countersign learns only the count (D48, API_CONTRACT §A4.26). The protocol needs `openmined.psi`, which ships no linux arm64 wheel, so `services/psi` is a linux/amd64 image run as two containers: `psi` (the partner, which holds its own synthetic set drawn from datagen's APAAR registry) and `psi-client` (Countersign's side, which the api hands its set to). `make up` builds it with the rest; `docker compose up -d psi psi-client` adds it to a running stack, and `docker compose run --rm psi pytest -q` runs its protocol tests. On the small seed a run takes about 8 seconds under emulation: Countersign 9,867, partner 8,430, overlap 429.
+
 ## Layout
 
 ```
 apps/web          Next.js front end
 services/api      FastAPI, the product
 services/mockgov  simulated government systems (APAAR, counselling, ABC, DigiLocker, Study in India)
+services/psi      private set intersection with a mock partner regulator (linux/amd64)
 tools/datagen     synthetic data with ground-truth labels
 tools/eval        accuracy evaluation (Week 4)
 docs/             ARCHITECTURE, API_CONTRACT, DATA_MODEL, DECISIONS, PROGRESS
