@@ -426,4 +426,23 @@ export const casesCopy = {
   "report.col.outcome.CORRECTED": "Claim corrected",
   "report.col.outcome.WITHDRAWN": "Claim withdrawn",
   "report.col.median_days": "Median days to decide",
+
+  /* ---- Web-only strings for the decision sheets, not in the deck yet ---- */
+  "case.correct_record_placeholder": "Choose a record",
+  "case.correct_record_required": "Choose the record to correct before you continue.",
+  "case.correct_field_placeholder": "Choose a field",
+  "case.correct_value_placeholder": "Choose a value",
+  "case.correct_value.yes": "Yes",
+  "case.correct_value.no": "No",
+  "case.correct_value.unreported": "Not reported",
+  "case.correct_change.seat_assigned": "Seat {seat_code} is assigned.",
+  "case.uphold_version_option": "v{version}, approved intake {intake}",
+  "case.seat_codes_more": "{codes} and {more} more",
+  "case.docs_kind_placeholder": "Choose what to send",
+  "case.docs_kind_required": "Choose what the college should send.",
+  "case.history.docs_kind": "What to send: {docs_kind_word}",
+  "case.history.withdrawn_records": "{records} records withdrawn",
+  "case.history.approval_version": "Under approval v{version}",
+  "err.DECISION_NOT_AVAILABLE": "This decision does not apply to a {case_name} case.",
+  "err.NOT_FOUND_report": "Report not found.",
 } as const;

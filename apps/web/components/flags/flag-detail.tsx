@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Lock } from "lucide-react";
+import Link from "next/link";
+import { Lock, Radar } from "lucide-react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { EvidenceCard } from "@/components/brand/EvidenceCard";
 import { FlagStatusBadge } from "@/components/brand/FlagStatusBadge";
@@ -9,6 +10,7 @@ import { SeverityBadge } from "@/components/brand/SeverityBadge";
 import { t, tk } from "@/lib/copy";
 import { formatCount, formatDate, singular } from "@/lib/format";
 import { useFlag } from "@/lib/queries";
+import { useSignal } from "@/lib/queries-signals";
 import type { FlagDetail as Detail, FlagStatus } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
@@ -18,11 +20,14 @@ import { RelatedEnrolmentsTable } from "@/components/flags/related-enrolments";
 import { useMe } from "@/components/providers/root-provider";
 import { CaseActionBar, CaseStatusLine } from "@/components/cases/case-actions";
 import { CaseHistory } from "@/components/cases/case-history";
+import { historyReasonWord, roleWordOf } from "@/components/cases/case-words";
 import { CollegeRespond } from "@/components/cases/college-respond";
+import { MissingStudentsTable } from "@/components/flags/missing-students";
 
 export type FlagDetailVariant = "aicte" | "ro" | "college";
 
-const LIST: Record<FlagDetailVariant, string> = { aicte: "/aicte/cases", ro: "/ro/cases", college: "/college/flags" };
+const LIST: Record<FlagDetailVariant, string> = { aicte: "/aicte/cases", ro: "/ro/cases", college: "/college/cases" };
+const SIGNALS: Record<"aicte" | "ro", string> = { aicte: "/aicte/signals", ro: "/ro/signals" };
 const ENROLMENT: Record<FlagDetailVariant, string> = { aicte: "/aicte/enrolments", ro: "/ro/enrolments", college: "/college/enrolments" };
 
 function crumbsFor(variant: FlagDetailVariant, d: Detail | undefined): Crumb[] {
@@ -43,8 +48,8 @@ const SOFT: Record<FlagStatus, string> = {
   DOCS_REQUESTED: "var(--flag-docs-soft)",
   UPHELD: "var(--flag-cleared-soft)",
   ESCALATED: "var(--flag-escalated-soft)",
-  WITHDRAWN: "var(--flag-confirmed-soft)",
-  CORRECTED: "var(--flag-confirmed-soft)",
+  WITHDRAWN: "var(--check-na-soft)",
+  CORRECTED: "var(--flag-open-soft)",
 };
 
 /**
@@ -64,7 +69,7 @@ export function FlagDetail({ id, variant }: { id: string; variant: FlagDetailVar
   React.useEffect(() => () => {
     if (flashTimer.current) clearTimeout(flashTimer.current);
   }, []);
-  const onActed = (updated: Detail, before: FlagStatus) => {
+  const onActed = (updated: Pick<Detail, "status">, before: FlagStatus) => {
     if (updated.status === before) return;
     setFlash(updated.status);
     if (flashTimer.current) clearTimeout(flashTimer.current);
@@ -115,6 +120,7 @@ export function FlagDetail({ id, variant }: { id: string; variant: FlagDetailVar
                 ? t("flag.where", { institution_name: d.institution.name, programme_code: d.programme.code, academic_year: d.academic_year })
                 : t("flag.where_no_programme", { institution_name: d.institution.name, academic_year: d.academic_year })}
             </p>
+            {officer && d.signal_id && <FromSignalLine signalId={d.signal_id} href={`${SIGNALS[variant as "aicte" | "ro"]}/${d.signal_id}`} />}
             {officer && <CaseStatusLine flag={d} showAssignee />}
             {officer && user && <CaseActionBar flag={d} role={user.role} fallbackFocus={heading} onActed={(updated) => onActed(updated, d.status)} />}
             {!officer && !d.can_respond && (
@@ -124,6 +130,8 @@ export function FlagDetail({ id, variant }: { id: string; variant: FlagDetailVar
               </p>
             )}
           </header>
+
+          {!officer && <CollegeDecisionLine flag={d} />}
 
           {!officer && d.can_respond && <CollegeRespond flag={d} />}
 
@@ -136,6 +144,18 @@ export function FlagDetail({ id, variant }: { id: string; variant: FlagDetailVar
               evidence={{ summary: d.evidence.summary, facts: d.evidence.facts, rule_source: d.evidence.rule_source }}
             />
           </section>
+
+          {d.type === "MISSING_FROM_UPLOAD" && (
+            <section aria-labelledby="missing-heading" className="mb-10">
+              <SectionHeader id="missing-heading" title={t("missing.heading", { n: formatCount(d.missing_students.length) })} />
+              <p className="mb-3 max-w-[68ch] text-sm text-ink-muted">
+                {officer
+                  ? t("missing.lead_officer", { institution_name: d.institution.name, academic_year: d.academic_year })
+                  : t("missing.lead_college", { academic_year: d.academic_year })}
+              </p>
+              <MissingStudentsTable rows={d.missing_students} />
+            </section>
+          )}
 
           {d.enrolment && (
             <section aria-labelledby="enrolment-heading" className="mb-10">
@@ -166,5 +186,42 @@ export function FlagDetail({ id, variant }: { id: string; variant: FlagDetailVar
         </>
       )}
     </>
+  );
+}
+
+/** "Opened from a signal: ..." with a link to it; officers only (A4.11). */
+function FromSignalLine({ signalId, href }: { signalId: string; href: string }) {
+  const q = useSignal(signalId);
+  return (
+    <p className="mt-3 flex max-w-[68ch] items-start gap-2 text-sm">
+      <Radar className="mt-0.5 size-4 shrink-0 text-ink-muted" aria-hidden="true" />
+      <Link href={href} className="text-ink-blue underline-offset-2 hover:underline">
+        {t("case.from_signal", { signal_summary: q.data?.summary ?? "…" })}
+      </Link>
+    </p>
+  );
+}
+
+/**
+ * On a decided case the registrar reads who decided (the role, never the
+ * name), when and why, with the officer's note in quotes (deck section 6).
+ */
+function CollegeDecisionLine({ flag }: { flag: Detail }) {
+  if (flag.status !== "UPHELD" && flag.status !== "CORRECTED" && flag.status !== "WITHDRAWN") return null;
+  const item = [...flag.history].reverse().find((h) => h.action === "UPHOLD" || h.action === "CORRECT" || h.action === "WITHDRAW");
+  if (!item) return null;
+  const role = item.actor ? roleWordOf(item.actor.role, item.actor.role === "RO_OFFICER" ? flag.institution.region : null) : t("case.history.system");
+  return (
+    <section className="mb-8 max-w-4xl border-l-2 border-rule-strong bg-paper-raised px-4 py-3">
+      <p className="font-medium">
+        {t("college.decision_line", {
+          status_word: tk(`flag_status.${flag.status}`),
+          role_word: role,
+          date: formatDate(item.at),
+          reason_word: historyReasonWord(item) ?? "",
+        })}
+      </p>
+      {item.note && <p className="mt-1 max-w-[68ch] text-ink-muted [overflow-wrap:anywhere]">&ldquo;{item.note}&rdquo;</p>}
+    </section>
   );
 }
