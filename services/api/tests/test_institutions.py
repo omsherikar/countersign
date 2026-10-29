@@ -25,7 +25,11 @@ async def test_list_is_scoped_per_role(
     assert row["region_name"] == "Western (Mumbai)"
     assert row["university_name"] == "Maharashtra State Technical University"
     assert (row["programmes"], row["approved_seats"], row["enrolments"]) == (2, 180, 20)
-    assert (row["flags_open"], row["integrity_index"]) == (1, None)  # Ananya's ABC side
+    assert row["flags_open"] == 1  # Ananya's ABC side
+    assert "integrity_index" not in row and sum(row["records"].values()) == 20
+    assert row["countersigned_pct"] == round(100 * row["records"]["COUNTERSIGNED"] / 20, 1)
+    assert (row["completeness_pct"], row["missing_from_upload"]) == (None, 0)
+    assert row["deadline_state"] == "LATE"  # the mini seed uploads after 30 Sep
 
     west = (await ro_west.get("/institutions")).json()
     assert [i["aicte_permanent_id"] for i in west["items"]] == ["1-ABC-0001"]
@@ -90,7 +94,11 @@ async def test_detail_scope_and_shape(
     assert detail["aicte_permanent_id"] == "1-ABC-0001"
     assert detail["address_city"] == "Pune" and detail["established_year"] == 2004
     assert detail["region_name"] == "Western (Mumbai)"
-    assert detail["integrity_index"] is None and detail["integrity_components"] is None
+    assert "integrity_index" not in detail and "integrity_components" not in detail
+    assert sum(detail["records"].values()) == detail["enrolments"]
+    completeness = detail["completeness"]
+    assert completeness["deadline"] == "2026-09-30" and completeness["joined"] == 0
+    assert "missing_students" not in completeness and "institution" not in completeness
     assert detail["flags_open"] == 1
     last = detail["last_upload"]  # the seeded file is the college's latest upload (A2.20)
     assert (last["rows"], last["errors"], last["status"]) == (20, 0, "DONE")
@@ -99,7 +107,12 @@ async def test_detail_scope_and_shape(
     cse = detail["programmes"][0]
     assert cse["name"] == "B.Tech Computer Science and Engineering"
     assert (cse["level"], cse["discipline"], cse["shift"]) == ("UG", "ENGINEERING", "FIRST")
-    assert cse["approval"] == {
+    approval = dict(cse["approval"])
+    assert approval.pop("id") and approval.pop("version") == 1
+    # the current version's date and source (D41); the mini seed lists no versions
+    assert {"effective_from", "source"} <= approval.keys()
+    approval.pop("effective_from"), approval.pop("source")
+    assert approval == {
         "academic_year": "2026-27",
         "approved_intake": 120,
         "cutoff_date": "2026-09-15",
