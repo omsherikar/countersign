@@ -151,6 +151,7 @@ async def raise_flag(
     entries: list[AuditEntry] = []
     created = inserted is not None
     changed = False
+    old_named: list[uuid.UUID] = [] if created else list(flag.related_enrolment_ids or [])
     if created:
         entries.append(
             AuditEntry(
@@ -201,6 +202,11 @@ async def raise_flag(
                     after=_audit_after(flag),
                 )
             )
+    if created or changed:
+        # the records the case names, before and after, follow it in the same transaction
+        from app.engine import status
+
+        status.mark(session, [flag.enrolment_id, *flag.related_enrolment_ids, *old_named])
     if audit_sink is not None:
         audit_sink.extend(entries)
     elif entries:

@@ -53,7 +53,14 @@ async def test_audit_list_and_verify(admin):
 async def test_adapters_ping_inmemory(admin):
     body = (await admin.get("/admin/adapters/ping")).json()
     assert body["adapter"] == "inmemory"
-    assert set(body["sources"]) == {"apaar", "counselling", "abc", "digilocker", "sii"}
+    assert set(body["sources"]) == {
+        "apaar",
+        "counselling",
+        "admission_authority",
+        "abc",
+        "digilocker",
+        "sii",
+    }
     for source in body["sources"].values():
         assert source["status"] == "OK" and source["detail"] is None
         assert isinstance(source["latency_ms"], int)

@@ -26,6 +26,8 @@ async def test_stages_in_pipeline_order(world, session, gov) -> None:
     batch = await world.batch(inst)
     regular = await world.cohort(cse, 126, batch=batch)
     nri = await world.cohort(cse, 6, batch=batch, route=AdmissionRoute.NRI)
+    for enrolment in nri:  # the college reports them as NRI-sponsored (D41)
+        enrolment.eligibility = {"nri_sponsored": True}
     ids = [e.id for e in regular + nri]
     suite = DefaultEngines()
 

@@ -36,10 +36,10 @@ from tests.credentials.conftest import (
     set_record_status,
 )
 
+# the confirmed rows of Ravi's record in row order: the mini data has no joining record, so
+# the Joining record row waits and is not among them
 COUNTERSIGNED_ROWS = [
-    t.value
-    for t in CHECK_ORDER
-    if t in (CheckType.IDENTITY, CheckType.SEAT, CheckType.ADMISSION, CheckType.STUDENT)
+    t.value for t in CHECK_ORDER if t in (CheckType.IDENTITY, CheckType.SEAT, CheckType.STUDENT)
 ]
 
 
@@ -131,7 +131,7 @@ async def test_an_enrolment_attestation_waits_for_a_countersigned_record(world, 
     assert claims["programme"][1] == "B.Tech Computer Science and Engineering (UG)"
     assert claims["year_of_study"] == ("Year of study", "1", True)
     words = issuer.join_words(issuer.CHECK_WORDS[CheckType(c)] for c in COUNTERSIGNED_ROWS)
-    assert "Joining record" in words and "Admission" not in words
+    assert issuer.CHECK_WORDS[CheckType.ADMISSION] == "Joining record"
     assert claims["countersigned"] == (
         "Countersigned by",
         f"{words}, as of {issuer.display_date(today)}",

@@ -6,8 +6,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Literal, Protocol, runtime_checkable
 
-SourceName = Literal["apaar", "counselling", "abc", "digilocker", "sii"]
-SOURCES: tuple[SourceName, ...] = ("apaar", "counselling", "abc", "digilocker", "sii")
+SourceName = Literal["apaar", "counselling", "admission_authority", "abc", "digilocker", "sii"]
+SOURCES: tuple[SourceName, ...] = (
+    "apaar",
+    "counselling",
+    "admission_authority",
+    "abc",
+    "digilocker",
+    "sii",
+)
 
 PROBE_APAAR_ID = "000000000000"
 
@@ -68,11 +75,49 @@ class CounsellingResult:
 
 
 @dataclass(slots=True, frozen=True)
+class JoiningResult:
+    """The state admission authority's answer for one claimed joining (API_CONTRACT C.9)."""
+
+    found: bool
+    joined_on: date | None = None
+    round: int | None = None
+    route: str | None = None
+    category: str | None = None
+    # false when the authority has published nothing for that state and year
+    published: bool = True
+
+
+@dataclass(slots=True, frozen=True)
+class Joining:
+    """One joining in the authority's list for a college (API_CONTRACT C.10)."""
+
+    roll_no: str | None
+    name: str
+    dob: date
+    programme: str
+    joined_on: date
+    round: int | None
+    route: str
+    category: str
+    apaar_last4: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class JoiningList:
+    published: bool
+    items: list[Joining]
+
+
+@dataclass(slots=True, frozen=True)
 class Semester:
     sem: int
     credits: int
     uploaded_at: str | None
     result: str
+    # the body that issued the credits: a university code, or the AICTE id of a college
+    # that issues its own (D38)
+    issuer: str | None = None
+    issuer_name: str | None = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -131,6 +176,23 @@ class CounsellingAdapter(Protocol):
 
 
 @runtime_checkable
+class AdmissionAuthorityAdapter(Protocol):
+    async def joining(
+        self,
+        *,
+        state: str,
+        academic_year: str,
+        name: str,
+        dob: date,
+        institution_code: str,
+        programme: str,
+        roll_no: str | None = None,
+    ) -> JoiningResult: ...
+    async def joinings(self, *, institution_code: str, academic_year: str) -> JoiningList: ...
+    async def ping(self) -> None: ...
+
+
+@runtime_checkable
 class AbcAdapter(Protocol):
     async def credits(self, apaar_id: str, academic_year: str) -> AbcResult: ...
     async def ping(self) -> None: ...
@@ -154,6 +216,12 @@ class SiiAdapter(Protocol):
     async def ping(self) -> None: ...
 
 
+def _empty_authority() -> AdmissionAuthorityAdapter:
+    from app.adapters.inmemory import InMemoryAdmissionAuthority
+
+    return InMemoryAdmissionAuthority()
+
+
 @dataclass(slots=True)
 class AdapterSet:
     name: Literal["inmemory", "mockgov", "real"]
@@ -162,6 +230,9 @@ class AdapterSet:
     abc: AbcAdapter
     digilocker: DigiLockerAdapter
     sii: SiiAdapter
+    # a set built without one gets an empty in-memory authority: nothing is published, so
+    # the Joining record row waits and never contradicts
+    admission_authority: AdmissionAuthorityAdapter = field(default_factory=_empty_authority)
     client: Any = None  # shared transport to close on shutdown, when there is one
 
     def by_source(self, source: SourceName) -> object:

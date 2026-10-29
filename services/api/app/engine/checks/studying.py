@@ -1,9 +1,15 @@
-"""STUDYING: ABC credits for every completed year of study (D18)."""
+"""STUDYING, the Credits row: ABC credits for every completed year of study (D18, D38).
+
+ABC names the body that issued each semester's credits. Credits issued by the claiming
+college itself (an autonomous college) are shown Confirmed but are not independent of the
+college, so they never make a record Countersigned on their own. Before the first semester
+result the row is Not yet due.
+"""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import UTC, date, datetime
 
 from app.adapters.base import AbcResult, AdapterSet
 from app.core.cohort import start_year, year_label
@@ -11,7 +17,6 @@ from app.engine import evidence as ev
 from app.engine.checks.base import (
     CheckSubject,
     SourceDown,
-    answered,
     call_source,
     flag_intent,
     unavailable_outcome,
@@ -46,6 +51,20 @@ def _last_entry(results: list[AbcResult]) -> date | None:
     return date.fromisoformat(max(stamps)) if stamps else None
 
 
+def _latest_upload(results: list[AbcResult]) -> datetime | None:
+    """When ABC recorded the latest of the semesters read: the row's observed_at (D34)."""
+    stamps: list[datetime] = []
+    for result in results:
+        for semester in result.semesters:
+            if semester.credits > 0 and semester.uploaded_at:
+                try:
+                    at = datetime.fromisoformat(semester.uploaded_at.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                stamps.append(at if at.tzinfo else at.replace(tzinfo=UTC))
+    return max(stamps) if stamps else None
+
+
 def decide(
     subject: CheckSubject, years: list[tuple[str, tuple[int, int]]], results: list[AbcResult]
 ) -> CheckOutcome:
@@ -60,38 +79,47 @@ def decide(
         )
     semesters: list[ev.SemesterCredits] = []
     for (label, sems), result in zip(years, results, strict=True):
-        credits_by_sem: dict[int, int] = {}
+        best: dict[int, tuple[int, str | None, str | None]] = {}
         for entry in result.semesters:
-            credits_by_sem[entry.sem] = max(credits_by_sem.get(entry.sem, 0), entry.credits)
-        semesters.extend(ev.SemesterCredits(label, sem, credits_by_sem.get(sem, 0)) for sem in sems)
-    detail = ev.studying_detail(semesters)
+            if entry.sem not in best or entry.credits > best[entry.sem][0]:
+                best[entry.sem] = (entry.credits, entry.issuer, entry.issuer_name)
+        for sem in sems:
+            credits, issuer, issuer_name = best.get(sem, (0, None, None))
+            semesters.append(ev.SemesterCredits(label, sem, credits, issuer, issuer_name))
+    issuers = ev.credit_issuers(semesters, subject.institution_aicte_id, subject.institution_name)
+    detail = ev.studying_detail(semesters, issuers)
     missing = detail["missing"]
+    flags = ()
     if missing == 0:
-        return CheckOutcome(
-            type=CHECK, status=CheckStatus.CONFIRMED, source=SOURCE, detail=detail, calls=calls
+        status = CheckStatus.CONFIRMED
+    elif missing == 1:
+        status = CheckStatus.PENDING
+    else:
+        status = CheckStatus.CONTRADICTED
+        flags = (
+            flag_intent(
+                subject,
+                FlagType.NO_ACADEMIC_ACTIVITY,
+                Severity.MEDIUM,
+                ev.no_academic_activity(
+                    year_of_study=subject.year_of_study,
+                    semesters=semesters,
+                    last_entry=_last_entry(results),
+                    related=[subject.enrolment_id],
+                ),
+            ),
         )
-    if missing == 1:
-        return CheckOutcome(
-            type=CHECK, status=CheckStatus.PENDING, source=SOURCE, detail=detail, calls=calls
-        )
-    flag = flag_intent(
-        subject,
-        FlagType.NO_ACADEMIC_ACTIVITY,
-        Severity.MEDIUM,
-        ev.no_academic_activity(
-            year_of_study=subject.year_of_study,
-            semesters=semesters,
-            last_entry=_last_entry(results),
-            related=[subject.enrolment_id],
-        ),
-    )
     return CheckOutcome(
         type=CHECK,
-        status=CheckStatus.CONTRADICTED,
+        status=status,
         source=SOURCE,
         detail=detail,
-        flags=(flag,),
+        flags=flags,
         calls=calls,
+        supplied_by=issuers.supplied_by,
+        observed_at=_latest_upload(results),
+        # independent only when no semester read was issued by the claiming college (D38)
+        independent=not issuers.self_issued,
     )
 
 
@@ -104,7 +132,7 @@ async def evaluate(
             type=CHECK,
             status=CheckStatus.NOT_YET_DUE,
             source=SOURCE,
-            detail=ev.studying_first_year(),
+            detail=ev.studying_not_yet_due(subject.affiliating_university_name),
         )
     years = completed_years(subject)
     if not years:  # a year-2 lateral entrant
@@ -112,7 +140,7 @@ async def evaluate(
             type=CHECK,
             status=CheckStatus.NOT_YET_DUE,
             source=SOURCE,
-            detail=ev.studying_lateral_entry(),
+            detail=ev.studying_not_yet_due_lateral(subject.affiliating_university_name),
         )
     if not subject.apaar_id:
         return CheckOutcome(
@@ -130,4 +158,4 @@ async def evaluate(
         if isinstance(result, SourceDown):
             return unavailable_outcome(CHECK, result, calls=len(results) + 1)
         results.append(result)
-    return answered(decide(subject, years, results), SOURCE)
+    return decide(subject, years, results)

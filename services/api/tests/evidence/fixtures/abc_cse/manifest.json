@@ -1,0 +1,81 @@
+{
+  "size": "evidence fixture: ABC College of Engineering, B.Tech CSE first years of datagen small, seed 42",
+  "seed": 42,
+  "generated_at": "2026-10-28T23:37:50Z",
+  "reporting_deadline": {
+    "2026-27": "2026-09-30"
+  },
+  "uploads": [
+    {
+      "file": "uploads/1-ABC-0001_2026-27.csv",
+      "aicte_id": "1-ABC-0001",
+      "academic_year": "2026-27",
+      "submitted_at": "2026-09-25T12:45:00Z"
+    }
+  ],
+  "demo_unanswered_notices": [
+    {
+      "role": "DEMO_STUDENT",
+      "file": "uploads/1-ABC-0001_2026-27.csv",
+      "row_no": 2,
+      "name": "Ravi Kumar Sharma",
+      "apaar_id": "123456784417"
+    },
+    {
+      "role": "DEMO_STUDENT_DUPLICATE",
+      "file": "uploads/1-ABC-0001_2026-27.csv",
+      "row_no": 122,
+      "name": "R. K. Sharma",
+      "apaar_id": null
+    },
+    {
+      "role": "SECOND_DEMO_NOTICE",
+      "file": "uploads/1-ABC-0001_2026-27.csv",
+      "row_no": 9,
+      "name": "Xavier Paul",
+      "apaar_id": "815283767032"
+    }
+  ],
+  "demo_digilocker_accounts": [
+    {
+      "role": "DEMO_STUDENT",
+      "digilocker_id": "DL-RAVI-4417",
+      "name": "Ravi Kumar Sharma",
+      "dob": "2007-03-21",
+      "apaar_id": "123456784417",
+      "file": "uploads/1-ABC-0001_2026-27.csv",
+      "row_no": 2
+    },
+    {
+      "role": "SECOND_DEMO_NOTICE",
+      "digilocker_id": "DL-8JBQ-T7KG",
+      "name": "Xavier Paul",
+      "dob": "2008-11-18",
+      "apaar_id": "815283767032",
+      "file": "uploads/1-ABC-0001_2026-27.csv",
+      "row_no": 9
+    },
+    {
+      "role": "PROVISIONAL_CLAIM",
+      "digilocker_id": "DL-K9A5-Y8KV",
+      "name": "Priyanka Salunkhe",
+      "dob": "2009-01-17",
+      "apaar_id": null,
+      "file": "uploads/1-ABC-0001_2026-27.csv",
+      "row_no": 37
+    },
+    {
+      "role": "SAMPLE_CARD",
+      "digilocker_id": "DL-48YV-XAWA",
+      "name": "Vinayak Akshay Chavan",
+      "dob": "2009-09-16",
+      "apaar_id": "274678934159",
+      "file": "uploads/1-ABC-0001_2026-27.csv",
+      "row_no": 41
+    }
+  ],
+  "sample_card": {
+    "file": "uploads/1-ABC-0001_2026-27.csv",
+    "row_no": 41
+  }
+}

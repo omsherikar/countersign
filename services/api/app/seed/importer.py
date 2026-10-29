@@ -500,6 +500,9 @@ def load_inmemory_registries(adapters: AdapterSet, directory: Path) -> None:
     sii: Any = adapters.sii
     for row in _jsonl(directory / "sii.jsonl"):
         sii.admissions[row["passport_no"]] = row
+    authority: Any = adapters.admission_authority
+    for row in _jsonl(directory / "admission_joinings.jsonl"):
+        authority.add(row)
 
 
 def upload_files(directory: Path) -> list[Path]:

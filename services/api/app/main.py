@@ -22,6 +22,7 @@ from app.core.ratelimit import limiter
 from app.db.session import dispose_engine, get_engine
 from app.routers import (
     admin,
+    approvals,
     auth,
     cases,
     column_mapping,
@@ -158,6 +159,7 @@ def create_app() -> FastAPI:
         column_mapping,
         completeness,
         enrolments,
+        approvals,
         flags,
         cases,
         signals,

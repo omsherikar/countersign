@@ -8,9 +8,9 @@ from datetime import date
 from sqlalchemy import func, select
 
 from app.adapters.base import ApaarResult
+from app.engine import status
 from app.engine.checks import recheck_pending, run_checks
 from app.engine.ledger import assign_seats
-from app.engine.score import countersign
 from app.models.audit import AuditLog
 from app.models.enums import (
     AdmissionRoute,
@@ -21,6 +21,7 @@ from app.models.enums import (
     RowErrorLevel,
     Severity,
 )
+from app.models.student import Student
 from app.models.upload import UploadRowError
 from app.models.verification import Check, Flag
 
@@ -46,18 +47,21 @@ async def _ravi(world, gov, *, year_of_study: int = 1):
         stu, cse, year_of_study=year_of_study, counselling_ref="MHCET-2026-R1-004512"
     )
     gov.apaar.registry[RAVI] = {"name": "Ravi Kumar Sharma", "dob": date(2007, 3, 21)}
-    gov.counselling.allotments.append(
+    # the state admission authority's joining record (D39)
+    gov.admission_authority.add(
         {
             "state": "MH",
-            "year": 2026 - (year_of_study - 1),
+            "academic_year": f"{2026 - (year_of_study - 1)}-{27 - (year_of_study - 1)}",
             "name": "Ravi Kumar Sharma",
             "dob": "2007-03-21",
             "roll_no": "MHCET-2026-004512",
+            "institution_code": "1-ABC-0001",
             "programme": "CSE",
-            "institution_aicte_id": "1-ABC-0001",
+            "joined_on": "2026-08-02",
             "round": 1,
+            "route": "COUNSELLING",
             "category": "GENERAL",
-            "allotment_ref": "MHCET-2026-R1-004512",
+            "apaar_id": RAVI,
         }
     )
     return inst, cse, enrolment
@@ -67,9 +71,10 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     _, _, enrolment = await _ravi(world, gov)
     await assign_seats(session, [enrolment.id], actor_id=None)
     result = await run_checks(session, [enrolment.id], gov)
+    await status.settle(session, issue=False)
     assert result.enrolments == 1
     assert result.changed == 5
-    assert result.calls == {"APAAR": 1, "COUNSELLING": 1}
+    assert result.calls == {"APAAR": 1, "ADMISSION_AUTHORITY": 1}
     assert result.unavailable == {}
     assert result.statuses == {
         "IDENTITY": {"CONFIRMED": 1},
@@ -86,11 +91,10 @@ async def test_five_checks_written_once(world, session, gov) -> None:
         CheckType.STUDYING: CheckStatus.NOT_YET_DUE,
         CheckType.STUDENT: CheckStatus.PENDING,
     }
-    assert countersign(checks.values())["score"] == {"passes": 3, "applicable": 4}
     assert checks[CheckType.SEAT].detail["summary"] == (
-        "Holds seat CSE-R-001 (Regular, 2026-27 approval)."
+        "Holds seat CSE-R-001 (Regular, AICTE approval v1, 2026-27)."
     )
-    assert checks[CheckType.ADMISSION].source == "COUNSELLING"
+    assert checks[CheckType.ADMISSION].source == "ADMISSION_AUTHORITY"
     assert all(c.attempts == 0 and c.checked_at is not None for c in checks.values())
     audits = (
         (
@@ -117,6 +121,7 @@ async def test_five_checks_written_once(world, session, gov) -> None:
     first_checked = {t: c.checked_at for t, c in checks.items()}
 
     again = await run_checks(session, [enrolment.id], gov)
+    await status.settle(session, issue=False)
     assert again.changed == 0
     assert again.flags.created == again.flags.updated == 0
     checks = await _checks(session, enrolment.id)
@@ -133,7 +138,7 @@ async def test_unseated_enrolment_fails_seat_and_points_at_the_flag(world, sessi
     assert seat.status is CheckStatus.CONTRADICTED
     assert seat.detail["flag_dedupe_key"] == f"EXCESS_ADMISSION:{cse.id}:2026-27:REGULAR"
     assert seat.detail["summary"] == (
-        "No Regular seat is free in CSE (2026-27); see the Excess admission flag."
+        "No Regular seat is free in CSE (2026-27); see the Excess admission case."
     )
 
 
@@ -178,8 +183,8 @@ async def test_each_row_says_who_supplied_it_when_and_whether_independent(
     }
     assert provenance == {
         CheckType.IDENTITY: ("APAAR registry", True, True),
-        CheckType.ADMISSION: ("Counselling list", True, True),
-        CheckType.SEAT: ("AICTE approval 2026-27 (Seat Ledger, derived)", False, True),
+        CheckType.ADMISSION: ("State admission authority", True, True),
+        CheckType.SEAT: ("AICTE approval v1, 2026-27 (Seat Ledger, derived)", False, True),
         # first year: credits are not due, so no source answered
         CheckType.STUDYING: ("", False, False),
         # no reply yet
@@ -188,16 +193,42 @@ async def test_each_row_says_who_supplied_it_when_and_whether_independent(
     assert all(c.resolved is None for c in checks.values())
 
 
-async def test_credits_name_abc_and_are_not_independent_yet(world, session, gov) -> None:
+async def test_credits_name_their_issuer_and_count_only_from_another_body(
+    world, session, gov
+) -> None:
     _, _, enrolment = await _ravi(world, gov, year_of_study=2)
+    university = {"issuer": "MSTU", "issuer_name": "Maharashtra State Technical University"}
     gov.abc.credits_by_apaar[RAVI] = {
-        "2025-26": [{"sem": 1, "credits": 22}, {"sem": 2, "credits": 24}]
+        "2025-26": [
+            {"sem": 1, "credits": 22, "uploaded_at": "2026-01-20T00:00:00Z", **university},
+            {"sem": 2, "credits": 24, "uploaded_at": "2026-06-30T00:00:00Z", **university},
+        ]
     }
     await run_checks(session, [enrolment.id], gov)
     studying = (await _checks(session, enrolment.id))[CheckType.STUDYING]
     assert studying.status is CheckStatus.CONFIRMED
-    assert (studying.supplied_by, studying.independent) == ("ABC credits", False)
-    assert studying.observed_at is not None
+    assert (studying.supplied_by, studying.independent) == (
+        "ABC, issued by Maharashtra State Technical University",
+        True,
+    )
+    assert studying.observed_at.date() == date(2026, 6, 30)
+    assert studying.detail["source_line"] == (
+        "ABC, issued by Maharashtra State Technical University · 30 Jun"
+    )
+
+    # the same credits issued by the college itself are shown, but never independent (D38)
+    own = {"issuer": "1-ABC-0001", "issuer_name": "ABC College of Engineering"}
+    for semester in gov.abc.credits_by_apaar[RAVI]["2025-26"]:
+        semester.update(own)
+    await run_checks(session, [enrolment.id], gov)
+    studying = (await _checks(session, enrolment.id))[CheckType.STUDYING]
+    assert studying.status is CheckStatus.CONFIRMED
+    assert (studying.supplied_by, studying.independent) == (
+        "ABC, issued by ABC College of Engineering (the college itself)",
+        False,
+    )
+    assert studying.detail["basis"] == "CREDITS_SELF_ISSUED"
+    assert studying.detail["self_issued"] is True
 
 
 async def test_apaar_down_leaves_identity_unavailable_and_recheck_confirms(
@@ -211,17 +242,21 @@ async def test_apaar_down_leaves_identity_unavailable_and_recheck_confirms(
     assert identity.status is CheckStatus.SOURCE_UNAVAILABLE
     assert identity.detail["source_unavailable"] is True
     assert identity.attempts == 1
-    # the registry was asked but observed nothing
-    assert (identity.supplied_by, identity.observed_at) == ("APAAR registry", None)
+    # the registry was asked and did not answer: never evidence, never a contradiction
+    assert (identity.supplied_by, identity.independent) == ("APAAR registry", False)
+    assert identity.detail["finding"] is None
+    assert identity.detail["source_line"].startswith("APAAR registry did not respond · ")
     assert await session.scalar(select(func.count()).select_from(Flag)) == 0
 
+    # a recheck re-runs the outage and the first year's credits, which are not due yet
     still = await recheck_pending(session, [enrolment.id], gov)
-    assert (still.enrolments, still.rechecked, still.still_pending) == (1, 1, 1)
+    assert (still.enrolments, still.rechecked) == (1, 2)
+    assert (still.outcomes["SOURCE_UNAVAILABLE"], still.outcomes["NOT_YET_DUE"]) == (1, 1)
     assert (await _checks(session, enrolment.id))[CheckType.IDENTITY].attempts == 2
 
     gov.apaar.down = False
     recovered = await recheck_pending(session, [enrolment.id], gov)
-    assert (recovered.rechecked, recovered.now_pass, recovered.still_pending) == (1, 1, 0)
+    assert (recovered.rechecked, recovered.outcomes["CONFIRMED"]) == (2, 1)
     checks = await _checks(session, enrolment.id)
     assert checks[CheckType.IDENTITY].status is CheckStatus.CONFIRMED
     assert checks[CheckType.IDENTITY].detail["summary"].startswith("Name and date of birth match")
@@ -229,8 +264,8 @@ async def test_apaar_down_leaves_identity_unavailable_and_recheck_confirms(
     assert checks[CheckType.IDENTITY].observed_at is not None
     assert checks[CheckType.STUDENT].status is CheckStatus.PENDING  # never rechecked here
 
-    nothing = await recheck_pending(session, [enrolment.id], gov)
-    assert (nothing.enrolments, nothing.rechecked) == (0, 0)
+    credits_only = await recheck_pending(session, [enrolment.id], gov)
+    assert (credits_only.enrolments, credits_only.rechecked) == (1, 1)
 
 
 async def test_registry_findings_raise_identity_flags(world, session, gov) -> None:
@@ -270,8 +305,7 @@ async def test_registry_findings_raise_identity_flags(world, session, gov) -> No
     assert flags[malformed.id].severity is Severity.MEDIUM
     assert flags[malformed.id].evidence["facts"][0]["value"] == "<12 characters>"
     assert (await _checks(session, malformed.id))[CheckType.IDENTITY].detail["summary"] == (
-        "APAAR as uploaded contains characters other than digits; the enrolment was kept "
-        "without it."
+        "APAAR as uploaded contains characters other than digits; the record was kept without it."
     )
 
 
@@ -309,12 +343,35 @@ async def test_semaphore_bounds_adapter_calls(world, session, gov) -> None:
     assert 1 < Slow.peak <= 3
 
 
-async def test_admission_route_rules_through_run_checks(world, session, gov) -> None:
-    inst = await world.institution()
+async def test_a_management_admission_reads_the_joining_record_too(world, session, gov) -> None:
+    inst = await world.institution(aicte_id="1-ABC-0001")
     cse = await world.programme(inst)
     [mgmt] = await world.cohort(cse, 1, route=AdmissionRoute.MANAGEMENT)
+    student = await session.get(Student, mgmt.student_id)
+    gov.admission_authority.add(
+        {
+            "state": "MH",
+            "academic_year": "2026-27",
+            "name": student.name,
+            "dob": student.dob.isoformat(),
+            "roll_no": None,
+            "institution_code": "1-ABC-0001",
+            "programme": "CSE",
+            "joined_on": "2026-08-20",
+            "round": None,
+            "route": "MANAGEMENT",
+            "category": "GENERAL",
+            "apaar_id": None,
+        }
+    )
     await assign_seats(session, [mgmt.id], actor_id=None)
     await run_checks(session, [mgmt.id], gov)
     admission = (await _checks(session, mgmt.id))[CheckType.ADMISSION]
     assert admission.status is CheckStatus.CONFIRMED
-    assert admission.source == "SEAT_LEDGER"
+    assert admission.source == "ADMISSION_AUTHORITY"
+    assert admission.detail["finding"] == "joined 20 Aug"
+    assert admission.detail["summary"] == (
+        "The Maharashtra admission authority records that the student joined CSE at this "
+        "college on 20 Aug (Management admission approved by the state)."
+    )
+    assert admission.detail["route_mismatch"] is False

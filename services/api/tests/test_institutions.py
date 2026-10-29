@@ -253,14 +253,16 @@ async def test_enrolments(admin, registrar_abc, registrar_xyz, student):
     assert ravi["counselling_ref"] == "MHCET-2026-R1-004512" and ravi["category"] == "GENERAL"
     assert ravi["seat_code"].startswith("CSE-R-") and ravi["status"] == "ACTIVE"
     assert ravi["uploaded_at"].endswith("Z")
-    assert ravi["countersign"]["score"] == {"passes": 3, "applicable": 4}
-    assert [c["status"] for c in ravi["countersign"]["checks"]] == [
-        "CONFIRMED",
-        "CONFIRMED",
-        "CONFIRMED",
-        "NOT_YET_DUE",
-        "PENDING",
+    # the mini data has no joining record: published nothing, past the deadline (D39)
+    assert [(c["type"], c["state"]) for c in ravi["checks"]] == [
+        ("IDENTITY", "CONFIRMED"),
+        ("SEAT", "CONFIRMED"),
+        ("ADMISSION", "PENDING"),
+        ("STUDYING", "NOT_YET_DUE"),
+        ("STUDENT", "PENDING"),
     ]
+    assert ravi["record_status"] == "AWAITING_EVIDENCE"
+    assert ravi["next_step"] == "Waiting for the joining record from the state admission authority."
     assert ravi["flags"] == []
     assert ravi["upload_batch_id"] is not None and ravi["source_row_no"] == 2
     assert "email" not in ravi["student"] and "apaar_id" not in ravi["student"]

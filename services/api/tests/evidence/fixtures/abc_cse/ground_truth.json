@@ -1,0 +1,294 @@
+[
+  {
+    "anomaly_type": "DUPLICATE_WITHIN_UPLOAD",
+    "expected_flag": "DUPLICATE_WITHIN_UPLOAD",
+    "severity_expected": "MEDIUM",
+    "institution_aicte_id": "1-ABC-0001",
+    "institution_aicte_ids": [
+      "1-ABC-0001"
+    ],
+    "programme_code": "CSE",
+    "student_refs": [
+      "123456784417",
+      "uploads/1-ABC-0001_2026-27.csv#122"
+    ],
+    "rows": [
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 2,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "123456784417",
+        "name": "Ravi Kumar Sharma",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 122,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": null,
+        "name": "R. K. Sharma",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      }
+    ],
+    "note": "Demo student listed twice in ABC College CSE: full name and initials, same DOB.",
+    "variant": "INITIALS",
+    "scenario": "demo_student",
+    "demo_student_apaar": "123456784417"
+  },
+  {
+    "anomaly_type": "EXCESS_ADMISSION",
+    "expected_flag": "EXCESS_ADMISSION",
+    "severity_expected": "HIGH",
+    "institution_aicte_id": "1-ABC-0001",
+    "institution_aicte_ids": [
+      "1-ABC-0001"
+    ],
+    "programme_code": "CSE",
+    "student_refs": [
+      "265610681126",
+      "254647025776",
+      "174709035198",
+      "597773199995",
+      "831313016774",
+      "498018055245",
+      "308318518719",
+      "902900610334",
+      "424278924213",
+      "665071754597",
+      "979014976444",
+      "uploads/1-ABC-0001_2026-27.csv#122"
+    ],
+    "rows": [
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 123,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "265610681126",
+        "name": "Adnan Saleem",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 124,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "254647025776",
+        "name": "Sanket Dhananjay Dalvi",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 125,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "174709035198",
+        "name": "Tejas Ganesh Phadke",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 126,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "597773199995",
+        "name": "Mahesh Shelar",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 127,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "831313016774",
+        "name": "Shreyas Ghorpade",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 128,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "498018055245",
+        "name": "Sahil Gaikwad",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 129,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "308318518719",
+        "name": "Parth Gaikwad",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 130,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "902900610334",
+        "name": "Kalyani Kamble",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 131,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "424278924213",
+        "name": "Ganesh Thorat",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 132,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "665071754597",
+        "name": "Aniket Shelar",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 133,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "979014976444",
+        "name": "Siddhesh Phadke",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      },
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 122,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": null,
+        "name": "R. K. Sharma",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      }
+    ],
+    "note": "ABC College of Engineering uploaded 132 first-years against 120 approved CSE seats.",
+    "approved_intake": 120,
+    "admitted": 132,
+    "unseated": 12,
+    "scenario": "abc_cse_132"
+  },
+  {
+    "anomaly_type": "STUDENT_DENIED",
+    "expected_flag": "STUDENT_DENIED",
+    "severity_expected": "HIGH",
+    "institution_aicte_id": "1-ABC-0001",
+    "institution_aicte_ids": [
+      "1-ABC-0001"
+    ],
+    "programme_code": "CSE",
+    "student_refs": [
+      "274678934159"
+    ],
+    "rows": [
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 41,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "274678934159",
+        "name": "Vinayak Akshay Chavan",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      }
+    ],
+    "note": "Student replies 'No' to the DigiLocker notice; the demo scripts this reply.",
+    "will_deny": true,
+    "scenario": "not_me"
+  },
+  {
+    "anomaly_type": "CONSENT_REFUSED_NO_APAAR",
+    "expected_flag": null,
+    "severity_expected": null,
+    "institution_aicte_id": "1-ABC-0001",
+    "institution_aicte_ids": [
+      "1-ABC-0001"
+    ],
+    "programme_code": "CSE",
+    "student_refs": [
+      "uploads/1-ABC-0001_2026-27.csv#68"
+    ],
+    "rows": [
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 68,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": null,
+        "name": "Parth Pawar",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      }
+    ],
+    "note": "No APAAR because consent was refused; lawful (DPDP), must not be flagged."
+  },
+  {
+    "anomaly_type": "PROVISIONAL_UNCLAIMED",
+    "expected_flag": null,
+    "severity_expected": null,
+    "institution_aicte_id": "1-ABC-0001",
+    "institution_aicte_ids": [
+      "1-ABC-0001"
+    ],
+    "programme_code": "CSE",
+    "student_refs": [
+      "uploads/1-ABC-0001_2026-27.csv#37"
+    ],
+    "rows": [
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 37,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": null,
+        "name": "Priyanka Salunkhe",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      }
+    ],
+    "note": "Refused APAAR consent: Identity waits for the student to sign in through DigiLocker and claim the record with the provisional id; then it is countersigned.",
+    "expected_record_status": "AWAITING_EVIDENCE",
+    "expected_record_status_after_claim": "COUNTERSIGNED"
+  },
+  {
+    "anomaly_type": "NOT_IN_JOINING_RECORD",
+    "expected_flag": "NOT_IN_JOINING_RECORD",
+    "severity_expected": "MEDIUM",
+    "institution_aicte_id": "1-ABC-0001",
+    "institution_aicte_ids": [
+      "1-ABC-0001"
+    ],
+    "programme_code": "CSE",
+    "student_refs": [
+      "274678934159"
+    ],
+    "rows": [
+      {
+        "file": "uploads/1-ABC-0001_2026-27.csv",
+        "row_no": 41,
+        "institution_aicte_id": "1-ABC-0001",
+        "apaar_id": "274678934159",
+        "name": "Vinayak Akshay Chavan",
+        "programme_code": "CSE",
+        "year_of_study": 1
+      }
+    ],
+    "note": "Sample card: ABC College says this student joined B.Tech CSE; the APAAR verifies and the seat fits, but the state admission authority has no joining line and the student answers No.",
+    "academic_year": "2026-27",
+    "reporting_deadline": "2026-09-30",
+    "scenario": "sample_card",
+    "expected_rows": {
+      "IDENTITY": "CONFIRMED",
+      "SEAT": "CONFIRMED",
+      "ADMISSION": "CONTRADICTED",
+      "STUDYING": "NOT_YET_DUE",
+      "STUDENT": "CONTRADICTED"
+    },
+    "expected_record_status": "DISPUTED"
+  }
+]

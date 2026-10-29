@@ -6,7 +6,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.schemas.common import Countersign, FlagRef, IdName
+# the enrolment rows and the rechecks are the record card's (API_CONTRACT §A4.5, §A4.6)
+from app.schemas.enrolments import (  # noqa: F401
+    EnrolmentRow,
+    InstitutionRecheck,
+    InstitutionRecheckBody,
+    RelatedEnrolmentRow,
+    StudentRef,
+)
 
 
 class InstitutionRow(BaseModel):
@@ -118,60 +125,3 @@ class SeatRow(BaseModel):
     enrolment_id: str | None
     student_name: str | None
     assigned_at: str | None
-
-
-class StudentRef(BaseModel):
-    id: str
-    name: str
-    apaar_masked: str | None
-    consent_status: str
-    provisional_id: str | None
-    nationality: str
-
-
-class EnrolmentRow(BaseModel):
-    id: str
-    student: StudentRef
-    programme_id: str
-    programme_code: str
-    academic_year: str
-    cohort_year: str
-    year_of_study: int
-    admission_route: str
-    counselling_ref: str | None
-    category: str
-    seat_code: str | None
-    status: str
-    admission_date: str
-    status_date: str
-    uploaded_at: str
-    upload_batch_id: str | None = None
-    source_row_no: int | None = None
-    countersign: Countersign = Field(default_factory=Countersign)
-    flags: list[FlagRef] = Field(default_factory=list)
-    # the record status (D35) and the sentence that explains it
-    record_status: str = "AWAITING_EVIDENCE"
-    status_reason: str | None = None
-
-
-class RelatedEnrolmentRow(EnrolmentRow):
-    """An EnrolmentRow with its institution, as flag detail lists it."""
-
-    institution: IdName
-
-
-class InstitutionRecheckBody(BaseModel):
-    academic_year: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}$")
-
-
-class InstitutionRecheck(BaseModel):
-    institution_id: str
-    academic_year: str
-    enrolments: int
-    rechecked: int
-    now_pass: int
-    now_fail: int
-    now_na: int
-    still_pending: int
-    flags_raised: int
-    duration_ms: int

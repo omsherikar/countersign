@@ -21,10 +21,11 @@ from app.models.verification import Flag
 CHUNK_SIZE = 500
 DEFAULT_CHECK_CONCURRENCY = 32
 
+# the deck's row order: Identity, Seat, Joining record, Credits, Student (API_CONTRACT §A4.1)
 CHECK_ORDER: tuple[CheckType, ...] = (
     CheckType.IDENTITY,
-    CheckType.ADMISSION,
     CheckType.SEAT,
+    CheckType.ADMISSION,
     CheckType.STUDYING,
     CheckType.STUDENT,
 )
@@ -33,12 +34,14 @@ UNRESOLVED_FLAG_STATUSES: tuple[FlagStatus, ...] = (
     FlagStatus.DOCS_REQUESTED,
     FlagStatus.ESCALATED,
 )
-# states a recheck or the next upload asks the source about again
+# states the next upload of a record asks the source about again
 RECHECK_STATES: tuple[CheckStatus, ...] = (CheckStatus.PENDING, CheckStatus.SOURCE_UNAVAILABLE)
-# states with nothing to count yet: the score leaves them out of "applicable"
-NOT_COUNTED_STATES: tuple[CheckStatus, ...] = (
-    CheckStatus.NOT_APPLICABLE,
+# states a recheck re-runs (API_CONTRACT §A4.6): also the rows waiting for a deadline or a
+# first result, since there is no scheduler
+RECHECK_ROW_STATES: tuple[CheckStatus, ...] = (
+    CheckStatus.PENDING,
     CheckStatus.NOT_YET_DUE,
+    CheckStatus.SOURCE_UNAVAILABLE,
 )
 # an officer's outcome closed the case
 DECIDED_FLAG_STATUSES: tuple[FlagStatus, ...] = (
@@ -118,7 +121,10 @@ class FlagTally:
 
 @dataclass(frozen=True, slots=True)
 class CheckOutcome:
-    """One check's verdict for one enrolment. `detail` always carries a `summary`."""
+    """One row's evidence state for one enrolment. `detail` always carries `summary`,
+    `finding`, `source_line` and `basis` (API_CONTRACT §A4.2). `observed_at` None means the
+    source gave no time of its own: the writer keeps the stored one while the state and
+    `supplied_by` are unchanged, else uses now."""
 
     type: CheckType
     status: CheckStatus
@@ -127,8 +133,8 @@ class CheckOutcome:
     flags: tuple[FlagIntent, ...] = ()
     calls: tuple[str, ...] = ()
     unavailable: tuple[str, ...] = ()
-    # provenance (D34): who supplied the fact, when it answered, and whether that source is
-    # independent of the college that made the claim; empty when no source answered
+    # provenance (D34): who supplied the fact, when, and whether that source is independent
+    # of the college that made the claim (D38); empty when no source was consulted
     supplied_by: str = ""
     observed_at: datetime | None = None
     independent: bool = False
@@ -193,10 +199,7 @@ class DuplicatesResult:
 class RecheckResult:
     enrolments: int = 0
     rechecked: int = 0
-    now_pass: int = 0
-    now_fail: int = 0
-    now_na: int = 0
-    still_pending: int = 0
+    outcomes: dict[str, int] = field(default_factory=dict)  # by CheckStatus value
     flags: FlagTally = field(default_factory=FlagTally)
 
 

@@ -1,4 +1,4 @@
-"""The STUDENT check: every row of API_CONTRACT §A3.8, derived from notice facts alone."""
+"""The STUDENT row: every row of API_CONTRACT §A3.8 and §A4.4, derived from notice facts alone."""
 
 from __future__ import annotations
 
@@ -113,7 +113,11 @@ def test_row_1_a_no_on_one_channel_beats_a_yes_on_the_other():
         "STUDENT_NOTICE",
     )
     assert out.detail == {
-        "summary": "Denied by the student on 30 Oct 2026 (DigiLocker).",
+        "summary": "The student signed in with DigiLocker on 30 Oct and said they never joined.",
+        "finding": '"I never joined"',
+        "source_line": "Student sign-in via DigiLocker · {date}",
+        "basis": "DENIED",
+        "case_type": "STUDENT_DENIED",
         "notice_state": "DENIED",
         "channel": "DIGILOCKER",
         "sent_at": "2026-10-28T04:35:00Z",
@@ -123,21 +127,24 @@ def test_row_1_a_no_on_one_channel_beats_a_yes_on_the_other():
     [flag] = out.flags
     assert (flag.type, flag.severity) == (FlagType.STUDENT_DENIED, Severity.HIGH)
     assert flag.dedupe_key == f"STUDENT_DENIED:{E_ID}" and flag.enrolment_id == E_ID
+    via = "Student sign-in via DigiLocker"
     assert flag.evidence == {
-        "summary": 'Student replied "not me" to the notice sent on 28 Oct 2026.',
+        "summary": (
+            "The student said they never joined, after signing in with DigiLocker on 30 Oct 2026."
+        ),
         "facts": [
-            {"label": "Channel", "value": "DigiLocker", "source": "Student reply"},
-            {"label": "Notice sent", "value": "28 Oct 2026", "source": "Student reply"},
-            {"label": "Replied on", "value": "30 Oct 2026", "source": "Student reply"},
+            {"label": "Signed in with", "value": "DigiLocker", "source": via},
+            {"label": "Notice sent", "value": "28 Oct 2026", "source": "Countersign"},
+            {"label": "Answered on", "value": "30 Oct 2026", "source": via},
             {
                 "label": "Comment from the student",
                 "value": "I did not join this college.",
-                "source": "Student reply",
+                "source": via,
                 "audience": "OFFICER",
             },
         ],
         "related_enrolment_ids": [str(E_ID)],
-        "rule_source": "Student reply",
+        "rule_source": "Student's answer after DigiLocker sign-in",
     }
 
 
@@ -145,11 +152,13 @@ def test_row_1_takes_the_earliest_no_and_a_missing_comment_reads_none():
     late = notice(EMAIL, response=NO, responded_at=datetime(2026, 10, 31, 6, tzinfo=UTC))
     early = notice(DIGILOCKER, response=NO, responded_at=datetime(2026, 10, 29, 6, tzinfo=UTC))
     out = derive(subject(late, early), now=NOW)
-    assert out.detail["summary"] == "Denied by the student on 29 Oct 2026 (DigiLocker)."
+    assert out.detail["summary"] == (
+        "The student signed in with DigiLocker on 29 Oct and said they never joined."
+    )
     assert out.flags[0].evidence["facts"][-1]["value"] == "None"
     # the answer that decides is the student's own, independent of the college
     assert (out.supplied_by, out.observed_at, out.independent) == (
-        "Student reply",
+        "Student via DigiLocker sign-in",
         datetime(2026, 10, 29, 6, tzinfo=UTC),
         True,
     )
@@ -160,10 +169,13 @@ def test_row_2_a_yes_passes_with_the_reply_date_in_india():
     yes = notice(EMAIL, response=YES, responded_at=datetime(2026, 10, 29, 21, 0, tzinfo=UTC))
     out = derive(subject(yes, notice(DIGILOCKER)), now=NOW)
     assert out.status is CheckStatus.CONFIRMED and out.flags == ()
-    assert (out.supplied_by, out.independent) == ("Student reply", True)
+    assert (out.supplied_by, out.independent) == ("Student via DigiLocker sign-in", True)
     assert out.observed_at == datetime(2026, 10, 29, 21, 0, tzinfo=UTC)
     assert out.detail == {
-        "summary": "Confirmed by the student on 30 Oct 2026 (email).",
+        "summary": "The student signed in with DigiLocker on 30 Oct and said they joined.",
+        "finding": '"I joined"',
+        "source_line": "Student sign-in via DigiLocker · {date}",
+        "basis": "CONFIRMED",
         "notice_state": "CONFIRMED",
         "channel": "EMAIL",
         "sent_at": "2026-10-28T04:35:00Z",
@@ -183,17 +195,20 @@ def test_a_no_changed_to_yes_passes_and_keeps_the_flag_with_changed_evidence():
     )
     out = derive(subject(changed), now=NOW)
     assert out.status is CheckStatus.CONFIRMED
-    assert out.detail["summary"] == "Confirmed by the student on 31 Oct 2026 (DigiLocker)."
+    assert out.detail["summary"] == (
+        "The student said they never joined on 29 Oct, then changed the answer to Yes on 31 Oct."
+    )
+    assert out.detail["basis"] == "CONFIRMED_CHANGED"
     assert out.detail["changed"] is True
     assert out.detail["responded_at"] == "2026-10-31T06:00:00Z"
     [flag] = out.flags
     assert flag.evidence["summary"] == (
-        'Student replied "not me" to the notice sent on 28 Oct 2026, '
-        "then changed the reply to Yes on 31 Oct 2026."
+        "The student said they never joined on 29 Oct 2026, "
+        "then changed the answer to Yes on 31 Oct 2026."
     )
     facts = {f["label"]: f["value"] for f in flag.evidence["facts"]}
-    assert facts["Replied on"] == "29 Oct 2026"
-    assert facts["Reply changed"] == "Yes on 31 Oct 2026"
+    assert facts["Answered on"] == "29 Oct 2026"
+    assert facts["Answer changed"] == "Yes on 31 Oct 2026"
     assert facts["Comment from the student"] == "Pressed the wrong button."
 
 
@@ -207,10 +222,12 @@ def test_a_yes_changed_to_no_fails_with_the_date_of_the_no():
     )
     out = derive(subject(changed), now=NOW)
     assert out.status is CheckStatus.CONTRADICTED
-    assert out.detail["summary"] == "Denied by the student on 30 Oct 2026 (email)."
+    assert out.detail["summary"] == (
+        "The student signed in with DigiLocker on 30 Oct and said they never joined."
+    )
     assert out.detail["changed"] is True
     labels = [f["label"] for f in out.flags[0].evidence["facts"]]
-    assert "Reply changed" not in labels
+    assert "Answer changed" not in labels
     assert out.flags[0].evidence["facts"][2]["value"] == "30 Oct 2026"
 
 
@@ -222,7 +239,10 @@ def test_row_3_unreachable_without_email_or_linked_apaar():
         out = derive(subject(has_email=False, **unlinked), now=NOW)
         assert out.status is CheckStatus.PENDING and out.flags == ()
         assert out.detail == {
-            "summary": "No email or APAAR on record, so no notice can be sent.",
+            "summary": "Notice not sent yet.",
+            "finding": "notice not sent yet",
+            "source_line": "No notice sent yet",
+            "basis": "UNREACHABLE",
             "notice_state": "UNREACHABLE",
         }
     # a notice that failed does not make a student without channels reachable
@@ -234,6 +254,9 @@ def test_row_3_unreachable_without_email_or_linked_apaar():
 def test_row_4_not_sent_with_failed_delivery_and_withdrawn_consent():
     assert derive(subject(), now=NOW).detail == {
         "summary": "Notice not sent yet.",
+        "finding": "notice not sent yet",
+        "source_line": "No notice sent yet",
+        "basis": "NOT_SENT",
         "notice_state": "NOT_SENT",
     }
     queued = notice(EMAIL, delivery=NoticeDelivery.QUEUED)
@@ -243,6 +266,9 @@ def test_row_4_not_sent_with_failed_delivery_and_withdrawn_consent():
     assert out.status is CheckStatus.PENDING
     assert out.detail == {
         "summary": "Notice not sent yet.",
+        "finding": "notice not sent yet",
+        "source_line": "No notice sent yet",
+        "basis": "NOT_SENT",
         "notice_state": "NOT_SENT",
         "delivery_failed": True,
         "consent_withdrawn": True,
@@ -255,7 +281,10 @@ def test_row_5_sent_and_waiting_names_the_latest_live_notice():
     out = derive(subject(older, newer), now=NOW)
     assert out.status is CheckStatus.PENDING and out.flags == ()
     assert out.detail == {
-        "summary": "Notice sent on 29 Oct 2026; no reply yet.",
+        "summary": "Notice sent on 29 Oct; no answer yet.",
+        "finding": "no answer yet",
+        "source_line": "Notice sent 29 Oct",
+        "basis": "SENT",
         "notice_state": "SENT",
         "channel": "DIGILOCKER",
         "sent_at": "2026-10-29T04:35:00Z",
@@ -267,7 +296,12 @@ def test_row_6_every_delivered_notice_expired_is_pending_never_fail():
     out = derive(subject(expired, notice(DIGILOCKER, delivery=NoticeDelivery.FAILED)), now=NOW)
     assert out.status is CheckStatus.PENDING and out.flags == ()
     assert out.detail == {
-        "summary": "No reply (expired).",
+        "summary": (
+            "No answer before the notice expired on 2 Nov. Silence never counts against the record."
+        ),
+        "finding": "no answer",
+        "source_line": "Notice expired 2 Nov",
+        "basis": "EXPIRED",
         "notice_state": "EXPIRED",
         "channel": "EMAIL",
         "sent_at": "2026-10-28T04:35:00Z",

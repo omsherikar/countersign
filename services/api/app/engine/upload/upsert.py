@@ -22,8 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.core.crypto import encrypt, hmac_bytes, normalise
+from app.engine import status as record_status
 from app.engine import versions
 from app.engine.contracts import EngineSuite
+from app.engine.eligibility import markers
 from app.engine.upload.mask import mask_value
 from app.engine.upload.types import CleanRow, RowIssue, RowOutcome, UpsertResult, upload_date
 from app.engine.upload.validate import STATUS_WORDS
@@ -81,6 +83,7 @@ ENROLMENT_COLUMNS = (
     "upload_batch_id",
     "source_row_no",
     "uploaded_at",
+    "eligibility",
 )
 
 
@@ -361,6 +364,7 @@ async def upsert_rows(
                 upload_batch_id=batch.id,
                 source_row_no=row.row_no,
                 uploaded_at=batch.created_at,
+                eligibility=markers(row.eligibility),
             )
             new_enrolments.append(enrolment)
             enrolments[(student.id, row.programme_id)] = enrolment
@@ -384,6 +388,7 @@ async def upsert_rows(
                 status,
                 admission_date,
                 row.apaar_problem,
+                markers(row.eligibility),
             )
             current = (
                 enrolment.year_of_study,
@@ -393,6 +398,7 @@ async def upsert_rows(
                 enrolment.status,
                 enrolment.admission_date,
                 enrolment.apaar_problem,
+                markers(enrolment.eligibility),
             )
             if wanted == current:
                 outcome = "unchanged"
@@ -408,6 +414,7 @@ async def upsert_rows(
                 enrolment.status = status
                 enrolment.admission_date = admission_date
                 enrolment.apaar_problem = row.apaar_problem
+                enrolment.eligibility = markers(row.eligibility)
                 if row.status_date is not None:
                     enrolment.status_date = row.status_date
                 elif status_changed:
@@ -466,6 +473,10 @@ async def upsert_rows(
     await _insert(session, Enrolment, new_enrolments, ENROLMENT_COLUMNS)
     # after the inserts, so each version finds its enrolment
     result.versions += await versions.record_many(session, version_writes)
+    # a created or changed record gets its status before the chunk commits (D35)
+    record_status.mark(
+        session, (o.enrolment_id for o in result.outcomes if o.outcome != "unchanged")
+    )
     # after the inserts, so each consent row finds its student and enrolment
     for plan in plans:
         if plan.consent_changed and plan.student is not None and plan.enrolment_id is not None:

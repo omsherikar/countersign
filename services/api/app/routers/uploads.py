@@ -37,7 +37,14 @@ from app.engine.upload.batches import COUNT_KEYS, batch_in_progress, create_batc
 from app.engine.upload.parse import file_kind, parse_rows, parse_upload, too_many_rows
 from app.engine.upload.spool import canonical_rows, delete_spool, write_spool
 from app.engine.upload.types import UPLOAD_COLUMNS, UploadFileError
-from app.models.enums import RowErrorLevel, UploadSource, UploadStage, UploadStatus, UserRole
+from app.models.enums import (
+    RecordStatus,
+    RowErrorLevel,
+    UploadSource,
+    UploadStage,
+    UploadStatus,
+    UserRole,
+)
 from app.models.institution import Approval, Institution, Programme
 from app.models.upload import UploadBatch, UploadRowError
 from app.models.user import User
@@ -148,7 +155,12 @@ async def _batch_out(
         progress_pct=pipeline.progress_pct(
             batch.status, batch.stage, batch.processed_rows, batch.stage_total
         ),
-        counts=UploadCounts(**{k: int(counts.get(k) or 0) for k in COUNT_KEYS}),
+        counts=UploadCounts(
+            **{k: int(counts.get(k) or 0) for k in COUNT_KEYS},
+            records={
+                s.value: int((counts.get("records") or {}).get(s.value) or 0) for s in RecordStatus
+            },
+        ),
         sources=[
             UploadSourceStat(
                 source=name,

@@ -81,13 +81,15 @@ async def test_multipart_upload_runs_and_reports(clients, spool):
     assert list(batch["counts"]) == [
         "rows", "accepted", "errors", "warnings", "created", "updated", "unchanged", "withdrawn",
         "transferred", "seated", "released", "unseated", "flags_raised", "flags_updated",
-        "versions",
+        "versions", "records",
     ]  # fmt: skip
     assert batch["sources"] == [] and batch["same_file_as"] is None
 
     done = (await abc.get(f"/uploads/{batch['id']}")).json()
     assert (done["status"], done["stage"], done["progress_pct"]) == ("DONE", "DONE", 100)
     assert done["counts"]["rows"] == 2 and done["counts"]["created"] == 2
+    # the done card says how the batch's records stand (API_CONTRACT §A4.16)
+    assert sum(done["counts"]["records"].values()) == 2
     assert done["counts"]["warnings"] == 1 and done["total_rows"] == 2
     assert set(done["timings_ms"]) == {s.value for s in pipeline.STAGES}
     assert done["uploaded_at"].endswith("Z") and done["finished_at"].endswith("Z")

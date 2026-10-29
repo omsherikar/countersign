@@ -1,11 +1,11 @@
-"""Shared wire shapes: pagination envelope, countersign block, flag refs."""
+"""Shared wire shapes: pagination envelope, flag and institution refs."""
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 PAGE_SIZE_DEFAULT = 25
 PAGE_SIZE_MAX = 200
@@ -32,41 +32,6 @@ def page_params(
     page_size: Annotated[int, Query(ge=1, le=PAGE_SIZE_MAX)] = PAGE_SIZE_DEFAULT,
 ) -> PageParams:
     return PageParams(page=page, page_size=page_size)
-
-
-class Score(BaseModel):
-    passes: int
-    applicable: int
-
-
-class CheckBrief(BaseModel):
-    type: str
-    status: str
-
-
-class CheckOut(BaseModel):
-    """A full check row (only in GET /enrolments/{id})."""
-
-    type: str
-    status: str
-    source: str
-    checked_at: str | None
-    attempts: int = 0
-    detail: dict[str, Any] = Field(default_factory=dict)
-    # provenance (D34): who supplied the fact, when, and whether independently of the college
-    supplied_by: str = ""
-    observed_at: str | None = None
-    independent: bool = False
-    # {outcome, case_id, case_action_seq, reason_code, at} when an officer's decision resolved
-    # this row's contradiction (R2)
-    resolved: dict[str, Any] | None = None
-
-
-class Countersign(BaseModel):
-    """The compact block in lists: score and [{type, status}] in check order."""
-
-    score: Score | None = None
-    checks: list[CheckBrief] = Field(default_factory=list)
 
 
 class FlagRef(BaseModel):

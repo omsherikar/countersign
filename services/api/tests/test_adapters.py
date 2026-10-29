@@ -180,7 +180,7 @@ async def test_factory_inmemory_and_real_and_ping():
     assert inmem.name == "inmemory"
     results = await ping_all(inmem)
     assert {k: v.status for k, v in results.items()} == dict.fromkeys(
-        ["apaar", "counselling", "abc", "digilocker", "sii"], "OK"
+        ["apaar", "counselling", "admission_authority", "abc", "digilocker", "sii"], "OK"
     )
 
     real = build_adapters(Settings(gov_adapter="real", allow_real_gov_apis=False))
@@ -210,11 +210,15 @@ async def test_factory_mockgov_ping_reports_each_source(respx_mock):
     respx_mock.post("/sii/verify").mock(
         return_value=httpx.Response(503, json={"error": {"code": "SOURCE_DOWN"}})
     )
+    respx_mock.post("/admission-authority/joining").mock(
+        return_value=httpx.Response(200, json={"found": False, "published": False})
+    )
     adapters = build_adapters(Settings(gov_adapter="mockgov", mockgov_base_url=BASE))
     results = await ping_all(adapters)
     assert {k: v.status for k, v in results.items()} == {
         "apaar": "OK",
         "counselling": "OK",
+        "admission_authority": "OK",
         "abc": "OK",
         "digilocker": "OK",
         "sii": "UNAVAILABLE",

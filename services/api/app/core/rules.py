@@ -139,8 +139,32 @@ class Reporting(BaseModel):
         return self.deadline.get(academic_year) or date(int(academic_year[:4]), 9, 30)
 
 
-class IntegrityIndex(BaseModel):
-    weights: dict[str, float]
+class EligibilityRule(BaseModel):
+    """One category rule of D41: the handbook clause and who the seat is for."""
+
+    clause: str
+    allowed: str
+
+
+class Eligibility(BaseModel):
+    INTERNATIONAL_CIWG: EligibilityRule
+    NRI_STATUS: EligibilityRule
+    TFW_INCOME: EligibilityRule
+
+    def rule(self, name: str) -> EligibilityRule:
+        return getattr(self, name)
+
+
+class AnomalyRules(BaseModel):
+    contamination: float = Field(gt=0, lt=0.5)
+    n_estimators: int = Field(gt=0)
+    random_state: int = 0
+    min_records: int = Field(ge=0)
+    source: str | None = None
+
+
+class SignalRules(BaseModel):
+    anomaly: AnomalyRules
 
 
 class Rules(BaseModel):
@@ -156,8 +180,9 @@ class Rules(BaseModel):
     dual_enrolment: DualEnrolment | None = None
     notices: Notices
     ghost_ring: GhostRing | None = None
-    integrity_index: IntegrityIndex | None = None
     reporting: Reporting = Field(default_factory=Reporting)
+    eligibility: Eligibility
+    signals: SignalRules | None = None
 
 
 def load_rules(path: str | Path | None = None) -> Rules:

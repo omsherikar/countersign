@@ -42,6 +42,8 @@ async def current_user(request: Request, session: SessionDep) -> User:
     if user is None or not user.is_active:
         raise unauthenticated()
     request.state.user_id = user.id
+    # the actor of the status changes the request's settle writes (ENGINES §17.2)
+    session.info["actor_id"] = user.id
     return user
 
 

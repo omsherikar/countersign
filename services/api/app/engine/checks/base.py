@@ -1,20 +1,21 @@
-"""What every check evaluator shares: the subject, the gated source call, flag intents.
+"""What every row evaluator shares: the subject, the gated source call, case intents.
 
 Evaluators never touch the database session. `run_checks` loads one `CheckSubject` per
 enrolment, the evaluators turn it into `CheckOutcome`s (calling adapters through the
-shared semaphore), and `run_checks` writes the rows.
+shared semaphore), and the writer stores the rows with their provenance (D34): who supplied
+the fact, when, and whether that source is independent of the college that made the claim
+(D38).
 """
 
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import logging
 import re
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 from app.adapters.base import AdapterRequestError, RealAdapterDisabled, SourceUnavailable
@@ -39,10 +40,16 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("countersign.checks")
 
-# sources whose facts do not come from the college that made the claim (D38); the Seat
-# Ledger is derived from the college's own upload, and ABC credits count as the college's
-# own until their issuing body is known
-INDEPENDENT_SOURCES = frozenset({"APAAR", "COUNSELLING", "SII", "STUDENT_NOTICE"})
+# the provenance words of each source (API_CONTRACT §A4.2 `supplied_by`)
+SUPPLIED_BY = {
+    "APAAR": "APAAR registry",
+    "ADMISSION_AUTHORITY": "State admission authority",
+    "SII": "Study in India",
+    "ABC": "ABC credits",
+    "DIGILOCKER": "Student via DigiLocker sign-in",
+    "STUDENT_NOTICE": "Student via DigiLocker sign-in",
+    "COLLEGE_UPLOAD": "College upload",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +98,19 @@ class CheckSubject:
     notices: tuple[NoticeFact, ...] = ()
     has_email: bool = False
     notice_consent_withdrawn: bool = False
+    # Week 4 (ENGINES §17.3): the year the student joined this programme and the
+    # authority's reporting deadline for it; the cohort approval and its current version;
+    # what the college reported for eligibility; a DigiLocker claim of a record without a
+    # linked APAAR (D36); the affiliating university, the expected issuer of credits
+    joining_year: str = ""
+    reporting_deadline: date | None = None
+    approval_id: uuid.UUID | None = None
+    approval_version: int | None = None
+    eligibility: Mapping[str, bool | None] = field(default_factory=dict)
+    digilocker_claimed: bool = False
+    provisional_id: str | None = None
+    affiliating_university_name: str | None = None
+    uploaded_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,33 +139,9 @@ async def call_source[T](
         return SourceDown(source, evidence.source_unavailable(source, f"HTTP {exc.status_code}"))
 
 
-def supplied_by(source: str, cohort_year: str | None = None) -> str:
-    """The name a row's provenance shows for a source code (D34)."""
-    if source == "SEAT_LEDGER":
-        return f"AICTE approval {cohort_year} (Seat Ledger, derived)"
-    return evidence.SOURCE_NAMES[source]
-
-
-def answered(
-    outcome: CheckOutcome,
-    source: str,
-    *,
-    observed_at: datetime | None = None,
-    cohort_year: str | None = None,
-) -> CheckOutcome:
-    """The outcome with the provenance of the source that answered it; observed now unless
-    the source gave its own time."""
-    return dataclasses.replace(
-        outcome,
-        supplied_by=supplied_by(source, cohort_year),
-        observed_at=observed_at or datetime.now(UTC),
-        independent=source in INDEPENDENT_SOURCES,
-    )
-
-
 def unavailable_outcome(check: CheckType, down: SourceDown, calls: int = 1) -> CheckOutcome:
     """SOURCE_UNAVAILABLE: the source did not answer, so the row never contradicts (R4). The
-    provenance names the source asked; it observed nothing."""
+    provenance names the source asked; it observed nothing, so it is not evidence."""
     return CheckOutcome(
         type=check,
         status=CheckStatus.SOURCE_UNAVAILABLE,
@@ -153,8 +149,8 @@ def unavailable_outcome(check: CheckType, down: SourceDown, calls: int = 1) -> C
         detail=down.detail,
         calls=(down.source,) * calls,
         unavailable=(down.source,),
-        supplied_by=supplied_by(down.source),
-        independent=down.source in INDEPENDENT_SOURCES,
+        supplied_by=SUPPLIED_BY.get(down.source, evidence.SOURCE_NAMES.get(down.source, "")),
+        independent=False,
     )
 
 

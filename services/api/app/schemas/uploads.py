@@ -24,6 +24,15 @@ class UploadCounts(BaseModel):
     flags_updated: int = 0
     # enrolment versions the batch wrote (D42)
     versions: int = 0
+    # the record statuses of the batch's ACTIVE enrolments when it finished (D35)
+    records: dict[str, int] = Field(
+        default_factory=lambda: {
+            "AWAITING_EVIDENCE": 0,
+            "COUNTERSIGNED": 0,
+            "UNDER_REVIEW": 0,
+            "DISPUTED": 0,
+        }
+    )
 
 
 class MappedColumn(BaseModel):

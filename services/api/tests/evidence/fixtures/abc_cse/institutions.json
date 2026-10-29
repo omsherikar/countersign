@@ -1,0 +1,66 @@
+{
+  "regions": [
+    {
+      "code": "WEST",
+      "name": "Western",
+      "hq_city": "Mumbai"
+    }
+  ],
+  "states": [
+    {
+      "code": "MH",
+      "name": "Maharashtra",
+      "region": "WEST"
+    }
+  ],
+  "universities": [
+    {
+      "code": "MSTU",
+      "name": "Maharashtra State Technical University",
+      "state_code": "MH"
+    }
+  ],
+  "institutions": [
+    {
+      "aicte_permanent_id": "1-ABC-0001",
+      "name": "ABC College of Engineering",
+      "type": "PRIVATE_SELF_FINANCED",
+      "state_code": "MH",
+      "university_code": "MSTU",
+      "address_city": "Pune",
+      "established_year": 2004,
+      "autonomous": false,
+      "programmes": [
+        {
+          "code": "CSE",
+          "name": "B.Tech Computer Science and Engineering",
+          "level": "UG",
+          "discipline": "ENGINEERING",
+          "shift": "FIRST",
+          "mode": "PHYSICAL",
+          "duration_years": 4,
+          "approvals": [
+            {
+              "academic_year": "2026-27",
+              "approved_intake": 120,
+              "versions": [
+                {
+                  "version": 1,
+                  "approved_intake": 90,
+                  "effective_from": "2026-03-15",
+                  "source": "AICTE EoA 2026-27"
+                },
+                {
+                  "version": 2,
+                  "approved_intake": 120,
+                  "effective_from": "2026-05-20",
+                  "source": "AICTE EoA 2026-27, revised"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

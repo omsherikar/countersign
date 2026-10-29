@@ -97,6 +97,8 @@ class RowFact:
     observed_at: datetime | None = None
     supplied_by: str = ""
     self_issued: bool = False  # detail.self_issued (Credits)
+    deadline: date | None = None  # detail.deadline (Joining record)
+    issuer_name: str | None = None  # detail.issuer_name (Credits)
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,7 +241,11 @@ def _waiting_on(row_type: CheckType, row: RowFact | None, ctx: RecordContext) ->
         return text.IDENTITY_CLAIM
     if row_type is CheckType.SEAT and state is CheckStatus.PENDING:
         return text.SEAT_TFW
-    if row_type is CheckType.ADMISSION and state in (CheckStatus.PENDING, CheckStatus.NOT_YET_DUE):
+    if row_type is CheckType.ADMISSION and state is CheckStatus.NOT_YET_DUE:
+        if row.deadline is None:
+            return text.JOINING_RECORD
+        return text.JOINING_DEADLINE.format(deadline_date=text.day(row.deadline, ctx.today))
+    if row_type is CheckType.ADMISSION and state is CheckStatus.PENDING:
         return text.JOINING_RECORD
     if row_type is CheckType.STUDYING and state in (CheckStatus.PENDING, CheckStatus.NOT_YET_DUE):
         issuer = ctx.issuer_name or "ABC"
@@ -389,6 +395,11 @@ def row_fact(
     """A RowFact from a stored check row."""
     detail = detail or {}
     case_type = detail.get("case_type")
+    deadline = detail.get("deadline")
+    try:
+        deadline_on = date.fromisoformat(deadline) if isinstance(deadline, str) else None
+    except ValueError:
+        deadline_on = None
     return RowFact(
         type=check_type,
         state=state,
@@ -403,6 +414,8 @@ def row_fact(
         observed_at=observed_at,
         supplied_by=supplied_by,
         self_issued=bool(detail.get("self_issued")),
+        deadline=deadline_on,
+        issuer_name=detail.get("issuer_name") or None,
     )
 
 
@@ -441,7 +454,25 @@ async def _cases(
     ).all()
     open_ids = [f.id for f in flags if f.status in UNRESOLVED_FLAG_STATUSES]
     last: dict[uuid.UUID, dict[CaseActionKind, datetime]] = {}
+    docs_kind: dict[uuid.UUID, str | None] = {}
     if open_ids:
+        # the kind of documents the latest request asked for (stored as its reason code)
+        docs_kind = dict(
+            (
+                await session.execute(
+                    select(CaseAction.flag_id, CaseAction.reason_code).where(
+                        CaseAction.seq.in_(
+                            select(func.max(CaseAction.seq))
+                            .where(
+                                CaseAction.flag_id.in_(open_ids),
+                                CaseAction.action == CaseActionKind.REQUEST_DOCS,
+                            )
+                            .group_by(CaseAction.flag_id)
+                        )
+                    )
+                )
+            ).all()
+        )
         for flag_id, action, at in (
             await session.execute(
                 select(CaseAction.flag_id, CaseAction.action, func.max(CaseAction.at))
@@ -471,6 +502,7 @@ async def _cases(
             severity=f.severity,
             status=f.status,
             opened_at=f.opened_at,
+            docs_kind=docs_kind.get(f.id),
             docs_due_on=f.docs_due_on,
             response_received=f.response_received,
             last_response_at=actions.get(CaseActionKind.COLLEGE_RESPONSE),
@@ -482,10 +514,11 @@ async def _cases(
 
 
 def _issuer(rows: Sequence[RowFact]) -> str | None:
-    """The issuer named on the Credits row ("ABC, issued by ..."), if any."""
+    """Who issues the record's credits: the issuer of the latest credits, else the body
+    expected to issue them (the affiliating university), as the Credits row names it."""
     for row in rows:
-        if row.type is CheckType.STUDYING and row.supplied_by.startswith("ABC, issued by "):
-            return row.supplied_by.removeprefix("ABC, issued by ")
+        if row.type is CheckType.STUDYING:
+            return row.issuer_name
     return None
 
 
