@@ -135,7 +135,8 @@ export async function withRateLimit(send: () => Promise<APIResponse>, tries = 3)
 export async function signIn(role: Role): Promise<void> {
   const api = await request.newContext({ baseURL: API_URL });
   try {
-    const res = await withRateLimit(() => api.post("/auth/login", { data: { email: ROLES[role].email, password: DEMO_PASSWORD } }));
+    // the full address, so an api served under a path (https://host/api) keeps its prefix
+    const res = await withRateLimit(() => api.post(`${API_URL}/auth/login`, { data: { email: ROLES[role].email, password: DEMO_PASSWORD } }));
     expect(res.status(), `sign in as ${ROLES[role].email}: ${await res.text()}`).toBe(200);
     const state = await api.storageState();
     const host = new URL(WEB_URL).hostname;
