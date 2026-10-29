@@ -135,7 +135,7 @@ async def test_revoked_and_expired_proofs_cannot_be_shared(world, session):
     with pytest.raises(ApiError) as expired:
         await holder.present(session, credential, user, fields=[], consent=False)
     assert (expired.value.status_code, expired.value.code) == (409, "CREDENTIAL_NOT_ELIGIBLE")
-    assert expired.value.message == "This proof expired on 31 Aug 2026 and cannot be shared."
+    assert expired.value.message == "This attestation expired on 31 Aug 2026 and cannot be shared."
     assert expired.value.details == {"reason": "EXPIRED"}
 
     credential.revoked = True
@@ -143,7 +143,9 @@ async def test_revoked_and_expired_proofs_cannot_be_shared(world, session):
     with pytest.raises(ApiError) as revoked:
         await holder.present(session, credential, user, fields=["name"])
     assert revoked.value.code == "CREDENTIAL_REVOKED"
-    assert revoked.value.message == "This proof was revoked on 29 Oct 2026 and cannot be shared."
+    assert (
+        revoked.value.message == "This attestation was revoked on 29 Oct 2026 and cannot be shared."
+    )
     assert revoked.value.details == {"revoked_at": "2026-10-28T20:00:00Z"}
     await session.rollback()
 

@@ -39,18 +39,17 @@ from app.engine.checks import refresh_student
 from app.engine.contracts import CHUNK_SIZE
 from app.models.enums import (
     AuditAction,
-    CheckStatus,
-    CheckType,
     ConsentStatus,
     EnrolmentStatus,
     NoticeChannel,
     NoticeDelivery,
+    RecordStatus,
     UploadStatus,
 )
 from app.models.institution import Institution, Programme
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
-from app.models.verification import Check, Notification
+from app.models.verification import Notification
 from app.notices.mailer import NO_ANSWER, Mailer, MailMessage, build_mailer
 from app.notices.student_check import fmt_day
 from app.privacy.service import notice_consent_withdrawn
@@ -597,23 +596,25 @@ async def deliver(
 
 
 async def issue_due_proofs(session: AsyncSession, enrolment_ids: Sequence[uuid.UUID]) -> int:
-    """`credentials.issue_if_eligible` for those among the enrolments whose STUDENT check
-    is PASS, the first condition of eligibility; returns how many proofs were issued."""
+    """`credentials.issue_if_eligible` for those among the ACTIVE enrolments whose record is
+    COUNTERSIGNED, the first condition of eligibility (D44); returns how many attestations
+    were issued. This is where an upload's records get theirs: after the batch, never inside
+    it (ENGINES §17.13)."""
     ids = list(dict.fromkeys(enrolment_ids))
     issued = 0
     for chunk in _chunks(ids):
-        passed = (
+        countersigned = (
             await session.execute(
-                select(Check.enrolment_id)
+                select(Enrolment.id)
                 .where(
-                    Check.enrolment_id.in_(list(chunk)),
-                    Check.type == CheckType.STUDENT,
-                    Check.status == CheckStatus.CONFIRMED,
+                    Enrolment.id.in_(list(chunk)),
+                    Enrolment.status == EnrolmentStatus.ACTIVE,
+                    Enrolment.record_status == RecordStatus.COUNTERSIGNED,
                 )
-                .order_by(Check.enrolment_id)
+                .order_by(Enrolment.id)
             )
         ).scalars()
-        for enrolment_id in list(passed):
+        for enrolment_id in list(countersigned):
             if await credentials.issue_if_eligible(session, enrolment_id) is not None:
                 issued += 1
     return issued
@@ -625,7 +626,8 @@ async def _refresh(
     *,
     issue: bool,
 ) -> None:
-    """In chunks, one transaction each: re-derive STUDENT, then issue proofs that are due."""
+    """In chunks, one transaction each: re-derive STUDENT (which recomputes the record
+    status), then issue the attestations that are due."""
     for chunk in _chunks(list(dict.fromkeys(enrolment_ids))):
         async with factory() as session:
             await refresh_student(session, chunk)
