@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.adapters.base import AdapterSet
+from app.adapters.factory import build_adapters
 from app.core import audit
 from app.core.audit import AuditEntry
 from app.core.cohort import joining_year
@@ -441,12 +442,23 @@ async def rerun(
     concurrency: int = DEFAULT_CHECK_CONCURRENCY,
 ) -> ChecksResult:
     """Evaluate the chosen rows of the ACTIVE enrolments among the ids and write them: the
-    one way other areas re-evaluate rows (ENGINES §17.3). `adapters` may be None when only
-    SEAT and STUDENT are asked for, which call no source. Flushes and marks; the
-    transaction owner settles the statuses."""
+    one way other areas re-evaluate rows (ENGINES §17.3). `adapters` may be None: SEAT and
+    STUDENT call no source, and any other row then uses the configured set for this call.
+    Flushes and marks; the transaction owner settles the statuses."""
     wanted = [t for t in CHECK_ORDER if t in set(types)]
     if adapters is None and not set(wanted) <= LOCAL_TYPES:
-        raise ValueError("rows that call a source need the adapters")
+        own = build_adapters()
+        try:
+            return await rerun(
+                session,
+                enrolment_ids,
+                own,
+                types=wanted,
+                actor_id=actor_id,
+                concurrency=concurrency,
+            )
+        finally:
+            await own.aclose()
     subjects = await load_subjects(session, enrolment_ids)
     result = ChecksResult(enrolments=len(subjects))
     if not subjects or not wanted:

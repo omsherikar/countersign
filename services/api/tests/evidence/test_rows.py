@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.engine import checks as checks_module
-from app.engine.checks import run_checks
+from app.engine.checks import rerun, run_checks
 from app.engine.ledger import assign_seats
 from app.engine.status import STATUS_DIRTY
 from app.models.enums import (
@@ -284,3 +284,27 @@ async def test_writing_rows_queues_their_records_for_a_status(world, session, go
     session.info.pop(STATUS_DIRTY, None)
     await run_checks(session, [enrolment.id], gov)
     assert enrolment.id in session.info[STATUS_DIRTY]
+
+
+async def test_rerun_without_adapters_uses_the_configured_sources(world, session, gov) -> None:
+    """A claim re-runs only the Identity row; a caller without adapters still gets it."""
+    inst = await world.institution(aicte_id="1-ABC-0001")
+    cse = await world.programme(inst)
+    student = await world.student("Kiran Rao", date(2009, 1, 17), consent=ConsentStatus.REFUSED)
+    enrolment = await world.enrol(student, cse)
+    session.add(
+        User(
+            email="kiran@digilocker.demo",
+            password_hash=hash_password(PASSWORD),
+            name="Kiran Rao",
+            role=UserRole.STUDENT,
+            student_id=student.id,
+            digilocker_sub="DL-KIRAN-0001",
+        )
+    )
+    await session.flush()
+    result = await rerun(session, [enrolment.id], None, types=[CheckType.IDENTITY])
+    assert result.statuses == {"IDENTITY": {"CONFIRMED": 1}}
+    rows = await _rows(session, enrolment)
+    assert set(rows) == {CheckType.IDENTITY}
+    assert rows[CheckType.IDENTITY].detail["basis"] == "DIGILOCKER_CLAIM"
