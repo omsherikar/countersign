@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.engine.upload.types import DECLARATION_TEXT
-from app.models.enums import AuditAction, UploadKind, UploadSource, UploadStatus
+from app.models.enums import AuditAction, RecordStatus, UploadKind, UploadSource, UploadStatus
 from app.models.upload import UploadBatch
 
 IN_PROGRESS = (UploadStatus.QUEUED, UploadStatus.VALIDATING, UploadStatus.PROCESSING)
@@ -35,7 +35,13 @@ COUNT_KEYS: tuple[str, ...] = (
 
 
 def empty_counts() -> dict[str, Any]:
-    return {**dict.fromkeys(COUNT_KEYS, 0), "sources": {}, "timings_ms": {}, "column_mapping": []}
+    return {
+        **dict.fromkeys(COUNT_KEYS, 0),
+        "sources": {},
+        "timings_ms": {},
+        "column_mapping": [],
+        "records": dict.fromkeys((s.value for s in RecordStatus), 0),
+    }
 
 
 async def upload_kind(

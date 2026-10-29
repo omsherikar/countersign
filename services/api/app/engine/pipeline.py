@@ -55,6 +55,7 @@ from app.models.enums import (
     AuditAction,
     CheckType,
     EnrolmentStatus,
+    RecordStatus,
     RowErrorLevel,
     UploadSource,
     UploadStage,
@@ -578,6 +579,23 @@ class _BatchRun:
                 self._tally(tally)
 
             await self._chunk(work, len(pools))
+        await self._record_counts()
+
+    async def _record_counts(self) -> None:
+        """The record statuses of the batch's ACTIVE enrolments once every stage has run,
+        so the done card can say how many are countersigned (API_CONTRACT §A4.16)."""
+        records = dict.fromkeys((s.value for s in RecordStatus), 0)
+        ids = list(dict.fromkeys(o.enrolment_id for o in self.outcomes))
+        async with self.factory() as session:
+            for part in chunks(ids):
+                rows = await session.execute(
+                    select(Enrolment.record_status, func.count())
+                    .where(Enrolment.id.in_(part), Enrolment.status == EnrolmentStatus.ACTIVE)
+                    .group_by(Enrolment.record_status)
+                )
+                for value, n in rows.all():
+                    records[value.value] += n
+        self.counts["records"] = records
 
 
 async def run_batch(
