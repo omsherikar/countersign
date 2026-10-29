@@ -131,8 +131,7 @@ test.describe("Officer decisions", () => {
     expect(fs.readFileSync(await download.path()).equals(pdf), "the downloaded file is the one the registrar sent").toBe(true);
   });
 
-  test.fixme("the Request documents sheet quotes the next step as the record then shows it", async ({ pageAs }) => {
-    // Product bug: the sheet quotes the reply date with its year ("by 5 Nov 2026.") while the record's next step prints it without ("by 5 Nov.").
+  test("the Request documents sheet quotes the next step as the record then shows it", async ({ pageAs }) => {
     expect(dispute, "the documents step found the dispute").not.toBeNull();
     const due = istDate(7);
     const ro = await pageAs("ro");

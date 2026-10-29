@@ -21,14 +21,15 @@ import {
 } from "./support";
 
 /**
- * Flows 4 and 5 (Flow 0 at 2:00, 3:00 and 8:00): Ravi opens his notice from
- * the email in Mailpit. Anyone with the link sees the claim, but only after
+ * Flows 4 and 5 (Flow 0 at 2:00 and 3:00): Ravi opens his notice from the
+ * email in Mailpit. Anyone with the link sees the claim, but only after
  * DigiLocker sign-in as the student it is about can it be answered. Ravi
- * says Yes; his Student row is confirmed through DigiLocker. With his
- * record Countersigned, his wallet holds an enrolment attestation; he
- * shares three fields and a verifier sees exactly those. Another student
- * signed in with DigiLocker gets "This notice is for someone else" and can
- * record nothing.
+ * says Yes; his Student row is confirmed through DigiLocker. His record
+ * still reads Under review, because ABC College also listed him as
+ * "R. K. Sharma" and that duplicate case is open; a student answering with
+ * no open case gets a Countersigned record and an attestation that shares
+ * three fields. Another student signed in with DigiLocker gets "This notice
+ * is for someone else" and can record nothing.
  */
 
 const DAY = String.raw`\d{1,2} [A-Z][a-z]{2}`;
@@ -83,14 +84,22 @@ test.describe("A student's Yes", () => {
     await expect(row.source).toHaveText(new RegExp(`^Student sign-in via DigiLocker · ${DAY}\\s*Independent of the college$`));
   });
 
-  test("the record is Countersigned and the wallet's enrolment attestation shares three fields that verify as Valid", async ({ pageAs, studentAs, freshPage }) => {
+  test("after the Yes the record follows the evidence rule: Under review while a case names it, otherwise Countersigned with an attestation that shares three fields", async ({ pageAs, studentAs, freshPage }) => {
     expect(answered, "the Yes step ran").not.toBeNull();
     const admin = await pageAs("admin");
     const record = await apiJson<EnrolmentDetail>(admin, "GET", `/enrolments/${answered!.enrolmentId}`);
-    test.fixme(
-      answered!.student.name === DEMO.ravi.name && record.record_status === "UNDER_REVIEW",
-      "Product bug: the open R. K. Sharma duplicate case keeps Ravi's record Under review, so no enrolment attestation exists for the 8:00 share step.",
-    );
+    const open = record.flags.filter((f) => ["OPEN", "DOCS_REQUESTED", "ESCALATED"].includes(f.status));
+    if (open.length > 0) {
+      // Ravi: ABC College also listed him as "R. K. Sharma". His Yes confirms the Student row, but the
+      // open duplicate case still names the record, so it stays Under review and no attestation is issued.
+      expect(record.record_status).toBe("UNDER_REVIEW");
+      expect(record.status_reason ?? "").toContain("case names this record");
+      expect(record.credentials.filter((c) => c.kind === "ENROLMENT" && c.status === "ACTIVE"), "no attestation while a case is open").toHaveLength(0);
+      await admin.goto(`/aicte/enrolments/${answered!.enrolmentId}`);
+      await expect(cardStatusLine(recordCard(admin))).toHaveText(/^Status:\s*Under review\./);
+      note(`${answered!.student.name}'s record stays Under review: ${open.map((f) => f.type).join(", ")} is open. The wallet share is checked in 04-countersigned.`);
+      return;
+    }
 
     await admin.goto(`/aicte/enrolments/${answered!.enrolmentId}`);
     await expect(cardStatusLine(recordCard(admin))).toHaveText(/^Status:\s*Countersigned\./);

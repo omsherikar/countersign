@@ -74,8 +74,7 @@ test("a student without APAAR claims her record by provisional ID after DigiLock
   if (admission?.state === "CONFIRMED" && admission.independent && after.flags.length === 0) expect(after.record_status).toBe("COUNTERSIGNED");
 });
 
-test.fixme("the student's own record card names the source and date of each row, as the officer's does", async ({ studentAs }) => {
-  // Product bug: on /student the card's Source and date column is empty (only the independence marker shows), because GET /students/me carries brief rows without source lines.
+test("the student's own record card names the source and date of each row, as the officer's does", async ({ studentAs }) => {
   const page = await studentAs(DEMO.priyanka);
   const card = recordCard(page);
   await expect(cardRow(card, "Identity").source).toHaveText(new RegExp(`^Student sign-in via DigiLocker · ${DAY}`));
