@@ -1,0 +1,32 @@
+[project]
+name = "countersign-eval"
+version = "0.1.0"
+description = "Countersign's evaluation against datagen's ground truth (synthetic data only)"
+requires-python = ">=3.12,<3.13"
+# Nothing beyond the api image: `make eval` runs this inside the api container, with
+# services/api as the working directory and tools/eval on PYTHONPATH. The scoring tests need
+# only pytest.
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["eval", "app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]

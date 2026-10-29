@@ -10,23 +10,29 @@ the file again finishes the job because every stage is idempotent.
 
 from __future__ import annotations
 
+import asyncio
+import importlib.util
 import json
 import logging
 import math
+import multiprocessing
+import sys
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, exists, func, insert, select, update
+from sqlalchemy import delete, exists, func, insert, select, text, update
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.base import AdapterSet
 from app.adapters.factory import build_adapters
 from app.core import audit
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.db.session import session_factory
 from app.engine import status
 from app.engine.contracts import (
@@ -68,6 +74,18 @@ from app.models.verification import Check
 
 log = logging.getLogger("countersign.pipeline")
 
+
+def remember_missing_sniffio() -> None:
+    """httpcore 1.0 runs `import sniffio` on every request and falls back to asyncio when it
+    is missing. sniffio is not installed in the api, so each source call searched sys.path
+    again (about 0.15 ms, two of them per row). A None entry in sys.modules makes the failed
+    import immediate; nothing changes where sniffio is installed."""
+    if "sniffio" not in sys.modules and importlib.util.find_spec("sniffio") is None:
+        sys.modules["sniffio"] = None
+
+
+remember_missing_sniffio()
+
 STAGES: tuple[UploadStage, ...] = (
     UploadStage.PARSE,
     UploadStage.VALIDATE,
@@ -101,6 +119,12 @@ STAGE_WORDS: dict[UploadStage, str] = {
 VALIDATING_STAGES = (UploadStage.PARSE, UploadStage.VALIDATE, UploadStage.FILE_DUPLICATES)
 SOURCE_ORDER = ("APAAR", "ADMISSION_AUTHORITY", "ABC", "SII")
 ISSUE_INSERT_BATCH = 1000
+# CHECKS chunks are independent of each other (a record's rows, the cases about that record
+# alone, its status), so a large batch spreads them over worker processes; every other stage
+# stays in this process, in order. Below PARALLEL_CHECK_CHUNKS chunks starting the processes
+# costs more than it saves.
+CHECK_PROCESSES = 4
+PARALLEL_CHECK_CHUNKS = 8
 
 
 def stopped_error(stage: UploadStage) -> str:
@@ -153,8 +177,13 @@ class _BatchRun:
         adapters: AdapterSet,
         engines: EngineSuite,
         source: Path | list[dict[str, Any]] | None,
+        *,
+        spread: bool = False,
     ) -> None:
         self.batch_id = batch_id
+        # CHECKS may run in worker processes, which open their own engine and adapters from
+        # the settings: only when this run uses exactly those
+        self.spread = spread
         self.factory = factory
         self.adapters = adapters
         self.engines = engines
@@ -208,13 +237,7 @@ class _BatchRun:
         self.counts["timings_ms"][self.stage.value] = elapsed
 
     async def _chunk(self, work: Callable[[AsyncSession], Awaitable[None]], processed: int) -> None:
-        async with self.factory() as session:
-            await work(session)
-            # the chunk's records get their status before it commits; an upload never
-            # signs attestations (ENGINES §17.2, §17.13)
-            await status.settle(session, issue=False)
-            await self._set(session, processed_rows=processed)
-            await session.commit()
+        await commit_chunk(self.factory, self.batch_id, work, processed)
 
     async def _write_issues(self, session: AsyncSession, issues: Sequence[RowIssue]) -> None:
         for issue in issues:
@@ -493,8 +516,10 @@ class _BatchRun:
             if o.outcome != "unchanged" and o.status is EnrolmentStatus.ACTIVE
         }
         wanted.update(self.seated)
+        # only records the batch left unchanged can be in neither set yet
+        rest = [e for e in dict.fromkeys(active) if e not in wanted]
         async with self.factory() as session:
-            for part in chunks(list(dict.fromkeys(active))):
+            for part in chunks(rest):
                 unchecked = select(Enrolment.id).where(
                     Enrolment.id.in_(part),
                     ~exists().where(Check.enrolment_id == Enrolment.id),
@@ -514,8 +539,12 @@ class _BatchRun:
     async def _checks(self) -> None:
         targets = await self._check_set()
         await self._begin(UploadStage.CHECKS, len(targets))
+        parts = list(chunks(targets, CHUNK_SIZE))
+        if self.spread and len(parts) >= PARALLEL_CHECK_CHUNKS:
+            await self._checks_in_processes(parts)
+            parts = []
         done = 0
-        for part in chunks(targets):
+        for part in parts:
             done += len(part)
 
             async def work(session: AsyncSession, part=part) -> None:
@@ -530,6 +559,33 @@ class _BatchRun:
                 self._tally(result.flags)
 
             await self._chunk(work, done)
+        self._sources()
+        self._end()
+
+    async def _checks_in_processes(self, parts: list[Sequence[uuid.UUID]]) -> None:
+        """Each worker process takes every n-th chunk; each chunk is still one transaction with
+        its rows, cases, audit entries, statuses and its share of the progress. CHECKS_CONCURRENCY
+        stays the batch's limit on source calls in flight, shared between the processes."""
+        n = min(CHECK_PROCESSES, len(parts))
+        slices = [[[str(e) for e in part] for part in parts[i::n]] for i in range(n)]
+        actor = str(self.actor_id) if self.actor_id else None
+        each = max(1, self.settings.checks_concurrency // n)
+        loop = asyncio.get_running_loop()
+        context = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=n, mp_context=context) as pool:
+            results = await asyncio.gather(
+                *(
+                    loop.run_in_executor(
+                        pool, check_chunks, str(self.batch_id), part_ids, actor, each
+                    )
+                    for part_ids in slices
+                )
+            )
+        for result in results:
+            self.checks.merge(result)
+            self._tally(result.flags)
+
+    def _sources(self) -> None:
         sources = set(self.checks.calls) | set(self.checks.unavailable)
         ordered = [s for s in SOURCE_ORDER if s in sources] + sorted(sources - set(SOURCE_ORDER))
         self.counts["sources"] = {
@@ -539,7 +595,6 @@ class _BatchRun:
             }
             for s in ordered
         }
-        self._end()
 
     async def _duplicates(self) -> None:
         targets = list(
@@ -609,15 +664,107 @@ async def run_batch(
     """Run every stage for one batch and return it DONE or FAILED. Never raises for data."""
     own_adapters = adapters is None
     adapters = adapters if adapters is not None else build_adapters()
+    factory = factory or session_factory()
     try:
         run = _BatchRun(
             batch_id,
-            factory or session_factory(),
+            factory,
             adapters,
             engines if engines is not None else default_engines(),
             source,
+            spread=engines is None and can_spread(factory, adapters, get_settings()),
         )
         return await run.execute()
     finally:
         if own_adapters:
             await adapters.aclose()
+
+
+# ------------------------------------------------------------- shared by worker processes
+
+
+async def commit_chunk(
+    factory: async_sessionmaker[AsyncSession],
+    batch_id: uuid.UUID,
+    work: Callable[[AsyncSession], Awaitable[None]],
+    processed: int,
+    *,
+    add: bool = False,
+) -> None:
+    """One chunk's transaction: the stage's writes, then the batch's progress, then commit.
+
+    With `add`, `processed` is added to the stage's progress, for chunks that commit side by
+    side in any order. Those take the audit chain's lock before the batch row, the order every
+    chunk that writes audit entries already has, so two of them never wait on each other.
+    """
+    async with factory() as session:
+        await work(session)
+        # the chunk's records get their status before it commits; an upload never signs
+        # attestations (ENGINES §17.2, §17.13)
+        await status.settle(session, issue=False)
+        if add:
+            await session.execute(
+                text("SELECT pg_advisory_xact_lock(:key)"), {"key": audit.ADVISORY_LOCK_KEY}
+            )
+            progress: Any = UploadBatch.processed_rows + processed
+        else:
+            progress = processed
+        await session.execute(
+            update(UploadBatch).where(UploadBatch.id == batch_id).values(processed_rows=progress)
+        )
+        await session.commit()
+
+
+def can_spread(
+    factory: async_sessionmaker[AsyncSession], adapters: AdapterSet, settings: Settings
+) -> bool:
+    """A worker process opens the settings' database and mockgov adapters: the run may use
+    them only when it uses exactly those (never in-memory sources, never another database)."""
+    if adapters.name != "mockgov" or settings.gov_adapter != "mockgov":
+        return False
+    bind = factory.kw.get("bind")
+    url = getattr(bind, "url", None)
+    if url is None:
+        return False
+    wanted = make_url(settings.database_url())
+    return (url.host, url.port, url.database) == (wanted.host, wanted.port, wanted.database)
+
+
+def check_chunks(
+    batch_id: str, parts: list[list[str]], actor_id: str | None, concurrency: int
+) -> ChecksResult:
+    """In a worker process: the CHECKS stage for some chunks of one batch."""
+    return asyncio.run(_check_chunks(uuid.UUID(batch_id), parts, actor_id, concurrency))
+
+
+async def _check_chunks(
+    batch_id: uuid.UUID, parts: list[list[str]], actor_id: str | None, concurrency: int
+) -> ChecksResult:
+    from app.db.session import dispose_engine
+
+    settings = get_settings()
+    factory = session_factory()
+    adapters = build_adapters(settings)
+    engines = default_engines()
+    actor = uuid.UUID(actor_id) if actor_id else None
+    total = ChecksResult()
+    try:
+        for part in parts:
+            ids = [uuid.UUID(i) for i in part]
+
+            async def work(session: AsyncSession, ids: list[uuid.UUID] = ids) -> None:
+                total.merge(
+                    await engines.run_checks(
+                        session,
+                        ids,
+                        adapters,
+                        concurrency=concurrency,
+                        actor_id=actor,
+                    )
+                )
+
+            await commit_chunk(factory, batch_id, work, len(ids), add=True)
+    finally:
+        await adapters.aclose()
+        await dispose_engine()
+    return total

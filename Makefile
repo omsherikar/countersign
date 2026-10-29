@@ -44,7 +44,13 @@ test: ## run every test suite inside compose
 e2e: ## run the Playwright demo-path tests from the host against the running, seeded stack
 	cd apps/web && pnpm exec playwright test
 
-eval: ## run the accuracy evaluation (Week 4)
-	@echo "eval arrives in Week 4"
+eval: ## evaluation on synthetic data into tools/eval/out (regenerates and reseeds; leaves the eval data loaded, so run make demo-reset before a demo)
+	$(COMPOSE) --profile tools run --rm --entrypoint rm datagen -rf /data/generated/uploads /data/generated/perf
+	$(COMPOSE) --profile tools run --rm datagen generate --size small --seed 2026 --perf 50000 --out /data/generated
+	$(MAKE) demo-reset
+	$(COMPOSE) run --rm mockgov python -m app.seed --from /data/generated/perf/mockgov
+	$(COMPOSE) --profile eval up -d --wait mockgov-eval
+	$(COMPOSE) --profile eval run --rm eval run --generated /data/generated --out /eval/out; \
+		status=$$?; $(COMPOSE) --profile eval stop mockgov-eval; exit $$status
 
 .PHONY: help up down nuke logs datagen seed demo-reset audit-tamper test eval
