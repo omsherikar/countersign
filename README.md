@@ -178,6 +178,18 @@ A clean run starts from `make demo-reset`, because the tests use one-time state 
 
 `/admin/psi` (AICTE officer) shows how many APAAR-linked students Countersign and a mock UGC registry both hold, by private set intersection: neither side sees the other's list, and Countersign learns only the count (D48, API_CONTRACT §A4.26). The protocol needs `openmined.psi`, which ships no linux arm64 wheel, so `services/psi` is a linux/amd64 image run as two containers: `psi` (the partner, which holds its own synthetic set drawn from datagen's APAAR registry) and `psi-client` (Countersign's side, which the api hands its set to). `make up` builds it with the rest; `docker compose up -d psi psi-client` adds it to a running stack, and `docker compose run --rm psi pytest -q` runs its protocol tests. On the small seed a run takes about 8 seconds under emulation: Countersign 9,867, partner 8,430, overlap 429.
 
+## Deploy on one VM
+
+The public demo is the same compose stack on one Compute Engine VM (e2-standard-2 in asia-south1, Ubuntu 24.04, Docker Engine with the compose plugin), with `docker-compose.prod.yml` on top: services run from their built images without reload, the web runs its production build, nothing publishes a port except Caddy (80 and 443, with an automatic HTTPS certificate for `DOMAIN`), and every service restarts after a reboot (D50).
+
+1. Point an A record for the domain at the VM, and open ports 80 and 443.
+2. Copy the repository to the VM, then `cp .env.production.example .env` and fill in `DOMAIN`, the four public addresses and every `REPLACE` value (the comment above each one gives the command that generates it). `COMPOSE_FILE` in that `.env` makes every `docker compose` and `make` command use the production overrides.
+3. `make up` builds and starts everything; Caddy fetches the certificate on the first request.
+4. `make datagen && make demo-reset` seeds the demo on the server, so notice links, QR codes and attestations carry the public address; then `make demo-snapshot`.
+5. Before each demo, `make demo-restore` puts both databases back to that snapshot in seconds (it works the same way locally).
+
+Public paths: the app at `/`, the api at `/api/`, the Demo DigiLocker's sign-in page and inbox at `/digilocker/oauth/authorize` and `/digilocker/ui`, and the demo mailbox at `/mailpit/` behind `MAILPIT_USER`'s password. The other simulated government sources, Postgres and Redis are reachable only on the compose network.
+
 ## Layout
 
 ```
