@@ -23,7 +23,7 @@ from app.models.student import Enrolment
 from app.models.verification import Notification
 from app.notices.student_check import fmt_day, wire_time
 from app.privacy.service import record_consent
-from tests.notices.conftest import delivered, notices_of
+from tests.notices.conftest import delivered, notices_of, signed_in_owner
 
 EMAIL, DIGILOCKER = NoticeChannel.EMAIL, NoticeChannel.DIGILOCKER
 
@@ -66,7 +66,8 @@ async def test_a_live_notice_blocks_a_resend(world, mailer, clients):
 
 async def test_an_answered_notice_blocks_a_resend(world, mailer, clients, public):
     enrolment, tokens = await delivered(world, mailer, apaar=None)
-    await public.post(f"/notices/{tokens[EMAIL]}/respond", json={"response": "YES"})
+    async with await signed_in_owner(tokens[EMAIL]) as student:
+        await student.post(f"/notices/{tokens[EMAIL]}/respond", json={"response": "YES"})
     await expire(enrolment.id)
     response = await clients["admin"].post(resend_url(enrolment), json={})
     assert error(response) == (

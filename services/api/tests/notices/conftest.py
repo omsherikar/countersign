@@ -6,12 +6,13 @@ mailer the code builds by default is a MemoryMailer, so nothing reaches an SMTP 
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import re
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 
 import httpx
 import pytest
@@ -35,6 +36,8 @@ from app.main import app
 from app.models.enums import (
     AdmissionRoute,
     Category,
+    CheckStatus,
+    CheckType,
     ConsentStatus,
     Discipline,
     EnrolmentStatus,
@@ -53,7 +56,7 @@ from app.models.institution import Approval, Institution, Programme
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
 from app.models.user import User
-from app.models.verification import Notification
+from app.models.verification import Check, Notification
 from app.notices import dispatch
 from app.notices.mailer import MailMessage, MemoryMailer
 from tests.conftest import PASSWORD, truncate_all
@@ -77,6 +80,45 @@ def signed_in(user: User) -> httpx.AsyncClient:
 
 
 TOKEN_IN_LINK = re.compile(r"/student/notices/([A-Za-z0-9_-]{43})")
+
+
+async def student_user(student_id: uuid.UUID) -> User:
+    """The student's STUDENT account, made when it has none (as a first DigiLocker sign-in
+    would make it)."""
+    async with session_factory()() as s:
+        user = (
+            (
+                await s.execute(
+                    select(User).where(User.role == UserRole.STUDENT, User.student_id == student_id)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if user is None:
+            user = User(
+                email=f"student.{next(_serial)}@digilocker.invalid",
+                password_hash=password_hash(),
+                name="Student",
+                role=UserRole.STUDENT,
+                student_id=student_id,
+            )
+            s.add(user)
+            await s.commit()
+    return user
+
+
+async def signed_in_owner(token: str) -> httpx.AsyncClient:
+    """A client signed in (through DigiLocker, D37) as the student the notice is about."""
+    async with session_factory()() as s:
+        student_id = (
+            await s.execute(
+                select(Notification.student_id).where(
+                    Notification.token_hash == hashlib.sha256(token.encode()).hexdigest()
+                )
+            )
+        ).scalar_one()
+    return signed_in(await student_user(student_id))
 
 
 def token_of(message: MailMessage) -> str:
@@ -390,3 +432,31 @@ async def delivered(
     for item in world.gov.digilocker.inbox[inbox_seen:]:  # type: ignore[attr-defined]
         tokens[NoticeChannel.DIGILOCKER] = item["callback_url"].rsplit("/", 1)[1]
     return enrolment, tokens
+
+
+async def confirm_rows(enrolment_id: uuid.UUID, *, admission: bool = False) -> None:
+    """Identity and Seat CONFIRMED (and, with `admission`, an independent Joining record),
+    as the engine would write them, so that one more independent row countersigns."""
+    now = datetime.now(UTC)
+    rows = [
+        (CheckType.IDENTITY, "APAAR", "APAAR registry", True),
+        (CheckType.SEAT, "SEAT_LEDGER", "AICTE approval v1, 2026-27 (Seat Ledger, derived)", False),
+    ]
+    if admission:
+        rows.append((CheckType.ADMISSION, "ADMISSION_AUTHORITY", "State admission authority", True))
+    async with session_factory()() as s:
+        for check_type, source, supplied_by, independent in rows:
+            s.add(
+                Check(
+                    enrolment_id=enrolment_id,
+                    type=check_type,
+                    status=CheckStatus.CONFIRMED,
+                    source=source,
+                    detail={"summary": "Confirmed.", "finding": None, "source_line": supplied_by},
+                    checked_at=now,
+                    supplied_by=supplied_by,
+                    observed_at=now,
+                    independent=independent,
+                )
+            )
+        await s.commit()
