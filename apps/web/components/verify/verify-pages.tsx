@@ -69,7 +69,7 @@ function PasteBox({ onResult }: { onResult: (r: VerifyResult) => void }) {
   );
 }
 
-/** W3-4 `/verify`: scan, type a code or paste proof text. No sign-in, no search, never a list. */
+/** W3-4 `/verify`: scan, type a code or paste attestation text. No sign-in, no search, never a list. */
 export function VerifyEntry() {
   const codeInput = React.useRef<HTMLInputElement>(null);
   const [pasted, setPasted] = React.useState<VerifyResult | null>(null);
@@ -198,13 +198,13 @@ export function VerifyCodePage({ code }: { code: string }) {
   return <ResultPage query={query} source="code" code={code} />;
 }
 
-/** `/verify/d/[jws]`: the QR printed on a degree insert. */
+/** `/verify/d/[jws]`: the QR printed in a certificate block. */
 export function VerifyDegreePage({ jws }: { jws: string }) {
   const query = useVerifyDegree(jws);
   return <ResultPage query={query} source="degree" code={null} />;
 }
 
-/** `/verify/degree/[shortId]`: a degree proof id typed from the insert, checked against AICTE's register. */
+/** `/verify/completion/[shortId]`: an attestation id typed from a certificate, checked against the register. */
 export function VerifyLookupPage({ shortId }: { shortId: string }) {
   const query = useVerifyLookup(shortId);
   return <ResultPage query={query} source="lookup" code={shortId} />;

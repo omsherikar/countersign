@@ -9,6 +9,7 @@ import {
   Landmark,
   Lock,
   Printer,
+  Radar,
   ScrollText,
   Server,
   Shield,
@@ -39,7 +40,8 @@ export const NAV: Record<Exclude<Role, "VERIFIER">, NavItem[]> = {
   AICTE_ADMIN: [
     { label: "nav.overview", href: "/aicte", icon: LayoutDashboard, week: 1, available: true, alsoActive: ["/aicte/institutions", "/aicte/enrolments"] },
     { label: "nav.cases", href: "/aicte/cases", icon: Inbox, week: 2, available: true },
-    { label: "nav.reports", href: "/aicte/reports", icon: FileChartColumn, week: 4, available: false },
+    { label: "nav.signals", href: "/aicte/signals", icon: Radar, week: 4, available: true },
+    { label: "nav.reports", href: "/aicte/reports", icon: FileChartColumn, week: 4, available: true },
     { label: "nav.system", href: "/admin/system", icon: Server, week: 1, available: true },
     { label: "nav.audit", href: "/admin/audit", icon: ScrollText, week: 3, available: true },
     { label: "nav.data_requests", href: "/admin/data-requests", icon: Shield, week: 3, available: true },
@@ -48,13 +50,14 @@ export const NAV: Record<Exclude<Role, "VERIFIER">, NavItem[]> = {
   RO_OFFICER: [
     { label: "nav.overview", href: "/ro", icon: LayoutDashboard, week: 1, available: true, alsoActive: ["/ro/institutions", "/ro/enrolments"] },
     { label: "nav.cases", href: "/ro/cases", icon: Inbox, week: 2, available: true },
-    { label: "nav.reports", href: "/ro/reports", icon: FileChartColumn, week: 4, available: false },
+    { label: "nav.signals", href: "/ro/signals", icon: Radar, week: 4, available: true },
+    { label: "nav.reports", href: "/ro/reports", icon: FileChartColumn, week: 4, available: true },
   ],
   INSTITUTION: [
     { label: "nav.ledger", href: "/college", icon: BookOpen, week: 1, available: true, exact: true },
     { label: "nav.upload", href: "/college/upload", icon: Upload, week: 2, available: true },
     { label: "nav.enrolments", href: "/college/enrolments", icon: Users, week: 1, available: true },
-    { label: "nav.flags", href: "/college/flags", icon: Flag, week: 2, available: true },
+    { label: "nav.flags", href: "/college/cases", icon: Flag, week: 2, available: true },
     { label: "nav.completeness", href: "/college/completeness", icon: ClipboardCheck, week: 4, available: true },
   ],
   STUDENT: [
@@ -65,7 +68,7 @@ export const NAV: Record<Exclude<Role, "VERIFIER">, NavItem[]> = {
   ],
   UNIVERSITY: [
     { label: "nav.affiliated", href: "/university", icon: Landmark, week: 1, available: true, alsoActive: ["/university/institutions", "/university/enrolments"] },
-    { label: "nav.degree_print", href: "/university/degrees", icon: Printer, week: 3, available: true },
+    { label: "nav.certificates", href: "/university/certificates", icon: Printer, week: 3, available: true },
   ],
 };
 

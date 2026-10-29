@@ -8,14 +8,15 @@ import { primaryButton } from "@/components/student/bits";
 
 /**
  * What a typed code opens: a 24-character share code goes to /verify/{code}
- * in six groups of four, an 8-character degree proof id to
- * /verify/degree/{id}; anything else is a format error and sends nothing.
+ * in six groups of four, an 8-character attestation id printed under a
+ * certificate QR to /verify/completion/{id}; anything else is a format
+ * error and sends nothing.
  */
 export function codeTarget(raw: string): string | null {
   const s = raw.toUpperCase().replace(/[\s-]/g, "");
   if (!/^[0-9A-Z]+$/.test(s)) return null;
   if (s.length === 24) return `/verify/${s.match(/.{4}/g)!.join("-")}`;
-  if (s.length === 8) return `/verify/degree/${s}`;
+  if (s.length === 8) return `/verify/completion/${s}`;
   return null;
 }
 
@@ -23,7 +24,7 @@ export function codeTarget(raw: string): string | null {
 export function scanTarget(text: string): string | null {
   try {
     const u = new URL(text);
-    if (/^\/verify\/(d\/[^/]+|degree\/[^/]+|[^/]+)$/.test(u.pathname)) return u.pathname;
+    if (/^\/verify\/(d\/[^/]+|completion\/[^/]+|degree\/[^/]+|[^/]+)$/.test(u.pathname)) return u.pathname;
   } catch {
     // Not a URL: a printed code.
   }
@@ -103,7 +104,7 @@ export function CodeForm({
         className="h-12 w-full min-w-0 rounded-md border border-line bg-paper-raised px-3 font-mono text-md tracking-wide uppercase placeholder:font-sans placeholder:text-sm placeholder:tracking-normal placeholder:normal-case aria-invalid:border-check-fail"
       />
       <p id="verify-code-hint" className="text-sm text-ink-muted">
-        {t("verify.code_hint")} {t("verify.code_hint_degree")}
+        {t("verify.code_hint")} {t("verify.code_hint_certificate")}
       </p>
       {message && (
         <p id="verify-code-error" role="alert" className="text-sm text-check-fail-ink">

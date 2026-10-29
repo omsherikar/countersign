@@ -6,8 +6,10 @@ import { NextResponse, type NextRequest } from "next/server";
  * its role may open the route, is decided by the route group layout.
  */
 export function proxy(request: NextRequest) {
-  // A notice link is public: the token in the path is the only key (D23).
+  // A notice link is public: the token in the path shows the claim, and answering needs DigiLocker sign-in (D23, D37).
   if (/^\/student\/notices\/[^/]+\/?$/.test(request.nextUrl.pathname)) return NextResponse.next();
+  // The claim page works on the pending DigiLocker claim, before any session exists (A4.12); it asks the api itself.
+  if (/^\/student\/claim\/?$/.test(request.nextUrl.pathname)) return NextResponse.next();
   const next = `${request.nextUrl.pathname}${request.nextUrl.search}`;
   if (request.cookies.has("cs_access")) {
     // Layouts cannot see the URL; pass it on so a role guard can build a back-link.

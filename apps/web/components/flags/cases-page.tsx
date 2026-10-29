@@ -5,7 +5,7 @@ import { useMe } from "@/components/providers/root-provider";
 import { Crumbs, PageHeader } from "@/components/common/page-header";
 import { FlagsTable } from "@/components/flags/flags-table";
 
-/** /aicte/cases, /ro/cases and /college/flags: the flags list with its heading. */
+/** /aicte/cases, /ro/cases and /college/cases: the case list with its heading. */
 export function CasesPage({ variant }: { variant: "aicte" | "ro" | "college" }) {
   const { user } = useMe();
   if (variant === "college") {
@@ -14,7 +14,7 @@ export function CasesPage({ variant }: { variant: "aicte" | "ro" | "college" }) 
         <Crumbs items={[{ label: t("nav.ledger"), href: "/college" }, { label: t("nav.flags") }]} />
         <PageHeader title={t("flags.heading_college")} description={user?.scope.institution_name ?? undefined} />
         <p className="mb-5 max-w-[68ch] text-sm text-ink-muted">{t("flag.readonly_college")}</p>
-        <FlagsTable variant="college" detailBase="/college/flags" institutionId={user?.scope.institution_id ?? undefined} />
+        <FlagsTable variant="college" detailBase="/college/cases" institutionId={user?.scope.institution_id ?? undefined} />
       </>
     );
   }

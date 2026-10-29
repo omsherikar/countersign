@@ -2,66 +2,42 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, RefreshCw, TriangleAlert } from "lucide-react";
-import { ApiError } from "@/lib/api";
-import { copy, t, type CopyId, type CopyVars } from "@/lib/copy";
+import { useQueryClient } from "@tanstack/react-query";
+import { Check, LogOut, RefreshCw, ShieldCheck, TriangleAlert } from "lucide-react";
+import { api, ApiError } from "@/lib/api";
+import { t } from "@/lib/copy";
+import { resolveSignInUrl } from "@/lib/digilocker";
 import { formatDate } from "@/lib/format";
-import { useNotice, useRespondNotice } from "@/lib/queries-student";
+import { studentKeys, useNotice, useRespondNotice } from "@/lib/queries-student";
 import type { NoticePublic, NoticeResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Logo } from "@/components/shell/logo";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SlowHint } from "@/components/common/query-state";
-import { Disclosure, SheetDialog, outlineButton, retryDeadline, useSecondsLeft } from "@/components/student/bits";
-
-type Lang = "en" | "hi";
-const LANG_KEY = "cs_notice_lang";
-
-/** English or the `.hi` row of the deck; a string without one falls back to English (deck section 8). */
-function makeTr(lang: Lang) {
-  return (id: CopyId, vars?: CopyVars): string => {
-    const hi = `${id}.hi`;
-    if (lang === "hi" && hi in copy) return t(hi as CopyId, vars);
-    return t(id, vars);
-  };
-}
-type Tr = ReturnType<typeof makeTr>;
-
-const langListeners = new Set<() => void>();
-function readLang(): Lang {
-  try {
-    return sessionStorage.getItem(LANG_KEY) === "hi" ? "hi" : "en";
-  } catch {
-    return "en";
-  }
-}
-function subscribeLang(onChange: () => void) {
-  langListeners.add(onChange);
-  return () => langListeners.delete(onChange);
-}
-
-/** The language choice lasts for the visit (W3-1): kept in sessionStorage, English on the server. */
-function useLang(): [Lang, (l: Lang) => void] {
-  const lang = React.useSyncExternalStore(subscribeLang, readLang, () => "en" as Lang);
-  const set = React.useCallback((l: Lang) => {
-    try {
-      sessionStorage.setItem(LANG_KEY, l);
-    } catch {
-      // Storage refused: the choice cannot be kept, so the page stays in English.
-    }
-    langListeners.forEach((fn) => fn());
-  }, []);
-  return [lang, set];
-}
+import { Disclosure, SheetDialog, outlineButton, primaryButton, retryDeadline, useSecondsLeft } from "@/components/student/bits";
+import { PublicHeader, makeTr, useLang, type Tr } from "@/components/student/lang";
 
 type Done = "YES" | "NO" | "CHANGED" | null;
 
 /**
- * W3-1, the public notice page. The token in the link is the only key; the
- * page shows the claim and the masked id, never a name, date of birth or
- * contact detail, and the student answers Yes or No without signing in.
+ * W3-1 and W4-8, the public notice page. The token in the link shows the
+ * claim and the masked id to whoever holds it, never a name, date of birth
+ * or contact detail. Yes and No exist only after the student signs in with
+ * DigiLocker and the api says the sign-in matches the record; anyone else
+ * reads that the notice is for someone else, and nothing is recorded.
  */
-export function NoticePage({ token }: { token: string }) {
+export function NoticePage({ token, demo }: { token: string; demo: boolean }) {
+  const qc = useQueryClient();
+  const [signingOut, setSigningOut] = React.useState(false);
+  const signOut = async () => {
+    setSigningOut(true);
+    try {
+      await api.post("/auth/logout", {}, { redirectOn401: false });
+    } catch {
+      // Signed out already, or the session had ended: the notice reloads either way.
+    }
+    await qc.invalidateQueries({ queryKey: studentKeys.notice(token) });
+    setSigningOut(false);
+  };
   const [lang, setLang] = useLang();
   const tr = React.useMemo(() => makeTr(lang), [lang]);
   const notice = useNotice(token);
@@ -123,31 +99,7 @@ export function NoticePage({ token }: { token: string }) {
     });
   };
 
-  const header = (
-    <header className="border-b border-rule-strong bg-paper-raised">
-      <div className="mx-auto flex h-14 max-w-[480px] items-center justify-between gap-3 px-4">
-        <Logo className="h-7" />
-        <div role="group" aria-label={tr("notice.lang_label")} className="flex rounded-md border border-line p-0.5">
-          {(["en", "hi"] as const).map((l) => (
-            <button
-              key={l}
-              type="button"
-              lang={l === "hi" ? "hi" : "en"}
-              aria-pressed={lang === l}
-              onClick={() => setLang(l)}
-              className={cn(
-                "inline-flex h-10 min-w-11 items-center justify-center gap-1 rounded-[3px] px-3 text-sm font-medium",
-                lang === l ? "bg-ink-blue text-on-ink-blue" : "text-ink-blue hover:bg-flag-open-soft",
-              )}
-            >
-              {lang === l && <Check className="size-3.5" aria-hidden="true" />}
-              {t(l === "hi" ? "notice.lang_hi" : "notice.lang_en")}
-            </button>
-          ))}
-        </div>
-      </div>
-    </header>
-  );
+  const header = <PublicHeader lang={lang} setLang={setLang} tr={tr} />;
 
   let body: React.ReactNode;
   if (notice.isLoading) {
@@ -155,10 +107,24 @@ export function NoticePage({ token }: { token: string }) {
   } else if (loadError && !data) {
     body = <LoadFailure error={loadError} tr={tr} secondsLeft={secondsLeft} onRetry={() => refetch()} />;
   } else if (data) {
+    const match = data.viewer.match;
+    const signInHref = resolveSignInUrl(data.sign_in_url, `/student/notices/${token}`);
+    const signedInLine = match === "MATCH" && data.viewer.name ? (
+      <SignedInAs tr={tr} name={data.viewer.name} onSignOut={signOut} busy={signingOut} />
+    ) : null;
+    const gate =
+      !data.viewer.signed_in && match === null ? (
+        <SignInGate tr={tr} href={signInHref} demo={demo} />
+      ) : match === "SOMEONE_ELSE" ? (
+        <SomeoneElse tr={tr} notice={data} onSignOut={signOut} busy={signingOut} />
+      ) : match === "CLAIM_NEEDED" ? (
+        <ClaimNeeded tr={tr} href={data.claim_url ?? `/student/claim?next=${encodeURIComponent(`/student/notices/${token}`)}`} onSignOut={signOut} busy={signingOut} />
+      ) : null;
     body = (
       <>
-        {mode === "change" ? (
+        {mode === "change" && match === "MATCH" ? (
           <>
+            {signedInLine}
             <h1 ref={changeHeading} tabIndex={-1} className="text-2xl outline-none">
               {tr("notice.change_heading")}
             </h1>
@@ -185,22 +151,33 @@ export function NoticePage({ token }: { token: string }) {
             </button>
           </>
         ) : data.response ? (
-          <Answered notice={data} tr={tr} done={done} conflict={conflict} onChange={startChange} statusRef={status} />
+          <>
+            {signedInLine}
+            <Answered notice={data} tr={tr} done={done} conflict={conflict} onChange={startChange} statusRef={status} allowChange={match === "MATCH" && data.can_answer} />
+            {gate}
+          </>
         ) : (
           <>
+            {signedInLine}
             <Claim notice={data} tr={tr} />
-            <h2 className="mt-8 font-sans text-lg font-semibold">{tr("notice.question")}</h2>
-            <p className="mt-2 text-sm text-ink-muted">{lang === "hi" ? tr("consent.notice", { institution_name: data.institution_name }) : data.consent_text}</p>
-            <Choices
-              tr={tr}
-              current={null}
-              pending={respond.isPending ? pressed : null}
-              disabled={respond.isPending || limited}
-              onYes={() => send({ response: "YES" })}
-              onNo={() => setSheetOpen(true)}
-              noRef={noButton}
-            />
-            <p className="mt-4 text-ink-muted">{tr("notice.next_step")}</p>
+            {match === "MATCH" ? (
+              <>
+                <h2 className="mt-8 font-sans text-lg font-semibold">{tr("notice.question")}</h2>
+                <p className="mt-2 text-sm text-ink-muted">{lang === "hi" ? tr("consent.notice", { institution_name: data.institution_name }) : data.consent_text}</p>
+                <Choices
+                  tr={tr}
+                  current={null}
+                  pending={respond.isPending ? pressed : null}
+                  disabled={respond.isPending || limited || !data.can_answer}
+                  onYes={() => send({ response: "YES" })}
+                  onNo={() => setSheetOpen(true)}
+                  noRef={noButton}
+                />
+                <p className="mt-4 text-ink-muted">{tr("notice.next_step")}</p>
+              </>
+            ) : (
+              gate
+            )}
           </>
         )}
 
@@ -210,6 +187,7 @@ export function NoticePage({ token }: { token: string }) {
           secondsLeft={secondsLeft}
           busy={respond.isPending}
           onRetry={lastBody ? () => send(lastBody) : undefined}
+          signInHref={resolveSignInUrl(data.sign_in_url, `/student/notices/${token}`)}
         />
 
         <Disclosure className="mt-8 border-t border-rule pt-4" summaryClassName="text-md" summary={tr("notice.what_is_this_link")}>
@@ -351,6 +329,7 @@ function Answered({
   conflict,
   onChange,
   statusRef,
+  allowChange,
 }: {
   notice: NoticePublic;
   tr: Tr;
@@ -358,9 +337,11 @@ function Answered({
   conflict: "CHANGED_ONCE" | "WINDOW_CLOSED" | null;
   onChange: () => void;
   statusRef: React.RefObject<HTMLDivElement | null>;
+  /** Only the signed-in student whose record this is can change the answer (W4-8). */
+  allowChange: boolean;
 }) {
   const reply = tr(notice.response === "YES" ? "notice.reply.YES" : "notice.reply.NO");
-  const canChange = Boolean(notice.can_change_until) && !notice.changed_at && conflict === null;
+  const canChange = allowChange && Boolean(notice.can_change_until) && !notice.changed_at && conflict === null;
   const windowLine = notice.can_change_until ? tr("notice.change_window", { change_until_date: formatDate(notice.can_change_until) }) : null;
 
   let lead: React.ReactNode;
@@ -386,7 +367,7 @@ function Answered({
     lead = <p className="font-display text-xl leading-snug font-semibold">{tr("notice.answered", { reply, responded_date: formatDate(notice.responded_at) })}</p>;
   }
 
-  const closed = !canChange && !notice.changed_at && done !== "CHANGED" && conflict !== "CHANGED_ONCE";
+  const closed = allowChange && !canChange && !notice.changed_at && done !== "CHANGED" && conflict !== "CHANGED_ONCE";
   return (
     <>
       <div ref={statusRef} tabIndex={-1} role="status" className="flex items-start gap-3 outline-none">
@@ -424,6 +405,10 @@ function errorText(err: ApiError, tr: Tr, secondsLeft: number | null): string {
       return tr("notice.expired");
     case "RATE_LIMITED":
       return tr("notice.rate_limited", { seconds: secondsLeft ?? err.retryAfter ?? 30 });
+    case "SIGNIN_REQUIRED":
+      return tr("err.SIGNIN_REQUIRED");
+    case "NOTICE_IDENTITY_MISMATCH":
+      return tr("err.NOTICE_IDENTITY_MISMATCH");
     case "NETWORK":
       return tr("err.NETWORK");
     default:
@@ -454,14 +439,28 @@ function SendFailure({
   secondsLeft,
   busy,
   onRetry,
+  signInHref,
 }: {
   error: ApiError | null;
   tr: Tr;
   secondsLeft: number | null;
   busy: boolean;
   onRetry?: () => void;
+  signInHref?: string;
 }) {
   if (!error || error.code === "NOTICE_ALREADY_CHANGED") return null;
+  if (error.code === "SIGNIN_REQUIRED" || error.code === "NOTICE_IDENTITY_MISMATCH") {
+    return (
+      <div role="alert" className="mt-5 rounded-md border border-line bg-paper-raised px-4 py-3">
+        <p>{errorText(error, tr, secondsLeft)}</p>
+        {error.code === "SIGNIN_REQUIRED" && signInHref && (
+          <a href={signInHref} className="mt-2 inline-flex min-h-11 items-center font-medium">
+            {tr("notice.signin_button")}
+          </a>
+        )}
+      </div>
+    );
+  }
   const limited = error.code === "RATE_LIMITED";
   const waiting = limited && secondsLeft !== null && secondsLeft > 0;
   if (limited && !waiting) return null;
@@ -496,5 +495,77 @@ function NoticeSkeleton() {
       <Skeleton className="mt-3 h-12 w-full" />
       <SlowHint />
     </div>
+  );
+}
+
+/* ---- The DigiLocker gate (W4-8, copy deck section 23) ----------------------- */
+
+function SignInGate({ tr, href, demo }: { tr: Tr; href: string; demo: boolean }) {
+  return (
+    <section className="mt-8">
+      <p className="text-md">{tr("notice.signin_lead")}</p>
+      <a href={href} className={cn(primaryButton, "mt-4 no-underline")}>
+        <ShieldCheck className="size-5" aria-hidden="true" />
+        {tr("notice.signin_button")}
+      </a>
+      <p className="mt-3 text-sm text-ink-muted">{tr("signin.redirect_note")}</p>
+      {demo && <p className="mt-1 text-sm text-ink-muted">{tr("signin.demo_note")}</p>}
+    </section>
+  );
+}
+
+function SignOutButton({ tr, onSignOut, busy, label }: { tr: Tr; onSignOut: () => void; busy: boolean; label?: string }) {
+  return (
+    <button type="button" onClick={onSignOut} disabled={busy} className="inline-flex min-h-11 items-center gap-1.5 font-medium text-ink-blue underline-offset-2 hover:underline disabled:opacity-60">
+      <LogOut className="size-4" aria-hidden="true" />
+      {label ?? tr("notice.signout")}
+    </button>
+  );
+}
+
+function SignedInAs({ tr, name, onSignOut, busy }: { tr: Tr; name: string; onSignOut: () => void; busy: boolean }) {
+  return (
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-rule pb-3 text-sm">
+      <p className="flex items-center gap-1.5 text-ink">
+        <ShieldCheck className="size-4 shrink-0 text-check-pass-ink" aria-hidden="true" />
+        {tr("notice.signed_in_as", { name })}
+      </p>
+      <SignOutButton tr={tr} onSignOut={onSignOut} busy={busy} />
+    </div>
+  );
+}
+
+/** Someone else is signed in: the claim card stays, no buttons, nothing recorded, and never the record's student name. */
+function SomeoneElse({ tr, notice, onSignOut, busy }: { tr: Tr; notice: NoticePublic; onSignOut: () => void; busy: boolean }) {
+  return (
+    <section className="mt-8" aria-labelledby="someone-else">
+      <h2 id="someone-else" className="font-sans text-lg font-semibold">
+        {tr("notice.someone_else_heading")}
+      </h2>
+      <p className="mt-2">{tr("notice.someone_else_body", { name: notice.viewer.name ?? "" })}</p>
+      <p className="mt-3">{tr("notice.someone_else_college", { institution_name: notice.institution_name })}</p>
+      <p className="mt-3">{tr("notice.someone_else_other", { institution_name: notice.institution_name })}</p>
+      <div className="mt-3">
+        <SignOutButton tr={tr} onSignOut={onSignOut} busy={busy} />
+      </div>
+    </section>
+  );
+}
+
+/** The record has no APAAR and nobody has claimed it: claim it with the provisional ID first. */
+function ClaimNeeded({ tr, href, onSignOut, busy }: { tr: Tr; href: string; onSignOut: () => void; busy: boolean }) {
+  return (
+    <section className="mt-8" aria-labelledby="claim-needed">
+      <h2 id="claim-needed" className="font-sans text-lg font-semibold">
+        {tr("notice.claim_needed_heading")}
+      </h2>
+      <p className="mt-2">{tr("notice.claim_needed")}</p>
+      <Link href={href} className={cn(primaryButton, "mt-4 no-underline")}>
+        {tr("notice.claim_button")}
+      </Link>
+      <div className="mt-3">
+        <SignOutButton tr={tr} onSignOut={onSignOut} busy={busy} />
+      </div>
+    </section>
   );
 }

@@ -14,27 +14,39 @@
  */
 import { ApiError, type Query } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { IDS, INSTITUTIONS, SEEDS, USERS } from "@/lib/mock/fixtures";
+import { ACADEMIC_YEAR, IDS, INSTITUTIONS, SEEDS, USERS } from "@/lib/mock/fixtures";
 import { makeRow, sentenceDate } from "@/lib/mock/evidence";
-import { allFlags, flagById, type StoredFact, type StoredFlag } from "@/lib/mock/flags";
-import { withRecord } from "@/lib/mock/records";
-import { CHECKED_AT, entryById, entryByName, rollFor, setRows, type RollEntry } from "@/lib/mock/roll";
+import { COVERS, allFlags, flagById, type StoredFact, type StoredFlag } from "@/lib/mock/flags";
+import { recordFor, withRecord } from "@/lib/mock/records";
+import { CHECKED_AT, LATER_VERSIONS, entryById, entryByName, evaluate, programmesFor, rollFor, seatsFor, setRows, versionsOf, type RollEntry } from "@/lib/mock/roll";
 import { readBrowserToken, userFromToken } from "@/lib/mock/session";
+import { writePendingClaim } from "@/lib/mock/digilocker";
+import { listReports } from "@/lib/mock/reports";
+import { ashaEntry } from "@/lib/mock/student-loop";
+import { allSignals, dismissSignal, featureFacts, listSignals, membersOf, ruleOf, signalDetail, signalInScope, REGION_OF, type StoredSignal } from "@/lib/mock/signals";
 import type {
   ActorRef,
+  AdmissionRoute,
   AuditAction,
   AuditRow,
   AuditVerify,
   CaseActionRequest,
+  CaseActionResult,
   CaseAttachment,
   CaseHistoryItem,
+  CaseScope,
   CredentialRef,
   DataRequestAdminRow,
   DataRequestResolve,
+  DecisionAction,
+  DecisionEffects,
+  DocsKind,
+  DryRunResult,
   EnrolmentDetail,
   EnrolmentNotice,
   EnrolmentRecheck,
   EvidenceRow,
+  FieldChange,
   FlagDetail,
   FlagPage,
   FlagRow,
@@ -46,10 +58,19 @@ import type {
   OfficerAction,
   OfficerRow,
   Page,
+  ReasonCode,
+  RecordStatus,
   Region,
+  Severity,
+  SignalDetail,
+  SignalOpenCaseResult,
   ResendState,
   Role,
+  RowResolution,
+  SeatRow,
+  SeatType,
   StudentNoticeState,
+  UpholdReason,
   User,
 } from "@/lib/types";
 
@@ -453,7 +474,10 @@ function syncEntry(e: RollEntry) {
   const check = studentCheck(e, noticesOf(e));
   setRows(
     e,
-    e.checks.map((c) => (c.type === "STUDENT" ? check : c)),
+    withResolutions(
+      e,
+      e.checks.map((c) => (c.type === "STUDENT" ? check : c)),
+    ),
   );
 }
 
@@ -512,7 +536,7 @@ function credentialsFor(e: RollEntry): CredentialRef[] {
   ];
 }
 
-/* ---- Cases (A3.9 to A3.13) ----------------------------------------------- */
+/* ---- Cases (A3.9 to A3.13, A4.8 to A4.11) -------------------------------- */
 
 interface CaseState {
   assignee: { id: string; name: string } | null;
@@ -520,6 +544,8 @@ interface CaseState {
   docsDueOn: string | null;
   lastActionAt: string | null;
   history: CaseHistoryItem[];
+  /** Records this case withdrew or corrected; on a multi-record case they are no longer outstanding. */
+  done: string[];
 }
 
 const CASES = new Map<string, CaseState>();
@@ -537,31 +563,34 @@ let SEQ = 60;
 function caseOf(id: string): CaseState {
   let c = CASES.get(id);
   if (!c) {
-    c = { assignee: null, responseReceived: false, docsDueOn: null, lastActionAt: null, history: [] };
+    c = { assignee: null, responseReceived: false, docsDueOn: null, lastActionAt: null, history: [], done: [] };
     CASES.set(id, c);
   }
   return c;
 }
 
-const ORDER: OfficerAction[] = ["UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "NOTE", "ASSIGN", "REOPEN"];
+/** The order `allowed_actions` lists them (A4.8). */
+const ORDER: OfficerAction[] = ["UPHOLD", "CORRECT", "WITHDRAW", "REQUEST_DOCS", "ESCALATE", "NOTE", "ASSIGN", "REOPEN"];
 type Rule = { to: FlagStatus | "="; roles: Role[] };
 const LIVE_RULES: Partial<Record<OfficerAction, Rule>> = {
+  UPHOLD: { to: "UPHELD", roles: [A, R] },
+  CORRECT: { to: "CORRECTED", roles: [A, R] },
+  WITHDRAW: { to: "WITHDRAWN", roles: [A, R] },
   REQUEST_DOCS: { to: "DOCS_REQUESTED", roles: [A, R] },
   ESCALATE: { to: "ESCALATED", roles: [A, R] },
-  UPHOLD: { to: "UPHELD", roles: [A, R] },
-  WITHDRAW: { to: "WITHDRAWN", roles: [A, R] },
   NOTE: { to: "=", roles: [A, R] },
   ASSIGN: { to: "=", roles: [A, R] },
 };
 const CLOSED_RULES: Partial<Record<OfficerAction, Rule>> = { NOTE: { to: "=", roles: [A, R] }, REOPEN: { to: "OPEN", roles: [A] } };
-/** The A3.9 transition table. A missing entry is 409 for everyone. */
+/** The A4.8 transition table. A missing entry is 409 for everyone. */
 const TABLE: Record<FlagStatus, Partial<Record<OfficerAction, Rule>>> = {
   OPEN: LIVE_RULES,
   DOCS_REQUESTED: LIVE_RULES,
   ESCALATED: {
-    REQUEST_DOCS: { to: "DOCS_REQUESTED", roles: [A] },
     UPHOLD: { to: "UPHELD", roles: [A] },
+    CORRECT: { to: "CORRECTED", roles: [A] },
     WITHDRAW: { to: "WITHDRAWN", roles: [A] },
+    REQUEST_DOCS: { to: "DOCS_REQUESTED", roles: [A] },
     NOTE: { to: "=", roles: [A, R] },
     ASSIGN: { to: "=", roles: [A] },
   },
@@ -573,15 +602,67 @@ const STATUS_WORD: Record<FlagStatus, string> = {
   OPEN: "open",
   DOCS_REQUESTED: "waiting for documents",
   ESCALATED: "escalated",
-  UPHELD: "cleared",
-  WITHDRAWN: "confirmed",
-  CORRECTED: "corrected",
+  UPHELD: "claim upheld",
+  WITHDRAWN: "claim withdrawn",
+  CORRECTED: "claim corrected",
 };
 const INTERNAL_NOTES: CaseHistoryItem["action"][] = ["ESCALATE", "NOTE", "REOPEN"];
+const DECIDED: FlagStatus[] = ["UPHELD", "CORRECTED", "WITHDRAWN"];
+
+/** Reason codes per decision (A4.9). */
+const REASONS: Partial<Record<OfficerAction, ReasonCode[]>> = {
+  UPHOLD: ["DOCUMENTS_SUPPORT_CLAIM", "SOURCE_RECORD_WRONG", "NAME_VARIANT", "PERMITTED_DUAL_PROGRAMME", "APPROVAL_VERSION_COVERS", "STUDENT_ANSWER_MISTAKEN", "MISSING_NOW_UPLOADED", "OTHER"],
+  CORRECT: ["UPLOAD_ERROR", "DOCUMENTS_SHOW_OTHER_VALUE", "WRONG_SEAT_CATEGORY", "OTHER"],
+  WITHDRAW: ["STUDENT_NEVER_JOINED", "NO_JOINING_EVIDENCE", "BEYOND_APPROVED_INTAKE", "NOT_ELIGIBLE_FOR_SEAT", "DUPLICATE_RECORD", "NO_RESPONSE", "OTHER"],
+  ESCALATE: ["NEEDS_AICTE_DECISION", "POLICY_QUESTION", "SPANS_REGIONS", "REPEATED_PATTERN", "OTHER"],
+};
+const DOCS_KINDS: DocsKind[] = ["ADMISSION", "JOINING", "IDENTITY", "ELIGIBILITY", "CREDITS", "OTHER"];
+
+/** Which records a case names and how it is decided (A4.10). */
+function scopeOf(f: StoredFlag): CaseScope {
+  if (f.type === "MISSING_FROM_UPLOAD" || f.type === "ANOMALY") return "INSTITUTION";
+  if (f.type === "EXCESS_ADMISSION" || f.type === "QUOTA_BREACH" || f.type === "GHOST_RING") return "MULTI_RECORD";
+  return "RECORD";
+}
+
+/** Correct and Withdraw do not apply to a case that names no record. */
+function decisionApplies(f: StoredFlag, action: OfficerAction): boolean {
+  if (action !== "CORRECT" && action !== "WITHDRAW") return true;
+  return scopeOf(f) !== "INSTITUTION";
+}
+
+/** The records a case names at its own institution. */
+function namedOf(f: StoredFlag): RollEntry[] {
+  const scope = scopeOf(f);
+  if (scope === "INSTITUTION") return [];
+  const ids = scope === "RECORD" ? [f.enrolmentId ?? f.related.find((id) => entryById(id)?.institutionId === f.institutionId)] : f.related;
+  return ids
+    .filter((id): id is string => Boolean(id))
+    .map((id) => entryById(id))
+    .filter((e): e is RollEntry => Boolean(e) && e!.institutionId === f.institutionId);
+}
+
+/** The covered row is still an unresolved contradiction (or, for a name mismatch, a review). */
+function coveredOpen(f: StoredFlag, e: RollEntry): boolean {
+  const covers = COVERS[f.type];
+  if (!covers) return true;
+  const row = e.checks.find((c) => c.type === covers);
+  if (!row || row.resolved) return false;
+  return row.state === "CONTRADICTED" || (f.type === "NAME_MISMATCH" && row.state === "PENDING" && Boolean(row.detail.needs_review));
+}
+
+/** A4.10 "outstanding": named, active, and still contradicted on the covered row. */
+function outstandingOf(f: StoredFlag): string[] {
+  if (scopeOf(f) !== "MULTI_RECORD") return [];
+  const done = caseOf(f.id).done;
+  return namedOf(f)
+    .filter((e) => e.row.status === "ACTIVE" && !done.includes(e.row.id) && coveredOpen(f, e))
+    .map((e) => e.row.id);
+}
 
 function allowedActions(user: User, f: StoredFlag): OfficerAction[] {
   if (!OFFICERS.includes(user.role)) return [];
-  return ORDER.filter((a) => TABLE[f.status][a]?.roles.includes(user.role));
+  return ORDER.filter((a) => TABLE[f.status][a]?.roles.includes(user.role) && decisionApplies(f, a));
 }
 
 function historyFor(user: User, c: CaseState): CaseHistoryItem[] {
@@ -591,14 +672,22 @@ function historyFor(user: User, c: CaseState): CaseHistoryItem[] {
     .map((h) => ({ ...h, note: INTERNAL_NOTES.includes(h.action) ? null : h.note, assignee: null }));
 }
 
+/** The case each signal opened, by case id (A4.11 `signal_id`; never shown to a college). */
+const SIGNAL_OF = new Map<string, string>();
+
 function decorateRow<T extends FlagRow>(user: User, row: T): T {
   const c = caseOf(row.id);
+  const f = flagById(row.id);
+  const last = [...c.history].reverse().find((h) => h.action === "UPHOLD" || h.action === "CORRECT" || h.action === "WITHDRAW");
   return {
     ...row,
     assignee: user.role === I ? null : c.assignee,
     response_received: c.responseReceived,
     docs_due_on: c.docsDueOn,
     last_action_at: c.lastActionAt,
+    scope: f ? scopeOf(f) : row.scope,
+    decision: DECIDED.includes(row.status) && last && last.reason_code ? { action: last.action as DecisionAction, reason_code: last.reason_code, at: last.at } : null,
+    signal_id: user.role === I ? null : (SIGNAL_OF.get(row.id) ?? null),
   };
 }
 
@@ -606,6 +695,7 @@ function decorateDetail(user: User, d: FlagDetail): FlagDetail {
   const f = flagById(d.id)!;
   return {
     ...decorateRow(user, d),
+    outstanding_enrolment_ids: outstandingOf(f),
     history: historyFor(user, caseOf(d.id)),
     allowed_actions: allowedActions(user, f),
     can_respond: user.role === I && f.status === "DOCS_REQUESTED",
@@ -613,12 +703,15 @@ function decorateDetail(user: User, d: FlagDetail): FlagDetail {
 }
 
 async function listFlags(user: User, query: Query | undefined, next: Next): Promise<FlagPage> {
-  const all = (await next("GET", "/flags", { ...query, page: 1, page_size: 200 })) as FlagPage;
+  const wanted = query?.status ? String(query.status) : null;
+  const status = wanted === "DECIDED" ? "UPHELD,CORRECTED,WITHDRAWN" : wanted;
+  const all = (await next("GET", "/flags", { ...query, status, signal_id: undefined, page: 1, page_size: 200 })) as FlagPage;
   let rows = all.items.map((r) => decorateRow(user, r));
   if (user.role !== I && query?.assignee) {
     const a = String(query.assignee);
     rows = rows.filter((r) => (a === "none" ? r.assignee === null : r.assignee?.id === (a === "me" ? user.id : a)));
   }
+  if (user.role !== I && query?.signal_id) rows = rows.filter((r) => r.signal_id === query.signal_id);
   if (query?.response_received === "true" || query?.response_received === true) rows = rows.filter((r) => r.response_received);
   if (query?.response_received === "false" || query?.response_received === false) rows = rows.filter((r) => !r.response_received);
   const page = paginate(rows, query);
@@ -631,11 +724,336 @@ async function flagDetail(user: User, id: string, next: Next): Promise<FlagDetai
 
 function officerFor(f: StoredFlag, id: string): { id: string; name: string } {
   const o = assignable(f).find((x) => x.id === id);
-  if (!o) throw invalid("assignee_id", "Choose an officer who can see this flag.");
+  if (!o) throw invalid("assignee_id", "Choose an officer who can see this case.");
   return { id: o.id, name: o.name };
 }
 
-async function act(user: User, id: string, body: unknown, next: Next): Promise<FlagDetail> {
+/* ---- Decisions and what they change (A4.9, A4.10) ------------------------- */
+
+/** Rows an officer upheld, by `enrolment:type`; the Student row is rebuilt from notices, so they are applied again on every sync. */
+const RESOLVED = new Map<string, RowResolution & { caseId: string }>();
+
+function withResolutions(e: RollEntry, rows: EvidenceRow[]): EvidenceRow[] {
+  return rows.map((r) => {
+    const hit = RESOLVED.get(`${e.row.id}:${r.type}`);
+    if (!hit) return r.resolved ? { ...r, resolved: null } : r;
+    const { caseId: _caseId, ...resolved } = hit;
+    void _caseId;
+    return { ...r, resolved };
+  });
+}
+
+const POOL_OF: Record<AdmissionRoute, SeatType> = {
+  COUNSELLING: "REGULAR", MANAGEMENT: "REGULAR", SPOT: "REGULAR", NRI: "NRI", TFW: "TFW", LATERAL: "LATERAL", INTERNATIONAL: "INTERNATIONAL",
+};
+
+const CORRECTABLE = ["name", "dob", "year_of_study", "admission_route", "category", "counselling_ref", "admission_date", "tfw_income_certified", "nri_sponsored", "ciwg"] as const;
+type Correctable = (typeof CORRECTABLE)[number];
+const ROUTES: AdmissionRoute[] = ["COUNSELLING", "MANAGEMENT", "NRI", "SPOT", "LATERAL", "INTERNATIONAL", "TFW"];
+const CATEGORIES = ["GENERAL", "EWS", "OBC", "SC", "ST", "OTHER"];
+const FIELD_WORD: Record<Correctable, string> = {
+  name: "Name", dob: "Date of birth", year_of_study: "Year of study", admission_route: "Admission route", category: "Category",
+  counselling_ref: "Counselling reference", admission_date: "Admission date", tfw_income_certified: "TFW income certificate",
+  nri_sponsored: "NRI sponsored", ciwg: "CIWG",
+};
+
+function currentOf(e: RollEntry, field: Correctable): unknown {
+  if (field === "name") return e.row.student.name;
+  if (field === "dob") return e.dob;
+  if (field === "tfw_income_certified" || field === "nri_sponsored" || field === "ciwg") return e.row.eligibility[field];
+  return (e.row as unknown as Record<string, unknown>)[field];
+}
+
+/** The corrected fields that differ from the record, checked as an upload row would be (A4.9). */
+function correctionOf(e: RollEntry, fields: Record<string, unknown>): FieldChange[] {
+  const changes: FieldChange[] = [];
+  for (const [field, raw] of Object.entries(fields)) {
+    if (!(CORRECTABLE as readonly string[]).includes(field)) {
+      throw new ApiError(422, "CORRECTION_INVALID", `${field}: this field cannot be corrected here.`, { field });
+    }
+    const key = field as Correctable;
+    const bad = (message: string) => new ApiError(422, "CORRECTION_INVALID", `${FIELD_WORD[key]}: ${message}`, { field });
+    let value: unknown = raw;
+    if (key === "name" && (typeof raw !== "string" || raw.trim().length < 2)) throw bad("Enter the full name.");
+    if ((key === "dob" || key === "admission_date") && (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw))) throw bad("Use a date like 2008-01-14.");
+    if (key === "admission_date" && String(raw) > todayIst()) throw bad("The date is in the future.");
+    if (key === "year_of_study") {
+      value = Number(raw);
+      if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 6) throw bad("Choose a year the programme has.");
+    }
+    if (key === "admission_route" && !ROUTES.includes(raw as AdmissionRoute)) throw bad("Choose an admission route.");
+    if (key === "category" && !CATEGORIES.includes(String(raw))) throw bad("Choose a category.");
+    if ((key === "tfw_income_certified" || key === "nri_sponsored" || key === "ciwg") && raw !== true && raw !== false && raw !== null) throw bad("Choose yes, no or not reported.");
+    const before = currentOf(e, key);
+    const same = typeof value === "string" && typeof before === "string" ? value.trim().toLowerCase() === before.trim().toLowerCase() : (value ?? null) === (before ?? null);
+    if (!same) changes.push({ field, before: before ?? null, after: typeof value === "string" ? value.trim() : value });
+  }
+  return changes;
+}
+
+function cohortOf(year: number): string {
+  const start = Number(ACADEMIC_YEAR.slice(0, 4)) - (year - 1);
+  return `${start}-${String((start + 1) % 100).padStart(2, "0")}`;
+}
+
+/** A free seat of the pool in the record's programme, if the ledger has one. */
+function freeSeat(e: RollEntry, pool: SeatType): SeatRow | undefined {
+  return seatsFor(e.institutionId).find((s) => s.programme_code === e.row.programme_code && s.seat_type === pool && s.status === "FREE");
+}
+
+/** An unseated active record of the same programme and pool, first come first served: the backlog a released seat goes to. */
+function backlogFor(e: RollEntry, pool: SeatType): RollEntry | undefined {
+  return rollFor(e.institutionId)
+    .filter((x) => x !== e && x.row.status === "ACTIVE" && !x.seat && x.programme.id === e.programme.id && x.row.cohort_year === e.row.cohort_year && x.seatType === pool)
+    .sort((a, b) => a.row.admission_date.localeCompare(b.row.admission_date) || a.row.student.name.localeCompare(b.row.student.name))[0];
+}
+
+function shortIdOf(e: RollEntry): string {
+  return hex(`short:${e.row.id}`, 8).toUpperCase();
+}
+
+function seatOf(row: SeatRow, at: string): RollEntry["seat"] {
+  return { id: row.id, seat_code: row.seat_code, seat_type: row.seat_type, academic_year: row.academic_year, assigned_at: at };
+}
+
+function addVersion(e: RollEntry, at: string, actor: ActorRef, f: StoredFlag, action: DecisionAction, seq: number, reason: ReasonCode, changes: FieldChange[]): number {
+  const version = versionsOf(e).length + 1;
+  const list = LATER_VERSIONS.get(e.row.id) ?? [];
+  list.push({ version, at, source: "DECISION", actor, batch: null, case: { id: f.id, type: f.type, action, case_action_seq: seq, reason_code: reason }, changes });
+  LATER_VERSIONS.set(e.row.id, list);
+  return version;
+}
+
+interface Snapshot {
+  status: string | null;
+  record: RecordStatus | null;
+}
+
+function snap(e: RollEntry): Snapshot {
+  const r = withRecord(e);
+  return { status: e.row.status, record: r.record_status };
+}
+
+/**
+ * Works out every consequence of a decision and, unless `dryRun`, applies
+ * it: one step for the case, its records, their seats and attestations, the
+ * versions and the audit (A4.10). A dry run touches nothing.
+ */
+function decide(user: User, f: StoredFlag, req: Partial<CaseActionRequest>, to: FlagStatus, dryRun: boolean): DecisionEffects {
+  const at = nowIso();
+  const actor = actorOf(user);
+  const action = req.action as DecisionAction;
+  const reason = req.reason_code as ReasonCode;
+  const seq = dryRun ? SEQ + 1 : ++SEQ;
+  const effects: DecisionEffects = {
+    case_status: to,
+    records: [],
+    version: null,
+    changes: [],
+    rows_resolved: 0,
+    rows_rerun: 0,
+    seats_released: [],
+    seats_assigned: [],
+    attestations_revoked: [],
+    attestations_issued: [],
+    approval: null,
+  };
+  const before = new Map<string, Snapshot>();
+  const remember = (e: RollEntry) => {
+    if (!before.has(e.row.id)) before.set(e.row.id, snap(e));
+  };
+
+  if (action === "WITHDRAW") {
+    const named = namedOf(f);
+    const scope = scopeOf(f);
+    const ids = req.withdrawn_enrolment_ids ?? (scope === "RECORD" && named[0] ? [named[0].row.id] : []);
+    if (scope === "MULTI_RECORD" && ids.length === 0) throw new ApiError(422, "WITHDRAW_NONE_SELECTED", "Select at least one record to withdraw.");
+    const outstanding = scope === "MULTI_RECORD" ? outstandingOf(f) : named.filter((e) => e.row.status === "ACTIVE").map((e) => e.row.id);
+    const notNamed = ids.filter((id) => !outstanding.includes(id));
+    if (notNamed.length > 0) {
+      throw new ApiError(409, "WITHDRAW_NOT_NAMED", `${notNamed.length} of the selected records are not named by this case.`, { n: notNamed.length, named_enrolment_ids: outstanding });
+    }
+    const entries = ids.map((id) => entryById(id)!);
+    for (const e of entries) {
+      remember(e);
+      effects.records.push({ enrolment_id: e.row.id, status: "WITHDRAWN", record_status: null, status_reason: null });
+      if (e.seat) {
+        effects.seats_released.push({ enrolment_id: e.row.id, seat_code: e.seat.seat_code });
+        const heir = backlogFor(e, e.seat.seat_type);
+        if (heir && !entries.includes(heir)) effects.seats_assigned.push({ enrolment_id: heir.row.id, seat_code: e.seat.seat_code });
+      }
+      for (const c of credentialsFor(e)) if (c.status === "ACTIVE") effects.attestations_revoked.push({ enrolment_id: e.row.id, credential_id: c.id, short_id: c.short_id });
+    }
+    effects.version = entries[0] ? versionsOf(entries[0]).length + 1 : null;
+    if (scope === "MULTI_RECORD" && outstanding.some((id) => !ids.includes(id))) effects.case_status = f.status;
+    if (dryRun) return effects;
+    const today = todayIst();
+    for (const e of entries) {
+      const released = e.seat;
+      const statusBefore = e.row.status;
+      const dateBefore = e.row.status_date;
+      e.row.status = "WITHDRAWN";
+      e.row.status_date = today;
+      e.seat = null;
+      e.row.seat_code = null;
+      if (effects.attestations_revoked.some((x) => x.enrolment_id === e.row.id)) REVOKED.set(e.row.id, at);
+      addVersion(e, at, actor, f, "WITHDRAW", seq, reason, [
+        { field: "status", before: statusBefore, after: "WITHDRAWN" },
+        { field: "status_date", before: dateBefore, after: today },
+      ]);
+      caseOf(f.id).done.push(e.row.id);
+      if (released) {
+        const heir = effects.seats_assigned.find((s) => s.seat_code === released.seat_code);
+        const h = heir ? entryById(heir.enrolment_id) : undefined;
+        if (h) {
+          remember(h);
+          h.seat = { ...released, assigned_at: at };
+          h.row.seat_code = released.seat_code;
+          evaluate(h);
+          syncEntry(h);
+        }
+      }
+      appendAudit(user, "UPDATE", "enrolment", e.row.id);
+    }
+  }
+
+  if (action === "CORRECT") {
+    const named = namedOf(f);
+    const scope = scopeOf(f);
+    const target = req.correction?.enrolment_id ?? (scope === "RECORD" ? named[0]?.row.id : undefined);
+    const outstanding = scope === "MULTI_RECORD" ? outstandingOf(f) : named.filter((e) => e.row.status === "ACTIVE").map((e) => e.row.id);
+    if (!target || !outstanding.includes(target)) {
+      throw new ApiError(409, "WITHDRAW_NOT_NAMED", "1 of the selected records are not named by this case.", { n: 1, named_enrolment_ids: outstanding });
+    }
+    const e = entryById(target)!;
+    const changes = correctionOf(e, (req.correction?.fields ?? {}) as Record<string, unknown>);
+    if (changes.length === 0) throw new ApiError(422, "CORRECTION_EMPTY", "Change at least one field, or choose another decision.");
+    remember(e);
+    effects.changes = changes;
+    effects.version = versionsOf(e).length + 1;
+    effects.rows_rerun = 5;
+    const route = (changes.find((c) => c.field === "admission_route")?.after as AdmissionRoute | undefined) ?? e.row.admission_route;
+    const pool = POOL_OF[route];
+    if (pool !== e.seatType || changes.some((c) => c.field === "year_of_study")) {
+      if (e.seat) effects.seats_released.push({ enrolment_id: e.row.id, seat_code: e.seat.seat_code });
+      const seat = freeSeat(e, pool);
+      if (seat) effects.seats_assigned.push({ enrolment_id: e.row.id, seat_code: seat.seat_code });
+    }
+    if (scope === "MULTI_RECORD" && outstanding.some((id) => id !== target)) effects.case_status = f.status;
+    effects.records.push({ enrolment_id: e.row.id, status: "ACTIVE", record_status: before.get(e.row.id)!.record, status_reason: e.row.status_reason });
+    if (dryRun) return effects;
+    for (const c of changes) {
+      const v = c.after;
+      if (c.field === "name") e.row.student.name = String(v);
+      else if (c.field === "dob") e.dob = String(v);
+      else if (c.field === "tfw_income_certified" || c.field === "nri_sponsored" || c.field === "ciwg") e.row.eligibility = { ...e.row.eligibility, [c.field]: v as boolean | null };
+      else if (c.field === "year_of_study") {
+        e.row.year_of_study = Number(v);
+        e.row.cohort_year = cohortOf(Number(v));
+      } else (e.row as unknown as Record<string, unknown>)[c.field] = v;
+    }
+    if (changes.some((c) => c.field === "name" || c.field === "dob") && e.special.identity === "NAME") e.special = { ...e.special, identity: undefined };
+    e.seatType = pool;
+    if (effects.seats_released.length || effects.seats_assigned.length) {
+      const seat = effects.seats_assigned[0] ? freeSeat(e, pool) : undefined;
+      e.seat = seat ? seatOf(seat, at) : null;
+      e.row.seat_code = e.seat?.seat_code ?? null;
+    }
+    addVersion(e, at, actor, f, "CORRECT", seq, reason, changes);
+    if (scope === "MULTI_RECORD") caseOf(f.id).done.push(e.row.id);
+    evaluate(e);
+    syncEntry(e);
+    appendAudit(user, "UPDATE", "enrolment", e.row.id);
+  }
+
+  if (action === "UPHOLD") {
+    const seatCase = f.type === "EXCESS_ADMISSION" || f.type === "QUOTA_BREACH";
+    if (seatCase) {
+      const p = f.programmeId ? programmesFor(f.institutionId).find((x) => x.id === f.programmeId) : undefined;
+      const covers = p ? p.unseated === 0 : false;
+      if (!p || !covers || req.approval_version !== p.approval.version) {
+        throw new ApiError(409, "UPHOLD_NEEDS_VERSION", "This case can be upheld only when an approval version covers these admissions.", { current_version: p?.approval.version ?? null, covers: false });
+      }
+      effects.approval = { version: p.approval.version, approved_intake: p.approval.approved_intake, cohort_year: p.approval.academic_year, programme_code: p.code };
+    }
+    const covers = COVERS[f.type];
+    const touched: RollEntry[] = [];
+    for (const e of namedOf(f)) {
+      if (e.row.status !== "ACTIVE") continue;
+      remember(e);
+      touched.push(e);
+      if (covers && coveredOpen(f, e)) effects.rows_resolved += 1;
+    }
+    if (dryRun) {
+      // What the records would read: the covered rows resolved and this case decided.
+      const was = f.status;
+      const open = new Set(touched.filter((e) => coveredOpen(f, e)).map((e) => e.row.id));
+      f.status = to;
+      for (const e of touched) {
+        const rows = e.checks.map((r) => (r.type === covers && open.has(e.row.id) ? { ...r, resolved: { outcome: "UPHELD" as const, case_id: f.id, case_action_seq: seq, reason_code: reason as UpholdReason, at, by: actor, line: "" } } : r));
+        const rec = recordFor(e, rows);
+        const prior = before.get(e.row.id)!;
+        if (rec.record_status !== prior.record) {
+          effects.records.push({ enrolment_id: e.row.id, status: "ACTIVE", record_status: rec.record_status, status_reason: rec.status_reason });
+          if (rec.record_status === "COUNTERSIGNED") effects.attestations_issued.push({ enrolment_id: e.row.id, credential_id: uuid(`credential:${e.row.id}`), short_id: shortIdOf(e) });
+        }
+      }
+      f.status = was;
+      return effects;
+    }
+    for (const e of touched) {
+      if (!covers || !coveredOpen(f, e)) continue;
+      RESOLVED.set(`${e.row.id}:${covers}`, {
+        outcome: "UPHELD",
+        case_id: f.id,
+        case_action_seq: seq,
+        reason_code: reason as UpholdReason,
+        at,
+        by: actor,
+        line: `Claim upheld by an officer on ${sentenceDate(at)}`,
+        caseId: f.id,
+      });
+      setRows(e, withResolutions(e, e.checks));
+      appendAudit(user, "UPDATE", "check", e.row.id);
+    }
+  }
+  return effects;
+}
+
+interface Prior {
+  status: string;
+  record: RecordStatus | null;
+  next: string | null;
+}
+
+function priorOf(entries: RollEntry[]): Map<string, Prior> {
+  return new Map(entries.map((e) => [e.row.id, { status: e.row.status, record: withRecord(e).record_status, next: e.row.next_step }]));
+}
+
+/**
+ * After a real action: every record whose status, record status or next
+ * step changed (A4.9 `records`), and the attestations a record that became
+ * Countersigned now holds (A4.14).
+ */
+function settleRecords(effects: DecisionEffects, prior: Map<string, Prior>) {
+  const ids = new Set([...prior.keys(), ...effects.records.map((r) => r.enrolment_id), ...effects.seats_assigned.map((s) => s.enrolment_id)]);
+  const out: DecisionEffects["records"] = [];
+  for (const id of ids) {
+    const e = entryById(id);
+    if (!e) continue;
+    const rec = withRecord(e);
+    const was = prior.get(id);
+    if (was && was.status === e.row.status && was.record === rec.record_status && was.next === e.row.next_step) continue;
+    out.push({ enrolment_id: id, status: e.row.status, record_status: rec.record_status, status_reason: rec.status_reason });
+    if (rec.record_status === "COUNTERSIGNED" && was?.record !== "COUNTERSIGNED") {
+      const issued = credentialsFor(e).find((c) => c.status === "ACTIVE");
+      if (issued && !effects.attestations_issued.some((x) => x.enrolment_id === id)) effects.attestations_issued.push({ enrolment_id: id, credential_id: issued.id, short_id: issued.short_id });
+    }
+  }
+  effects.records = out;
+}
+
+async function act(user: User, id: string, body: unknown, next: Next): Promise<CaseActionResult | DryRunResult> {
   requireRole(user, OFFICERS);
   const req = (body ?? {}) as Partial<CaseActionRequest>;
   if (!req.action || !ORDER.includes(req.action)) throw invalid("action", "Choose an action.");
@@ -643,28 +1061,40 @@ async function act(user: User, id: string, body: unknown, next: Next): Promise<F
   const f = flagById(id)!;
   const rule = TABLE[f.status][req.action];
   if (!rule) {
-    throw new ApiError(409, "FLAG_TRANSITION_INVALID", `This action is not possible while the flag is ${STATUS_WORD[f.status]}.`, {
+    throw new ApiError(409, "FLAG_TRANSITION_INVALID", `This action is not possible while the case is ${STATUS_WORD[f.status]}.`, {
       status: f.status,
       action: req.action,
       allowed_actions: allowedActions(user, f),
     });
   }
   if (!rule.roles.includes(user.role)) throw forbidden(rule.roles);
+  if (!decisionApplies(f, req.action)) {
+    throw new ApiError(409, "DECISION_NOT_AVAILABLE", `This decision does not apply to a ${f.type} case.`, { action: req.action, type: f.type, allowed_actions: allowedActions(user, f) });
+  }
 
   const note = (req.note ?? "").trim();
+  const decision = req.action === "UPHOLD" || req.action === "CORRECT" || req.action === "WITHDRAW" || req.action === "ESCALATE";
+  if (decision && (!req.reason_code || !note)) {
+    const fields = [...(!req.reason_code ? [{ field: "reason_code", message: "Choose a reason." }] : []), ...(!note ? [{ field: "note", message: "Add a note before you continue." }] : [])];
+    throw new ApiError(422, "REASON_REQUIRED", "Choose a reason and write a note before you decide.", { fields });
+  }
+  if (decision && !REASONS[req.action]!.includes(req.reason_code!)) throw invalid("reason_code", "This reason does not fit this decision.");
   if (req.action !== "ASSIGN") {
     if (!note) throw invalid("note", "Add a note before you continue.");
     if (note.length > 2000) throw invalid("note", "Keep the note to 2,000 characters.");
   }
   let due: string | null = null;
-  if (req.action === "REQUEST_DOCS" && req.due_date) {
-    if (req.due_date < todayIst()) throw invalid("due_date", "Choose today or a later date.");
-    if (req.due_date > plusDays(todayIst(), 90)) throw invalid("due_date", "Choose a date within 90 days of today.");
-    due = req.due_date;
+  if (req.action === "REQUEST_DOCS") {
+    if (!req.docs_kind || !DOCS_KINDS.includes(req.docs_kind)) throw invalid("docs_kind", "Choose what the college should send.");
+    if (req.due_date) {
+      if (req.due_date < todayIst()) throw invalid("due_date", "Choose today or a later date.");
+      if (req.due_date > plusDays(todayIst(), 90)) throw invalid("due_date", "Choose a date within 90 days of today.");
+      due = req.due_date;
+    }
   }
   let assignee: { id: string; name: string } | null | undefined;
   if (req.action === "ASSIGN") {
-    if (!("assignee_id" in req)) throw invalid("assignee_id", "Choose an officer who can see this flag.");
+    if (!("assignee_id" in req)) throw invalid("assignee_id", "Choose an officer who can see this case.");
     assignee = req.assignee_id ? officerFor(f, req.assignee_id) : null;
   }
   if (req.action === "ESCALATE" && req.assignee_id) {
@@ -673,48 +1103,158 @@ async function act(user: User, id: string, body: unknown, next: Next): Promise<F
     assignee = { id: o.id, name: o.name };
   }
 
-  const at = nowIso();
   const from = f.status;
   const to = rule.to === "=" ? from : rule.to;
+  const empty: DecisionEffects = {
+    case_status: to, records: [], version: null, changes: [], rows_resolved: 0, rows_rerun: 0,
+    seats_released: [], seats_assigned: [], attestations_revoked: [], attestations_issued: [], approval: null,
+  };
+  const isDecision = req.action === "UPHOLD" || req.action === "CORRECT" || req.action === "WITHDRAW";
+  if (req.dry_run) {
+    await wait(260);
+    return { dry_run: true, effects: isDecision ? decide(user, f, req, to, true) : empty };
+  }
+
+  const at = nowIso();
   const c = caseOf(id);
-  f.status = to;
+  const named = namedOf(f);
+  const prior = priorOf(named);
+  const effects = isDecision ? decide(user, f, req, to, false) : empty;
+  f.status = effects.case_status;
   f.updated_at = at;
   if (req.action === "REQUEST_DOCS") {
     c.docsDueOn = due;
     c.responseReceived = false;
+    f.progress.docs = { kind: req.docs_kind ?? "OTHER", due_on: due, responded_at: null };
   }
   if (req.action === "REOPEN") {
     c.docsDueOn = null;
     c.responseReceived = false;
+    f.progress = { docs: null, escalated_at: null };
+    for (const [key, r] of RESOLVED) if (r.caseId === f.id) RESOLVED.delete(key);
+    for (const e of named) setRows(e, withResolutions(e, e.checks));
   }
   if ((req.action === "ASSIGN" || req.action === "ESCALATE") && assignee !== undefined) c.assignee = assignee;
-  if (req.action === "WITHDRAW" && f.enrolmentId) {
-    const e = entryById(f.enrolmentId);
-    if (e && credentialsFor(e).some((x) => x.status === "ACTIVE")) REVOKED.set(f.enrolmentId, at);
-  }
-  if (req.action === "REQUEST_DOCS") f.progress.docs = { kind: req.docs_kind ?? "OTHER", due_on: due, responded_at: null };
   if (req.action === "ESCALATE") f.progress.escalated_at = at;
-  if (req.action === "REOPEN") f.progress = { docs: null, escalated_at: null };
+  const correction = req.action === "CORRECT" ? { enrolment_id: req.correction?.enrolment_id ?? named[0]?.row.id ?? "", changes: effects.changes } : null;
   c.history.push({
     ...EXTRA(),
-    seq: ++SEQ,
+    seq: isDecision ? SEQ : ++SEQ,
     at,
     action: req.action,
     from_status: from,
-    to_status: to,
+    to_status: f.status,
     actor: actorOf(user),
     note: req.action === "ASSIGN" ? null : note,
     due_date: req.action === "REQUEST_DOCS" ? due : null,
     assignee: req.action === "ASSIGN" || req.action === "ESCALATE" ? (assignee ?? null) : null,
     attachments: [],
-    reason_code: req.reason_code ?? null,
+    reason_code: decision ? (req.reason_code ?? null) : null,
     docs_kind: req.action === "REQUEST_DOCS" ? (req.docs_kind ?? "OTHER") : null,
-    approval_version: req.approval_version ?? null,
-    withdrawn_enrolment_ids: req.action === "WITHDRAW" ? (req.withdrawn_enrolment_ids ?? (f.enrolmentId ? [f.enrolmentId] : [])) : [],
+    approval_version: req.action === "UPHOLD" && effects.approval ? effects.approval.version : null,
+    correction,
+    withdrawn_enrolment_ids: req.action === "WITHDRAW" ? effects.records.filter((r) => r.status === "WITHDRAWN").map((r) => r.enrolment_id) : [],
   });
   c.lastActionAt = at;
+  settleRecords(effects, prior);
   appendAudit(user, "UPDATE", "flag", id);
-  return flagDetail(user, id, next);
+  const detail = await flagDetail(user, id, next);
+  return { ...detail, effects };
+}
+
+/* ---- Cases opened from signals (A4.19) ----------------------------------- */
+
+const SIGNAL_SEVERITY: Record<StoredSignal["type"], Severity> = { GHOST_RING: "HIGH", ANOMALY: "MEDIUM" };
+
+/** One case per college, citing the signal; a case that already exists for that signal and college is returned as it is. */
+function caseFromSignal(user: User | null, sig: StoredSignal, institutionId: string, note: string, severity: Severity, at: string): StoredFlag {
+  const id = uuid(`signal-case:${sig.id}:${institutionId}`);
+  const existing = flagById(id);
+  if (existing) return existing;
+  const members = sig.type === "GHOST_RING" ? membersOf(sig, institutionId) : [];
+  const ringFacts: StoredFact[] = [
+    { label: "Students at this college", value: String(members.length), source: "Countersign signals" },
+    ...sig.shared.map((x) => ({ label: x.kind === "MOBILE" ? "Shared mobile number" : x.kind === "EMAIL" ? "Shared email address" : "Shared address", value: `${x.masked} (${x.students} students)`, source: "College uploads, contact hashes" })),
+    { label: "Signal", value: `Shared contact ring found on ${formatDate(sig.created_at)}`, source: "Countersign signals", audience: "OFFICER" as const },
+  ];
+  const f: StoredFlag = {
+    id,
+    type: sig.type,
+    severity,
+    status: "OPEN",
+    institutionId,
+    programmeId: null,
+    enrolmentId: null,
+    academic_year: sig.academic_year,
+    summary:
+      sig.type === "GHOST_RING"
+        ? `${sig.memberIds.length} students across ${sig.institutionIds.length} institutions share ${sig.shared.length} contact details.`
+        : `${institutionName(institutionId)} stands out from similar colleges on ${sig.features.filter((x) => x.stands_out).length === 1 ? "one measure" : "several measures"} (${sig.academic_year}).`,
+    facts: sig.type === "GHOST_RING" ? ringFacts : featureFacts(sig),
+    related: members,
+    rule_source: ruleOf(sig).replace(/^(Rule|Model): /, ""),
+    created_at: at,
+    updated_at: at,
+    progress: { docs: null, escalated_at: null },
+  };
+  allFlags().push(f);
+  SIGNAL_OF.set(f.id, sig.id);
+  const c = caseOf(f.id);
+  c.history.push({ ...EXTRA(), seq: ++SEQ, at, action: "NOTE", from_status: "OPEN", to_status: "OPEN", actor: user ? actorOf(user) : null, note, due_date: null, assignee: null, attachments: [] });
+  c.lastActionAt = at;
+  sig.caseIds.push({ id: f.id, institution_id: institutionId });
+  if (user) appendAudit(user, "CREATE", "flag", f.id);
+  return f;
+}
+
+async function openSignalCase(user: User, id: string, body: unknown, next: Next): Promise<SignalOpenCaseResult> {
+  const sig = signalInScope(user, id);
+  const req = (body ?? {}) as { institution_ids?: string[]; note?: string; severity?: Severity };
+  const note = (req.note ?? "").trim();
+  if (!note) throw invalid("note", "Add a note before you continue.");
+  if (note.length > 2000) throw invalid("note", "Keep the note to 2,000 characters.");
+  if (sig.status === "DISMISSED") throw new ApiError(409, "SIGNAL_ALREADY_HANDLED", "This signal already has a case or was dismissed.", { status: sig.status });
+  const inScope = sig.institutionIds.filter((i) => user.role === A || REGION_OF(i) === user.scope.region);
+  const chosen = req.institution_ids && req.institution_ids.length > 0 ? req.institution_ids : sig.institutionIds.length === 1 ? sig.institutionIds : [];
+  if (chosen.length === 0) throw invalid("institution_ids", "Choose at least one college.");
+  if (chosen.some((i) => !inScope.includes(i))) throw invalid("institution_ids", "Choose colleges this signal names in your region.");
+  const severity = req.severity ?? SIGNAL_SEVERITY[sig.type];
+  const at = nowIso();
+  const flags = chosen.map((i) => caseFromSignal(user, sig, i, note, severity, at));
+  if (sig.status === "NEW") {
+    sig.status = "CASE_OPENED";
+    sig.note = note;
+    sig.decidedBy = { id: user.id, name: user.name };
+    sig.decidedAt = at;
+  }
+  sig.updated_at = at;
+  appendAudit(user, "UPDATE", "signal", sig.id);
+  const cases = await Promise.all(flags.map(async (f) => decorateRow(user, (await next("GET", `/flags/${f.id}`)) as FlagDetail)));
+  return { cases, signal: signalDetail(user, sig) };
+}
+
+function dismiss(user: User, id: string, body: unknown): SignalDetail {
+  const sig = signalInScope(user, id);
+  const note = String((body as { note?: string } | undefined)?.note ?? "").trim();
+  if (!note) throw invalid("note", "Say why you are dismissing this signal.");
+  if (note.length > 2000) throw invalid("note", "Keep the note to 2,000 characters.");
+  dismissSignal(user, sig, note, nowIso());
+  appendAudit(user, "UPDATE", "signal", sig.id);
+  return signalDetail(user, sig);
+}
+
+/** The anomaly at Lucknow already has its case, so every state of the signal pages can be seen. */
+function seedSignalCases() {
+  const sig = allSignals().find((x) => x.id === "5a000004-0004-4a00-8a00-000000000004");
+  if (!sig || sig.caseIds.length > 0) return;
+  const admin = USERS.find((u) => u.email === "admin@aicte.demo")!;
+  const at = "2026-10-28T07:05:00Z";
+  caseFromSignal(admin, sig, sig.institutionIds[0], "Admissions grew by nearly half while contradictions rose. Ask the college for its admission register.", "MEDIUM", at);
+  sig.status = "CASE_OPENED";
+  sig.note = "Admissions grew by nearly half while contradictions rose. Ask the college for its admission register.";
+  sig.decidedBy = { id: admin.id, name: admin.name };
+  sig.decidedAt = at;
+  sig.updated_at = at;
 }
 
 /* ---- Attachments ---------------------------------------------------------- */
@@ -758,7 +1298,7 @@ export async function casesUpload(path: string, form: FormData, request: Next): 
   await request("GET", `/flags/${m[1]}`);
   const f = flagById(m[1])!;
   if (f.status !== "DOCS_REQUESTED") {
-    throw new ApiError(409, "FLAG_TRANSITION_INVALID", `This action is not possible while the flag is ${STATUS_WORD[f.status]}.`, {
+    throw new ApiError(409, "FLAG_TRANSITION_INVALID", `This action is not possible while the case is ${STATUS_WORD[f.status]}.`, {
       status: f.status,
       action: "COLLEGE_RESPONSE",
       allowed_actions: [],
@@ -1063,7 +1603,7 @@ function seedDenials() {
         from_status: "OPEN",
         to_status: "OPEN",
         actor: null,
-        note: `The student changed the reply from No to Yes on ${formatDate(email.changed_at)}. The flag keeps its status until an officer decides.`,
+        note: `The student changed the answer from No to Yes on ${formatDate(email.changed_at)}. The case keeps its status until an officer decides.`,
         due_date: null,
         assignee: null,
         attachments: [],
@@ -1198,14 +1738,44 @@ function seedCases() {
       item(49, "2026-10-27T07:25:00Z", "COLLEGE_RESPONSE", "DOCS_REQUESTED", "DOCS_REQUESTED", puneRegistrar, "Register attached. We have no supernumerary approval for NRI seats this year.", {
         attachments: [storeSample(id(11), "nri_register_cse_2026-27.pdf", "application/pdf", 1_887_436)],
       }),
-      item(55, "2026-10-27T13:45:00Z", "WITHDRAW", "DOCS_REQUESTED", "WITHDRAWN", admin, "Three NRI admissions beyond the 5% carve-out with no supernumerary approval. Recorded as a confirmed irregularity.", {
+      item(55, "2026-10-27T13:45:00Z", "WITHDRAW", "DOCS_REQUESTED", "WITHDRAWN", admin, "Three NRI admissions beyond the 5% carve-out with no supernumerary approval. Their claims do not stand.", {
         reason_code: "BEYOND_APPROVED_INTAKE",
+        withdrawn_enrolment_ids: flagById(id(11))?.related ?? [],
       }),
     ],
     { docsDueOn: "2026-10-28", responseReceived: true },
   );
+  // The withdrawal took effect: each named record is withdrawn by decision, with its version (A4.10).
+  const quota = flagById(id(11));
+  if (quota) {
+    for (const rid of quota.related) {
+      const e = entryById(rid);
+      if (!e || e.row.status !== "ACTIVE") continue;
+      const dateBefore = e.row.status_date;
+      e.row.status = "WITHDRAWN";
+      e.row.status_date = "2026-10-27";
+      addVersion(e, "2026-10-27T13:45:00Z", admin, quota, "WITHDRAW", 55, "BEYOND_APPROVED_INTAKE", [
+        { field: "status", before: "ACTIVE", after: "WITHDRAWN" },
+        { field: "status_date", before: dateBefore, after: "2026-10-27" },
+      ]);
+      caseOf(quota.id).done.push(rid);
+    }
+  }
 
-  // GCE Karad, late refill: cleared, then the engines refreshed the evidence.
+  // ABC, a permitted second programme online: upheld by the regional officer, so the registrar reads the decision.
+  const dual = allFlags().find((f) => f.type === "DUAL_ENROLMENT_ALLOWED" && f.institutionId === IDS.abc);
+  if (dual) {
+    dual.status = "UPHELD";
+    const c = caseOf(dual.id);
+    c.history.push(
+      item(53, "2026-10-28T08:20:00Z", "UPHOLD", "OPEN", "UPHELD", west, "The second enrolment is an online programme the UGC guidelines permit alongside a full-time one; both records stand.", {
+        reason_code: "PERMITTED_DUAL_PROGRAMME",
+      }),
+    );
+    c.lastActionAt = "2026-10-28T08:20:00Z";
+  }
+
+  // GCE Karad, late refill: upheld, then the engines refreshed the evidence.
   apply(12, "UPHELD", [
     item(52, "2026-10-28T09:05:00Z", "UPHOLD", "OPEN", "UPHELD", west, "The seat was released on 28 Sep and refilled on 5 Oct with the state counselling authority's written approval, which is on file.", {
       reason_code: "DOCUMENTS_SUPPORT_CLAIM",
@@ -1225,6 +1795,8 @@ function ensureSeeded() {
   seedSampleCard();
   seedCases();
   seedRequests();
+  seedSignalCases();
+  ashaEntry();
   for (const s of SEEDS) syncInstitution(s.id);
 }
 
@@ -1236,6 +1808,15 @@ function ensureSeeded() {
  */
 export async function withCases(method: string, path: string, query: Query | undefined, body: unknown, next: Next): Promise<unknown> {
   const [pathname] = path.split("?");
+  if (pathname === "/auth/login" && method === "POST") {
+    // A4.12: a student account never signs in with a password; it answers like a wrong one.
+    const email = String((body as { email?: string } | undefined)?.email ?? "").trim().toLowerCase();
+    if (USERS.some((u) => u.email === email && u.role === "STUDENT")) {
+      await latency();
+      throw new ApiError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    }
+  }
+  if (pathname === "/auth/logout" && method === "POST") writePendingClaim(null);
   if (pathname.startsWith("/auth/") || pathname === "/healthz") return next(method, path, query, body);
   ensureSeeded();
   const parts = pathname.split("/").filter(Boolean);
@@ -1265,6 +1846,32 @@ export async function withCases(method: string, path: string, query: Query | und
     const result = await next(method, path, query, body);
     syncInstitution(parts[1]);
     return result;
+  }
+
+  if (pathname === "/dashboard/summary" && method === "GET") {
+    // Officers see how many signals are new (A4.20); everyone else gets null.
+    const summary = (await next(method, path, query, body)) as { kpis: { signals_new: number | null } };
+    const user = signedIn();
+    if (OFFICERS.includes(user.role)) summary.kpis.signals_new = listSignals(user, { status: "NEW", page_size: 200 }).total;
+    return summary;
+  }
+
+  if (pathname === "/reports" && method === "GET") {
+    await latency();
+    return listReports(signedIn());
+  }
+
+  if (parts[0] === "signals") {
+    await latency();
+    if (parts.length === 1 && method === "GET") return listSignals(signedIn(), query);
+    if (parts.length === 2 && method === "GET") {
+      const user = signedIn();
+      const detail = signalDetail(user, signalInScope(user, parts[1]));
+      for (const m of detail.members) appendAudit(user, "READ", "student", m.student.id);
+      return detail;
+    }
+    if (parts.length === 3 && parts[2] === "open-case" && method === "POST") return openSignalCase(signedIn(), parts[1], body, next);
+    if (parts.length === 3 && parts[2] === "dismiss" && method === "POST") return dismiss(signedIn(), parts[1], body);
   }
 
   if (pathname === "/users" && method === "GET") {

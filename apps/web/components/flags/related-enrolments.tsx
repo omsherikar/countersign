@@ -63,7 +63,13 @@ export function RelatedEnrolmentsTable({
               <td>{tk(`route.${e.admission_route}`)}</td>
               <td className="code">{e.seat_code ? <SeatCodePill seatCode={e.seat_code} status="ASSIGNED" /> : <UnseatedChip />}</td>
               <td>
-                <RecordStatusBadge status={e.record_status} tip={e.status_reason} />
+                {e.status === "ACTIVE" ? (
+                  <RecordStatusBadge status={e.record_status} tip={e.status_reason} />
+                ) : (
+                  <span className="inline-flex h-5 items-center rounded-chip border border-dashed border-check-na/50 bg-check-na-soft px-1.5 text-xs font-medium whitespace-nowrap text-check-na-ink">
+                    {tk(`enrol_status.${e.status}`)}
+                  </span>
+                )}
               </td>
               <td>
                 <FlagChips flags={e.flags} hrefFor={flagHref} />

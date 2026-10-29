@@ -9,6 +9,8 @@ export interface DemoRole {
   role: Role;
   /** "Role / Scope" from the copy deck. */
   card: CopyId;
+  /** Students sign in only through DigiLocker; their card is a link, never a password (A4.12). */
+  digilocker?: boolean;
 }
 
 /**
@@ -20,6 +22,6 @@ export const DEMO_ROLES: DemoRole[] = [
   { key: "ro_west", email: "ro.west@aicte.demo", role: "RO_OFFICER", card: "login.card.ro_west" },
   { key: "abc", email: "registrar@abc.edu.demo", role: "INSTITUTION", card: "login.card.abc" },
   { key: "xyz", email: "registrar@xyz.edu.demo", role: "INSTITUTION", card: "login.card.xyz" },
-  { key: "student", email: "student@demo", role: "STUDENT", card: "login.card.student" },
+  { key: "student", email: "", role: "STUDENT", card: "login.card.student", digilocker: true },
   { key: "university", email: "coe@univ.demo", role: "UNIVERSITY", card: "login.card.university" },
 ];

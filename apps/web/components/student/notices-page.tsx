@@ -12,7 +12,9 @@ import { Crumbs } from "@/components/common/page-header";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusWord, useNow } from "@/components/student/bits";
+import { DecisionLine } from "@/components/student/decision-line";
 import { channelWords, groupNotices, type NoticeGroup } from "@/components/student/notice-groups";
+import type { StudentEnrolment } from "@/lib/types";
 
 /** "Your reply" as a word with its icon; a No is the student's own answer, so it is grey, not red. */
 export function ReplyWord({ group }: { group: NoticeGroup }) {
@@ -44,11 +46,12 @@ export function ReplyWord({ group }: { group: NoticeGroup }) {
   }
 }
 
-/** The lines under a reply: the change date, the case line under a No, or how to reply. */
-function ReplyNotes({ group, compact = false }: { group: NoticeGroup; compact?: boolean }) {
+/** The lines under a reply: the change date, the case line under a No, the officer's decision, or how to reply. */
+function ReplyNotes({ group, enrolment, compact = false }: { group: NoticeGroup; enrolment?: StudentEnrolment; compact?: boolean }) {
   const size = compact ? "text-sm" : "text-md";
   return (
     <>
+      {enrolment?.decision && <DecisionLine enrolment={enrolment} />}
       {group.changedAt && <p className="mt-1 text-sm text-ink-muted">{t("notices.changed", { changed_date: formatDate(group.changedAt) })}</p>}
       {group.reply === "NO" && <p className={cn("mt-1.5", size)}>{t("notices.denied_line")}</p>}
       {group.live && <p className={cn("mt-1.5 text-ink-muted", size)}>{t("notices.reply_hint", { expires_date: formatDate(group.expiresAt) })}</p>}
@@ -111,7 +114,7 @@ export function NoticesPage() {
                     <span className="sr-only">{t("notices.col.reply")}: </span>
                     <ReplyWord group={g} />
                   </div>
-                  <ReplyNotes group={g} />
+                  <ReplyNotes group={g} enrolment={s.enrolments.find((e) => e.id === g.enrolmentId)} />
                 </li>
               ))}
             </ul>
@@ -136,7 +139,7 @@ export function NoticesPage() {
                       </td>
                       <td className="wrap !h-auto max-w-[22rem] py-3">
                         <ReplyWord group={g} />
-                        <ReplyNotes group={g} compact />
+                        <ReplyNotes group={g} enrolment={s.enrolments.find((e) => e.id === g.enrolmentId)} compact />
                       </td>
                     </tr>
                   ))}

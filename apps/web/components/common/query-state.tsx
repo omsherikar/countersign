@@ -29,7 +29,7 @@ export function SlowHint({ className }: { className?: string }) {
 }
 
 /** Message for an ApiError, using the deck wording per code and the envelope message otherwise. */
-export type ErrorEntity = "institution" | "enrolment" | "flag" | "upload";
+export type ErrorEntity = "institution" | "enrolment" | "flag" | "upload" | "signal";
 
 export function errorMessage(err: unknown, role?: Role | null, entity?: ErrorEntity): string {
   if (!(err instanceof ApiError)) return t("err.INTERNAL");

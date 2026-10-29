@@ -15,6 +15,7 @@ import { InstitutionsTable } from "@/components/overview/institutions-table";
 import { KpiStrip, formatPct } from "@/components/overview/kpi-strip";
 import { SourcesPanel } from "@/components/overview/sources-panel";
 import { RegionTable, StateGrid } from "@/components/overview/state-grid";
+import { SignalsPanel } from "@/components/signals/signals-panel";
 import { CompletenessPanel } from "@/components/overview/completeness-panel";
 import { StatusPanel } from "@/components/records/status-panel";
 import type { CaseAgeBucket } from "@/lib/types";
@@ -150,6 +151,8 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
           )}
         </section>
       </div>
+
+      <SignalsPanel variant={variant} academicYear={data?.academic_year ?? "2026-27"} />
 
       <section aria-labelledby="ranked-heading" className="mb-12">
         <SectionHeader id="ranked-heading" title={t("section.institutions_ranked")} />
