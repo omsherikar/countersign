@@ -4,7 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import { t, tk, type CopyId } from "@/lib/copy";
-import { formatDate } from "@/lib/format";
+import { formatCardDate } from "@/lib/format";
 import { useCaseAction } from "@/lib/queries-cases";
 import type { CaseActionResult, DocsKind, EscalateReason, FlagDetail, OfficerAction } from "@/lib/types";
 import { errorMessage } from "@/components/common/query-state";
@@ -186,7 +186,7 @@ export function CaseSheet({
   if (action === "ESCALATE") changes = [t("case.escalate_change")];
   if (action === "REQUEST_DOCS") {
     const words = kind ? tk(`docs_kind.${kind}.words`) : tk("docs_kind.OTHER.words");
-    changes = [due ? t("case.request_docs_change", { docs_words: words, due_date: formatDate(due) }) : t("case.request_docs_change_no_date", { docs_words: words })];
+    changes = [due ? t("case.request_docs_change", { docs_words: words, due_date: formatCardDate(due) }) : t("case.request_docs_change_no_date", { docs_words: words })];
   }
 
   const lead =
