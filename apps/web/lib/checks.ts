@@ -1,90 +1,48 @@
 /**
- * Words for checks, shared by the strip, the badges and enrolment detail
- * (copy deck §3, "Pending words"). Lists carry type and status only, so a
- * pending check there reads "Pending" unless it is the Student check;
- * enrolment detail has `detail` and can say why it is pending.
+ * Words and order for the five evidence rows and the four record statuses
+ * (copy deck §21). Rows say Confirmed; only a record says Countersigned.
+ * There is no score: a record carries one status, and one contradiction
+ * outranks any number of confirmations.
  */
 import { t, tk } from "@/lib/copy";
-import { formatDateTime } from "@/lib/format";
-import type { Check, CheckBrief, CheckStatus, CheckType, Countersign } from "@/lib/types";
+import { RECORD_STATUS_ORDER, ROW_ORDER } from "@/lib/types";
+import type { CheckType, EvidenceState, RecordStatus } from "@/lib/types";
 
-export const CHECK_ORDER: CheckType[] = ["IDENTITY", "ADMISSION", "SEAT", "STUDYING", "STUDENT"];
+/** The deck's row order: Identity, Seat, Joining record, Credits, Student. */
+export const CHECK_ORDER: CheckType[] = ROW_ORDER;
 
-type AnyCheck = CheckBrief | Check;
-const hasDetail = (c: AnyCheck): c is Check => "detail" in c && typeof c.detail === "object" && c.detail !== null;
+/** The six evidence states, in the order filters list them. */
+export const STATE_ORDER: EvidenceState[] = ["CONFIRMED", "CONTRADICTED", "PENDING", "NOT_YET_DUE", "NOT_APPLICABLE", "SOURCE_UNAVAILABLE"];
 
-/** The status word a reader sees: check.status.*, or for PENDING the first pending word that applies. */
-export function statusWord(c: AnyCheck): string {
-  if (c.status === "SOURCE_UNAVAILABLE") return t("check.pending.unavailable");
-  if (c.status !== "PENDING") return tk(`check.status.${c.status}`);
-  if (c.type === "STUDENT") {
-    // Enrolment detail knows where the notice stands (A3.8); lists say "No reply yet".
-    const state = hasDetail(c) ? c.detail.notice_state : undefined;
-    if (state === "NOT_SENT" || state === "UNREACHABLE") return t("check.pending.student_not_sent");
-    if (state === "EXPIRED") return t("check.pending.student_expired");
-    return t("check.pending.student");
-  }
-  if (hasDetail(c)) {
-    if (c.detail.source_unavailable) return t("check.pending.unavailable");
-    if (c.detail.needs_review) return t("check.pending.review");
-    if (c.detail.awaiting_semester) return t("check.pending.results");
-  }
-  return t("check.status.PENDING");
+/** The legend's order: Awaiting evidence, Countersigned, Under review, Disputed. */
+export const STATUS_ORDER: RecordStatus[] = RECORD_STATUS_ORDER;
+
+/** "Needs attention first": Disputed, Under review, Awaiting evidence, Countersigned. */
+export const ATTENTION_ORDER: RecordStatus[] = ["DISPUTED", "UNDER_REVIEW", "AWAITING_EVIDENCE", "COUNTERSIGNED"];
+
+/** Rows in the deck's order, whatever order they arrived in. */
+export function ordered<T extends { type: CheckType }>(rows: T[]): T[] {
+  return CHECK_ORDER.map((type) => rows.find((r) => r.type === type)).filter((r): r is T => Boolean(r));
 }
 
-/** Rows a recheck asks again: PENDING or SOURCE_UNAVAILABLE. */
-export function awaitsSource(c: { status: CheckStatus }): boolean {
-  return c.status === "PENDING" || c.status === "SOURCE_UNAVAILABLE";
+/** evidence.state.* */
+export function stateWord(state: EvidenceState): string {
+  return tk(`evidence.state.${state}`);
 }
 
-/** Pending checks other than Student: the {pending} of strip.score_pending. */
-export function pendingCount(countersign: Countersign): number {
-  return countersign.checks.filter((c) => awaitsSource(c) && c.type !== "STUDENT").length;
+/** "Confirmed: fits approved intake", or the state word alone when the row has no finding. */
+export function stateWithFinding(row: { state: EvidenceState; finding: string | null }): string {
+  const word = stateWord(row.state);
+  return row.finding ? t("evidence.with_finding", { state_word: word, finding: row.finding }) : word;
 }
 
-/** "3 of 4", or "2 of 4, 1 pending" when a check other than Student waits. */
-export function scoreText(countersign: Countersign): string {
-  const s = countersign.score;
-  if (!s) return t("strip.not_checked");
-  const pending = pendingCount(countersign);
-  return pending > 0 ? t("strip.score_pending", { passes: s.passes, applicable: s.applicable, pending }) : t("strip.score", { passes: s.passes, applicable: s.applicable });
+/** Rows a recheck asks again: Pending or Source unavailable. */
+export function awaitsSource(row: { state: EvidenceState }): boolean {
+  return row.state === "PENDING" || row.state === "SOURCE_UNAVAILABLE";
 }
 
-/** checks in display order, whatever order they arrived in. */
-export function ordered<T extends AnyCheck>(checks: T[]): T[] {
-  return CHECK_ORDER.map((type) => checks.find((c) => c.type === type)).filter((c): c is T => Boolean(c));
-}
-
-/** strip.aria with the same words as the popover lines. */
-export function stripAria(countersign: Countersign, full?: Check[]): string {
-  const s = countersign.score;
-  if (!s) return t("strip.not_checked");
-  const list = ordered<AnyCheck>(full && full.length ? full : countersign.checks);
-  const word = (type: CheckType) => {
-    const c = list.find((x) => x.type === type);
-    return c ? statusWord(c).toLowerCase() : t("check.never").toLowerCase();
-  };
-  return t("strip.aria", {
-    passes: s.passes,
-    applicable: s.applicable,
-    s1: word("IDENTITY"),
-    s2: word("ADMISSION"),
-    s3: word("SEAT"),
-    s4: word("STUDYING"),
-    s5: word("STUDENT"),
-  });
-}
-
-/** One popover line: strip.segment_tip in lists, strip.segment_tip_full with source and time on detail. */
-export function segmentTip(c: AnyCheck): string {
-  const check = tk(`check.${c.type}`);
-  if (hasDetail(c)) {
-    return t("strip.segment_tip_full", {
-      check,
-      status_word: statusWord(c),
-      source_name: tk(`source.${c.source}`),
-      checked_at: c.checked_at ? formatDateTime(c.checked_at) : t("check.never"),
-    });
-  }
-  return t("strip.segment_tip", { check, status_word: statusWord(c) });
+/** record_status.*; a Disputed record reads "Disputed (priority)" on the card and its header. */
+export function statusWord(status: RecordStatus, priority = false): string {
+  if (priority && status === "DISPUTED") return t("record_status.DISPUTED_priority");
+  return tk(`record_status.${status}`);
 }

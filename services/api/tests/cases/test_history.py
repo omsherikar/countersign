@@ -1,19 +1,13 @@
-"""Case history: what the college may read of it, what CONFIRM leaves alone, what CLEAR
-asks for, and the system note an engine refresh adds to a decided flag."""
+"""Case history: what the college may read of it, the reason codes and document kinds it
+carries, and what a withdrawal leaves in it."""
 
 from __future__ import annotations
 
-import uuid
-
-from sqlalchemy import select
-
-import app.credentials as credentials
+from app.cases.decisions import withdraw_code
 from app.db.session import session_factory
 from app.models.credential import Credential
 from app.models.enums import EnrolmentStatus
-from app.models.seat import Seat
 from app.models.student import Enrolment
-from app.models.verification import Check
 from tests.cases.conftest import add_credential, new_flag
 
 PDF = b"%PDF-1.4\n%%EOF\n"
@@ -29,7 +23,14 @@ async def test_the_college_never_sees_assignments_or_internal_notes(cw, logins, 
     steps = [
         (west, {"action": "ASSIGN", "assignee_id": str(cw.users["ro.west@aicte.demo"])}),
         (west, {"action": "NOTE", "note": "Looks like a typing slip."}),
-        (west, {"action": "REQUEST_DOCS", "note": "Send the admission form."}),
+        (
+            west,
+            {
+                "action": "REQUEST_DOCS",
+                "docs_kind": "ADMISSION",
+                "note": "Send the admission form.",
+            },
+        ),
     ]
     for client, payload in steps:
         assert (await client.post(url, json=payload)).status_code == 200
@@ -39,10 +40,16 @@ async def test_the_college_never_sees_assignments_or_internal_notes(cw, logins, 
         files=[("files", ("form.pdf", PDF, "application/pdf"))],
     )
     assert response.status_code == 201
-    escalate = {"action": "ESCALATE", "note": "Same name twice.", "assignee_id": str(senior)}
+    escalate = {
+        "action": "ESCALATE",
+        "reason_code": "NEEDS_AICTE_DECISION",
+        "note": "Same name twice.",
+        "assignee_id": str(senior),
+    }
+    uphold = {"action": "UPHOLD", "reason_code": "NAME_VARIANT", "note": "The form settles it."}
     later = [
         (west, escalate),
-        (admin, {"action": "UPHOLD", "note": "The form settles it."}),
+        (admin, uphold),
         (admin, {"action": "REOPEN", "note": "New information from the region."}),
     ]
     for client, payload in later:
@@ -91,76 +98,47 @@ async def test_the_college_never_sees_assignments_or_internal_notes(cw, logins, 
     assert college[2]["attachments"][0]["filename"] == "form.pdf"
     # status changes stay visible even where the words are kept back
     assert (college[3]["from_status"], college[3]["to_status"]) == ("DOCS_REQUESTED", "ESCALATED")
+    # reason codes and document kinds are shown to everyone who can open the case
+    words = {h["action"]: (h["reason_code"], h["docs_kind"]) for h in college}
+    assert words["REQUEST_DOCS"] == (None, "ADMISSION")
+    assert words["ESCALATE"] == ("NEEDS_AICTE_DECISION", None)
+    assert words["UPHOLD"] == ("NAME_VARIANT", None)
+    assert all(h["correction"] is None and h["withdrawn_enrolment_ids"] == [] for h in college)
 
 
-async def test_confirm_revokes_the_proof_and_touches_nothing_else(cw, logins) -> None:
+async def test_a_withdrawal_takes_the_record_out_and_stays_in_the_history(cw, logins) -> None:
+    """D43: the record leaves the active counts and its attestation is revoked; the history
+    names the records withdrawn. (Seat, backlog and dry run: tests/decisions.)"""
     admin = await logins("admin@aicte.demo")
+    registrar = await logins("registrar@abc.edu.demo")
     flag_id = await new_flag(cw)
     credential_id = await add_credential(cw.ravi_student, cw.ravi)
-
-    async def snapshot():
-        async with session_factory()() as session:
-            enrolment = await session.get(Enrolment, cw.ravi)
-            seat = await session.get(Seat, enrolment.seat_id) if enrolment.seat_id else None
-            checks = (
-                await session.execute(
-                    select(Check.type, Check.status).where(Check.enrolment_id == cw.ravi)
-                )
-            ).all()
-            return (
-                enrolment.status,
-                enrolment.status_date,
-                enrolment.seat_id,
-                seat.status if seat else None,
-                sorted(checks),
-            )
-
-    before = await snapshot()
-    assert before[0] is EnrolmentStatus.ACTIVE and before[2] is not None
     response = await admin.post(
         f"/flags/{flag_id}/actions",
-        json={"action": "WITHDRAW", "note": "Confirmed with the registry."},
+        json={
+            "action": "WITHDRAW",
+            "reason_code": "STUDENT_NEVER_JOINED",
+            "note": "The college could not produce an admission record.",
+        },
     )
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "WITHDRAWN"
-    assert await snapshot() == before
     async with session_factory()() as session:
+        enrolment = await session.get(Enrolment, cw.ravi)
         credential = await session.get(Credential, credential_id)
-    assert credential.revoked is True and credential.revoked_reason == "FLAG_CONFIRMED"
+    assert enrolment.status is EnrolmentStatus.WITHDRAWN and enrolment.seat_id is None
+    assert credential.revoked is True and credential.revoked_reason == withdraw_code()
     assert credential.revoked_by_id == cw.users["admin@aicte.demo"]
+    history = (await registrar.get(f"/flags/{flag_id}")).json()["history"]
+    assert history[-1]["action"] == "WITHDRAW"
+    assert history[-1]["withdrawn_enrolment_ids"] == [str(cw.ravi)]
+    assert history[-1]["reason_code"] == "STUDENT_NEVER_JOINED"
 
-    # a flag that names no enrolment confirms without touching any proof
-    seat_flag = await new_flag(cw, institution="xyz")
-    other = await add_credential(cw.xyz_student, await _xyz_enrolment(cw))
-    confirmed = await admin.post(
-        f"/flags/{seat_flag}/actions", json={"action": "WITHDRAW", "note": "Excess confirmed."}
+    # a case that names no record has nothing to withdraw
+    unnamed = await new_flag(cw, institution="xyz")
+    none = await admin.post(
+        f"/flags/{unnamed}/actions",
+        json={"action": "WITHDRAW", "reason_code": "OTHER", "note": "Nothing named."},
     )
-    assert confirmed.status_code == 200
-    async with session_factory()() as session:
-        assert (await session.get(Credential, other)).revoked is False
-
-
-async def _xyz_enrolment(cw) -> uuid.UUID:
-    async with session_factory()() as session:
-        return (
-            await session.execute(
-                select(Enrolment.id).where(Enrolment.student_id == cw.xyz_student)
-            )
-        ).scalar_one()
-
-
-async def test_clear_asks_for_a_proof_for_every_named_enrolment(cw, logins, monkeypatch) -> None:
-    asked: list[uuid.UUID] = []
-
-    async def spy(session, enrolment_id):
-        asked.append(enrolment_id)
-        return None
-
-    monkeypatch.setattr(credentials, "issue_if_eligible", spy)
-    admin = await logins("admin@aicte.demo")
-    flag_id = await new_flag(cw, related=[cw.ravi, cw.asha])
-    response = await admin.post(
-        f"/flags/{flag_id}/actions", json={"action": "UPHOLD", "note": "Both genuine."}
-    )
-    assert response.status_code == 200
-    assert asked == [cw.ravi, cw.asha]
+    assert none.status_code == 422
+    assert none.json()["error"]["code"] == "WITHDRAW_NONE_SELECTED"

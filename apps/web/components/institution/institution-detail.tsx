@@ -98,10 +98,10 @@ function InstitutionRecheckButton({ id, academicYear }: { id: string; academicYe
             : t("recheck.institution_result", {
                 rechecked: formatCount(r.rechecked),
                 seconds: (r.duration_ms / 1000).toFixed(1),
-                now_pass: formatCount(r.now_pass),
-                now_fail: formatCount(r.now_fail),
-                now_na: formatCount(r.now_na),
-                still_pending: formatCount(r.still_pending),
+                now_confirmed: formatCount(r.outcomes.CONFIRMED),
+                now_contradicted: formatCount(r.outcomes.CONTRADICTED),
+                now_other: formatCount(r.outcomes.NOT_YET_DUE + r.outcomes.NOT_APPLICABLE),
+                still_waiting: formatCount(r.outcomes.PENDING + r.outcomes.SOURCE_UNAVAILABLE),
               }))}
         {r && r.flags_raised > 0 && ` ${t("recheck.flags_raised", { n: r.flags_raised })}`}
         {recheck.isError && (
@@ -137,12 +137,12 @@ function DetailHeader({ d, academicYear, officer }: { d: Detail; academicYear: s
         <LastUploadLine last={d.last_upload} className="mt-2 text-sm text-ink-muted" />
       </div>
       <dl className="flex min-w-44 flex-col gap-1 border-l-2 border-rule-margin pl-4">
-        <dt className="text-xs font-medium text-ink-muted">{t("index.label")}</dt>
+        <dt className="text-xs font-medium text-ink-muted">{t("kpi.countersigned")}</dt>
         <dd>
-          {d.integrity_index === null ? (
+          {d.countersigned_pct === null ? (
             <span className="font-display text-lg text-ink-muted italic">{t("kpi.not_computed")}</span>
           ) : (
-            <span className="font-display text-3xl font-semibold">{Math.round(d.integrity_index)}</span>
+            <span className="font-display text-3xl font-semibold">{d.countersigned_pct}%</span>
           )}
         </dd>
         {officer && (

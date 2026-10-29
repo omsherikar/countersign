@@ -9,13 +9,14 @@ import { SeatCodePill } from "@/components/brand/SeatCodePill";
 import { t, tk } from "@/lib/copy";
 import { formatCount, formatDate } from "@/lib/format";
 import { useInstitutionEnrolments } from "@/lib/queries";
-import { CHECK_ORDER } from "@/lib/checks";
-import type { AdmissionRoute, CheckStatus, CheckType, EnrolmentStatus, ProgrammeDetail } from "@/lib/types";
+import { STATUS_ORDER, statusWord } from "@/lib/checks";
+import type { AdmissionRoute, EnrolmentStatus, ProgrammeDetail, RecordStatus } from "@/lib/types";
 import { useUrlParams } from "@/lib/use-url-params";
 import { Button } from "@/components/ui/button";
 import { ErrorBlock, SkeletonRows, SlowHint, TableMessage } from "@/components/common/query-state";
 import { FilterSelect, SearchInput } from "@/components/common/filter-select";
-import { CountersignStrip, ReadLoggedNote, UnseatedChip } from "@/components/common/ledger-bits";
+import { ReadLoggedNote, UnseatedChip } from "@/components/common/ledger-bits";
+import { RecordStatusBadge } from "@/components/records/record-status-badge";
 import { FlagChips } from "@/components/flags/flag-chip";
 import { Pager } from "@/components/common/pager";
 
@@ -23,7 +24,6 @@ const PAGE_SIZE = 25;
 const COLS = 11;
 const STATUSES: EnrolmentStatus[] = ["ACTIVE", "WITHDRAWN", "TRANSFERRED", "GRADUATED"];
 const ROUTES: AdmissionRoute[] = ["COUNSELLING", "MANAGEMENT", "NRI", "SPOT", "LATERAL", "INTERNATIONAL", "TFW"];
-const RESULTS: CheckStatus[] = ["CONFIRMED", "CONTRADICTED", "PENDING", "NOT_YET_DUE", "NOT_APPLICABLE", "SOURCE_UNAVAILABLE"];
 
 /**
  * Enrolments of one institution: masked ids only, consent, route, seat code
@@ -52,8 +52,7 @@ export function EnrolmentsTable({
   const year = params.get("e_year") ?? academicYear;
   const route = params.get("e_route") ?? "";
   const q = params.get("e_q") ?? "";
-  const checkType = (params.get("e_check") ?? "") as CheckType | "";
-  const result = (params.get("e_result") ?? "") as CheckStatus | "";
+  const recordStatus = (params.get("e_record") ?? "") as RecordStatus | "";
   const flagged = params.get("e_flagged") ?? "";
   const seated = params.get("e_seated") ?? "";
   const page = Math.max(1, Number(params.get("e_page") ?? 1) || 1);
@@ -66,18 +65,16 @@ export function EnrolmentsTable({
     academic_year: year || undefined,
     admission_route: (route || undefined) as AdmissionRoute | undefined,
     q: q || undefined,
-    // Result alone is "any check with this result"; Check is sent only with a Result (A2.10).
-    check_status: result || undefined,
-    check_type: result && checkType ? checkType : undefined,
+    record_status: recordStatus || undefined,
     flagged: flagged === "" ? undefined : flagged === "true",
     seated: seated === "" ? undefined : seated === "true",
   });
   const onSearch = React.useCallback((value: string) => set({ e_q: value, e_page: null }), [set]);
   const data = list.data;
   const rows = data?.items ?? [];
-  const filtered = Boolean(programmeId || route || q || status !== "ACTIVE" || result || checkType || flagged || seated);
+  const filtered = Boolean(programmeId || route || q || status !== "ACTIVE" || recordStatus || flagged || seated);
   const clearAll = () =>
-    set({ e_programme: null, e_status: null, e_route: null, e_q: null, e_check: null, e_result: null, e_flagged: null, e_seated: null, e_page: null });
+    set({ e_programme: null, e_status: null, e_route: null, e_q: null, e_record: null, e_flagged: null, e_seated: null, e_page: null });
 
   return (
     <div>
@@ -108,18 +105,11 @@ export function EnrolmentsTable({
           onChange={(v) => set({ e_route: v, e_page: null })}
         />
         <FilterSelect
-          label={t("enrolments.filter.check")}
-          value={checkType}
-          options={CHECK_ORDER.map((c) => ({ value: c, label: tk(`check.${c}`) }))}
-          allLabel={t("enrolments.filter.any")}
-          onChange={(v) => set({ e_check: v, e_page: null })}
-        />
-        <FilterSelect
-          label={t("enrolments.filter.result")}
-          value={result}
-          options={RESULTS.map((r) => ({ value: r, label: tk(`check.status.${r}`) }))}
-          allLabel={t("enrolments.filter.any")}
-          onChange={(v) => set({ e_result: v, e_page: null })}
+          label={t("enrolments.filter.status")}
+          value={recordStatus}
+          options={STATUS_ORDER.map((s) => ({ value: s, label: statusWord(s) }))}
+          allLabel={t("enrolments.filter.status_all")}
+          onChange={(v) => set({ e_record: v, e_page: null })}
         />
         <FilterSelect
           label={t("enrolments.filter.flagged")}
@@ -172,7 +162,7 @@ export function EnrolmentsTable({
               <th scope="col" className="code">
                 {t("col.seat")}
               </th>
-              <th scope="col">{t("col.countersign")}</th>
+              <th scope="col">{t("col.record_status")}</th>
               <th scope="col">{t("col.flags")}</th>
               <th scope="col" className="num hidden 2xl:table-cell">
                 {t("col.uploaded")}
@@ -217,7 +207,7 @@ export function EnrolmentsTable({
                 <td className="hidden text-ink-muted 2xl:table-cell">{tk(`category.${e.category}`)}</td>
                 <td className="code">{e.seat_code ? <SeatCodePill seatCode={e.seat_code} status="ASSIGNED" /> : <UnseatedChip />}</td>
                 <td>
-                  <CountersignStrip countersign={e.countersign} />
+                  <RecordStatusBadge status={e.record_status} tip={e.status_reason} />
                 </td>
                 <td>
                   <FlagChips flags={e.flags} hrefFor={flagHref} />

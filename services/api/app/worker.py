@@ -1,4 +1,5 @@
-"""Celery app, the upload task, the notices task that follows it and notice delivery.
+"""Celery app, the upload task, the notices task that follows it, the completeness task
+that follows the notices, and notice delivery.
 
 The worker runs with --concurrency=1 so batches never overlap.
 """
@@ -140,8 +141,53 @@ async def _send_notices(batch_id: uuid.UUID) -> int:
 
 @celery_app.task(name="countersign.send_notices", acks_late=True)
 def send_notices_task(batch_id: str) -> int:
-    """Send the student notices of one DONE batch; returns how many were created."""
-    return asyncio.run(_send_notices(uuid.UUID(batch_id)))
+    """Send the student notices of one DONE batch; returns how many were created. The
+    college's completeness for the batch's year is reconciled next, whatever the notices
+    did."""
+    try:
+        return asyncio.run(_send_notices(uuid.UUID(batch_id)))
+    finally:
+        enqueue_completeness(batch_id)
+
+
+async def _batch_scope(batch_id: uuid.UUID) -> tuple[uuid.UUID, str] | None:
+    async def work(session: AsyncSession) -> tuple[uuid.UUID, str] | None:
+        batch = await session.get(UploadBatch, batch_id)
+        if batch is None or batch.status is not UploadStatus.DONE:
+            return None
+        return batch.institution_id, batch.academic_year
+
+    return await _with_session(work)
+
+
+async def _refresh_completeness(institution_id: uuid.UUID, academic_year: str) -> int:
+    from app.engine.completeness import refresh_one
+
+    engine = create_async_engine(get_settings().database_url(), pool_pre_ping=True)
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        return await refresh_one(factory, institution_id, academic_year)
+    finally:
+        await engine.dispose()
+
+
+@celery_app.task(name="countersign.refresh_completeness", acks_late=True)
+def refresh_completeness_task(institution_id: str, academic_year: str) -> int:
+    """The completeness of one college and year, after its batch's notices."""
+    return asyncio.run(_refresh_completeness(uuid.UUID(institution_id), academic_year))
+
+
+def enqueue_completeness(batch_id: uuid.UUID | str) -> None:
+    """Queue the completeness of a DONE batch's college and year. A failure is logged: the
+    next batch, `make seed` or POST /completeness/refresh reconciles it again."""
+    try:
+        scope = asyncio.run(_batch_scope(uuid.UUID(str(batch_id))))
+        if scope is not None:
+            refresh_completeness_task.delay(str(scope[0]), scope[1])
+    except Exception:
+        log.exception(
+            "could not queue the completeness refresh", extra={"data": {"batch_id": str(batch_id)}}
+        )
 
 
 def enqueue_notices(batch_id: uuid.UUID | str) -> None:
