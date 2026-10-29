@@ -352,11 +352,11 @@ async def _scoped_signal(
                 select(Signal.id).where(Signal.id == signal_id).with_for_update(nowait=True)
             )
         except DBAPIError as exc:
-            if getattr(
-                exc.orig, "sqlstate", None
-            ) == LOCK_NOT_AVAILABLE or "could not obtain lock" in str(exc):
-                raise _handled(signal.status) from None
-            raise
+            # another officer holds the signal: answer as if they had already acted
+            code = getattr(exc.orig, "sqlstate", None)
+            if code != LOCK_NOT_AVAILABLE and "could not obtain lock" not in str(exc):
+                raise
+            raise _handled(signal.status) from None
         await session.refresh(signal)
     return signal
 

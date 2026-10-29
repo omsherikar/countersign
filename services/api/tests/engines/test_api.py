@@ -435,7 +435,7 @@ async def test_dashboard_kpis(ids, as_role) -> None:
     kpis = body["kpis"]
     assert (kpis["flags_open"], kpis["admitted"], kpis["enrolments"]) == (4, 22, 22)
     assert kpis["countersigned_pct"] == 0.0  # STUDENT is pending for everyone
-    assert kpis["clear_pct"] is not None and 0 <= kpis["clear_pct"] < 100
+    assert "clear_pct" not in kpis and sum(kpis["records"].values()) == kpis["enrolments"]
     by_type = {f["type"]: f["open"] for f in body["flags_by_type"]}
     assert list(by_type)[:3] == ["EXCESS_ADMISSION", "QUOTA_BREACH", "LATE_REFILL"]
     assert by_type["DUPLICATE_CROSS_INSTITUTION"] == 2 and by_type["EXCESS_ADMISSION"] == 1
