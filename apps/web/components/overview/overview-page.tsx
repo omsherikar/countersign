@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { t } from "@/lib/copy";
+import { t, tk } from "@/lib/copy";
 import { admittedOf } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { useDashboardSummary, useRegions } from "@/lib/queries";
@@ -15,6 +15,28 @@ import { InstitutionsTable } from "@/components/overview/institutions-table";
 import { KpiStrip, formatPct } from "@/components/overview/kpi-strip";
 import { SourcesPanel } from "@/components/overview/sources-panel";
 import { RegionTable, StateGrid } from "@/components/overview/state-grid";
+import { CompletenessPanel } from "@/components/overview/completeness-panel";
+import { StatusPanel } from "@/components/records/status-panel";
+import type { CaseAgeBucket } from "@/lib/types";
+
+/** Open cases by age: a small table, the same numbers the api counts (A4.20 `cases_by_age`). */
+function CasesByAge({ rows }: { rows: { bucket: CaseAgeBucket; open: number }[] }) {
+  return (
+    <table className="ledger-table ledger-table--dense mt-3 max-w-md">
+      <caption className="!px-0 text-left !text-sm">{t("cases.age_heading")}</caption>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.bucket}>
+            <th scope="row" className="px-2 text-left font-normal text-ink-muted">
+              {tk(`cases.age.${r.bucket}`)}
+            </th>
+            <td className="num font-medium">{formatCount(r.open)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 /**
  * /aicte and /ro. The same page with the region baked in for RO: no Sources
@@ -53,6 +75,20 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
         }
       />
 
+      <section aria-labelledby="records-heading" className="mb-10">
+        <SectionHeader id="records-heading" title={t("kpi.status_heading")} aside={data ? <span>{t("kpi.status_tip", { academic_year: data.academic_year })}</span> : undefined} />
+        <StatusPanel
+          counts={data?.kpis.records}
+          academicYear={data?.academic_year ?? "2026-27"}
+          headingId="records-heading"
+          chart
+          loading={summary.isLoading}
+          failed={summary.isError && !data}
+          onRetry={() => summary.refetch()}
+          hrefFor={(s) => (s === "UNDER_REVIEW" ? `${basePath}/cases` : s === "DISPUTED" ? `${basePath}/cases?f_type=STUDENT_DENIED` : null)}
+        />
+      </section>
+
       <div className="mb-10">
         <KpiStrip
           loading={summary.isLoading}
@@ -89,21 +125,31 @@ export function OverviewPage({ variant }: { variant: "aicte" | "ro" }) {
               <span className="text-ink">
                 {regionRow.region_name}: {formatCount(regionRow.institutions)} institutions, {formatCount(regionRow.approved_seats)} approved
                 seats{regionAdmitted !== null && <>, {formatCount(regionAdmitted)} admitted</>}, {formatCount(regionRow.enrolments)} students on roll,{" "}
-                {formatCount(regionRow.flags_open)} open flags
+                {formatCount(regionRow.flags_open)} {t("col.flags_open").toLowerCase()}
               </span>
             )}
           </div>
         )}
       </div>
 
-      <section aria-labelledby="flags-by-type-heading" className="mb-12">
-        <SectionHeader id="flags-by-type-heading" title={t("section.flags_by_type")} />
-        {summary.isError && !data ? (
-          <ErrorBlock error={summary.error} onRetry={() => summary.refetch()} />
-        ) : (
-          <FlagsByType summary={data} loading={summary.isLoading} casesHref={`${basePath}/cases`} />
-        )}
-      </section>
+      <div className="mb-12 grid grid-cols-1 gap-x-10 gap-y-10 xl:grid-cols-2">
+        <section aria-labelledby="completeness-heading" className="min-w-0">
+          <SectionHeader id="completeness-heading" title={t("completeness.panel_heading")} />
+          <CompletenessPanel summary={data} basePath={basePath} academicYear={data?.academic_year ?? "2026-27"} />
+        </section>
+
+        <section aria-labelledby="flags-by-type-heading" className="min-w-0">
+          <SectionHeader id="flags-by-type-heading" title={t("section.flags_by_type")} />
+          {summary.isError && !data ? (
+            <ErrorBlock error={summary.error} onRetry={() => summary.refetch()} />
+          ) : (
+            <>
+              <FlagsByType summary={data} loading={summary.isLoading} casesHref={`${basePath}/cases`} />
+              {data && data.cases_by_age.length > 0 && <CasesByAge rows={data.cases_by_age} />}
+            </>
+          )}
+        </section>
+      </div>
 
       <section aria-labelledby="ranked-heading" className="mb-12">
         <SectionHeader id="ranked-heading" title={t("section.institutions_ranked")} />

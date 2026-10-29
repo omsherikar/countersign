@@ -7,7 +7,7 @@ import { ApiError, type Query } from "@/lib/api";
 import { casesDownload, casesUpload, withCases } from "@/lib/mock/cases";
 import { ACADEMIC_YEAR, HEALTH, INSTITUTIONS, MOCK_PASSWORD, REGIONS, SEEDS, STATES, USERS, adapterPing, auditVerify, institutionBase, regionName, zeroChaos } from "@/lib/mock/fixtures";
 import { COVERS, SEVERITY_RANK, UNRESOLVED, allFlags, openFlagCount, type StoredFlag } from "@/lib/mock/flags";
-import { ZERO_COUNTS, completenessOf, countsFor, pct, withRecord } from "@/lib/mock/records";
+import { NOT_MINE, ZERO_COUNTS, completenessCsv, completenessOf, countsFor, pct, recordsRequest, withRecord } from "@/lib/mock/records";
 import { enrolmentDetail, entryById, programmesFor, recheck, rollFor, seatsFor, studentMe, type RollEntry } from "@/lib/mock/roll";
 import { readBrowserToken, tokenFor, userFromToken, writeBrowserToken } from "@/lib/mock/session";
 import { allBatches, createUpload, errorsCsv, errorsOf, templateCsv } from "@/lib/mock/uploads";
@@ -570,6 +570,19 @@ async function baseRequest(method: string, path: string, query?: Query, body?: u
 
   const user = currentUser();
 
+  const records = recordsRequest({
+    user,
+    method,
+    parts,
+    query,
+    body,
+    inScope: (id) => inScope(user, id),
+    scoped: () => scopedInstitutions(user),
+    enrolmentInScope: (id, roles) => enrolmentInScope(user, id, roles),
+    paginate,
+  });
+  if (records !== NOT_MINE) return records;
+
   if (pathname === "/me") return { user };
   if (pathname === "/meta/regions") return { items: REGIONS };
   if (pathname === "/meta/states") return { items: STATES };
@@ -692,6 +705,11 @@ export async function mockDownload(path: string): Promise<{ blob: Blob; filename
     requireRole(user, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION"]);
     // No XLSX writer in the browser mock; both buttons save the CSV header row.
     return templateCsv();
+  }
+  const missing = /^\/institutions\/([^/]+)\/completeness\.csv$/.exec(path);
+  if (missing) {
+    requireRole(user, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION"]);
+    return completenessCsv(inScope(user, missing[1]).id);
   }
   const m = /^\/uploads\/([^/]+)\/errors\.csv$/.exec(path);
   if (m) return errorsCsv(uploadInScope(user, m[1]));

@@ -12,9 +12,9 @@ import { SectionHeader } from "@/components/common/page-header";
 import { DEFAULT_STATUS } from "@/components/flags/flags-table";
 import { SeverityBars } from "@/components/flags/flag-chip";
 
-/** The five most severe unresolved flags against the college, summaries verbatim (W2-6). */
+/** The five newest unresolved cases against the college, summaries verbatim (W4-3). */
 export function CollegeFlagsPanel({ academicYear }: { academicYear: string }) {
-  const list = useFlags({ status: DEFAULT_STATUS, academic_year: academicYear, page_size: 5, sort: "severity_desc" });
+  const list = useFlags({ status: DEFAULT_STATUS, academic_year: academicYear, page_size: 5, sort: "created_desc" });
   const data = list.data;
   return (
     <section aria-labelledby="flags-heading" className="mb-10">
@@ -43,7 +43,7 @@ export function CollegeFlagsPanel({ academicYear }: { academicYear: string }) {
             <li key={f.id} className="grid grid-cols-1 gap-x-4 gap-y-0.5 px-4 py-2.5 sm:grid-cols-[9rem_1fr_auto] sm:items-baseline">
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-muted">
                 <SeverityBars severity={f.severity} />
-                {tk(`severity.${f.severity}`)}, {f.programme?.code ?? ""}
+                {f.programme ? `${tk(`severity.${f.severity}`)}, ${f.programme.code}` : tk(`severity.${f.severity}`)}
               </span>
               <span className="min-w-0">
                 <Link href={`/college/flags/${f.id}`} className="font-medium">

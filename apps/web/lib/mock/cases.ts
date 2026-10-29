@@ -1074,13 +1074,13 @@ function seedDenials() {
 }
 
 /**
- * The deck's sample card (A4.25 sample_card): Ananya Deshmukh at ABC College,
+ * The deck's sample card (A4.25 sample_card): Sanika Ghorpade at ABC College,
  * B.Tech CSE 2026. Her joining record is not found, she answered No after
  * DigiLocker sign-in, and the officer asked the college for admission
  * documents: the record reads Disputed (priority).
  */
 function seedSampleCard() {
-  const e = entryByName(IDS.abc, "Ananya Deshmukh");
+  const e = entryByName(IDS.abc, "Sanika Ghorpade");
   const file: NoticeFile = { notices: [], hasEmail: true, noDigiLocker: false, resendsUsed: 0, consentWithdrawnAt: null };
   const email = notice(e, "EMAIL", "first", SENT_AT, EXPIRES_AT);
   const digi = notice(e, "DIGILOCKER", "first", SENT_AT, EXPIRES_AT);
@@ -1104,7 +1104,7 @@ function seedSampleCard() {
     from_status: "OPEN",
     to_status: "DOCS_REQUESTED",
     actor: west,
-    note: "Send the admission form, the fee receipt and the joining report for Ananya Deshmukh.",
+    note: "Send the admission form, the fee receipt and the joining report for Sanika Ghorpade.",
     due_date: "2026-11-05",
     assignee: null,
     attachments: [],

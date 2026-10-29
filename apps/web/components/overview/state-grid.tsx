@@ -3,7 +3,9 @@
 import * as React from "react";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { StateGridCard } from "@/components/brand/StateGridCard";
-import { t } from "@/lib/copy";
+import { t, tk } from "@/lib/copy";
+import { STATUS_ORDER, statusWord } from "@/lib/checks";
+import { pctWord } from "@/components/records/status-panel";
 import { admittedOf } from "@/lib/counts";
 import { formatCount } from "@/lib/format";
 import { REGION_NAME } from "@/lib/roles";
@@ -134,6 +136,14 @@ export function RegionTable({ summary, regions }: { summary: DashboardSummary; r
             <th scope="col" className="num">
               {t("col.flags_open")}
             </th>
+            {STATUS_ORDER.map((s) => (
+              <th key={s} scope="col" className="num" title={tk(`record_status.meaning.${s}`)}>
+                {statusWord(s)}
+              </th>
+            ))}
+            <th scope="col" className="num" title={t("completeness.tip", { academic_year: summary.academic_year })}>
+              {t("completeness.col")}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -145,6 +155,12 @@ export function RegionTable({ summary, regions }: { summary: DashboardSummary; r
               {withAdmitted && <td className="num">{formatCount(admittedOf(r) ?? 0)}</td>}
               <td className="num">{formatCount(r.enrolments)}</td>
               <td className={r.flags_open > 0 ? "num font-semibold" : "num text-ink-muted"}>{formatCount(r.flags_open)}</td>
+              {STATUS_ORDER.map((s) => (
+                <td key={s} className="num">
+                  {formatCount(r.records[s])}
+                </td>
+              ))}
+              <td className="num">{r.completeness_pct === null ? "" : pctWord(r.completeness_pct)}</td>
             </tr>
           ))}
         </tbody>
