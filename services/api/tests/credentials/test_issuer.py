@@ -1,4 +1,5 @@
-"""Issuance: who is eligible, what an Enrolment or Degree proof holds, revocation."""
+"""Issuance: who is eligible, what an enrolment or completion attestation holds, and
+revocation (D26, D44, R6)."""
 
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from sqlalchemy import func, select
 
 from app.core.errors import ApiError
 from app.credentials import issuer, keys, status_list
+from app.engine.contracts import CHECK_ORDER
 from app.models.audit import AuditLog
 from app.models.credential import Credential, HolderKey
 from app.models.enums import (
@@ -21,12 +23,24 @@ from app.models.enums import (
     EnrolmentStatus,
     FlagStatus,
     FlagType,
+    RecordStatus,
     Severity,
 )
 from app.models.student import Enrolment, Student
 from app.models.user import User
 from app.models.verification import Flag
-from tests.credentials.conftest import make_countersigned, ravi_enrolment, set_check
+from tests.credentials.conftest import (
+    make_countersigned,
+    ravi_enrolment,
+    set_check,
+    set_record_status,
+)
+
+COUNTERSIGNED_ROWS = [
+    t.value
+    for t in CHECK_ORDER
+    if t in (CheckType.IDENTITY, CheckType.SEAT, CheckType.ADMISSION, CheckType.STUDENT)
+]
 
 
 def _jwt_part(token: str, n: int) -> dict:
@@ -53,8 +67,9 @@ async def _flag(session, enrolment, severity: Severity, status: FlagStatus, rela
     return flag
 
 
-async def test_an_enrolment_proof_waits_for_the_students_yes(world, session):
+async def test_an_enrolment_attestation_waits_for_a_countersigned_record(world, session):
     enrolment = await ravi_enrolment(session)
+    await set_record_status(session, enrolment.id, RecordStatus.AWAITING_EVIDENCE)
     assert await issuer.issue_if_eligible(session, enrolment.id) is None
     assert await _count(session, Credential) == 0
     assert await _count(session, HolderKey) == 0
@@ -105,10 +120,8 @@ async def test_an_enrolment_proof_waits_for_the_students_yes(world, session):
         "programme": {"name": "B.Tech Computer Science and Engineering", "level": "UG"},
         "academic_year": "2026-27",
         "year_of_study": 1,
-        "countersigned": {
-            "checks": ["IDENTITY", "ADMISSION", "SEAT", "STUDENT"],
-            "on": today.isoformat(),
-        },
+        # the rows CONFIRMED at issue, in row order
+        "countersigned": {"checks": COUNTERSIGNED_ROWS, "on": today.isoformat()},
     }
     claims = {
         c["key"]: (c["label"], c["value"], c["disclosable"]) for c in issuer.claims_for(credential)
@@ -117,9 +130,11 @@ async def test_an_enrolment_proof_waits_for_the_students_yes(world, session):
     assert claims["institution"][1] == "ABC College of Engineering (1-ABC-0001)"
     assert claims["programme"][1] == "B.Tech Computer Science and Engineering (UG)"
     assert claims["year_of_study"] == ("Year of study", "1", True)
+    words = issuer.join_words(issuer.CHECK_WORDS[CheckType(c)] for c in COUNTERSIGNED_ROWS)
+    assert "Joining record" in words and "Admission" not in words
     assert claims["countersigned"] == (
         "Countersigned by",
-        f"Identity, Admission, Seat and Student, as of {issuer.display_date(today)}",
+        f"{words}, as of {issuer.display_date(today)}",
         True,
     )
     assert claims["expires"] == ("Valid until", "31 Aug 2027", False)
@@ -149,41 +164,33 @@ async def test_no_apaar_means_no_masked_apaar_claim(world, session):
     await session.rollback()
 
 
-@pytest.mark.parametrize(
-    "blocker",
-    ["student_pending", "student_fail", "other_fail", "withdrawn", "high_flag", "related_high"],
-)
-async def test_what_blocks_an_enrolment_proof(world, session, blocker):
+@pytest.mark.parametrize("blocker", ["AWAITING_EVIDENCE", "UNDER_REVIEW", "DISPUTED", "withdrawn"])
+async def test_only_a_countersigned_active_record_gets_one(world, session, blocker):
+    """The one eligibility rule is the record status (D44): rows and cases count only
+    through it."""
     enrolment = await ravi_enrolment(session)
     await make_countersigned(session, enrolment.id)
-    if blocker == "student_pending":
-        await set_check(session, enrolment.id, CheckType.STUDENT, CheckStatus.PENDING)
-    elif blocker == "student_fail":
-        await set_check(session, enrolment.id, CheckType.STUDENT, CheckStatus.CONTRADICTED)
-    elif blocker == "other_fail":
-        await set_check(session, enrolment.id, CheckType.ADMISSION, CheckStatus.CONTRADICTED)
-    elif blocker == "withdrawn":
+    if blocker == "withdrawn":
         enrolment.status = EnrolmentStatus.WITHDRAWN
-    elif blocker == "high_flag":
-        await _flag(session, enrolment, Severity.HIGH, FlagStatus.ESCALATED)
     else:
-        await _flag(session, enrolment, Severity.HIGH, FlagStatus.DOCS_REQUESTED, related=True)
+        await set_record_status(session, enrolment.id, RecordStatus(blocker))
     await session.flush()
     assert await issuer.eligibility(session, enrolment.id) is False
     assert await issuer.issue_if_eligible(session, enrolment.id) is None
     await session.rollback()
 
 
-async def test_pending_studying_cleared_and_lesser_flags_do_not_block(world, session):
+async def test_the_countersigned_claim_lists_only_confirmed_rows(world, session):
     enrolment = await ravi_enrolment(session)
     await make_countersigned(session, enrolment.id)
     await set_check(session, enrolment.id, CheckType.STUDYING, CheckStatus.PENDING)
-    await _flag(session, enrolment, Severity.HIGH, FlagStatus.UPHELD)
+    # a record keeps its live attestation while a lesser case is open; issuance reads only
+    # the record's status
     await _flag(session, enrolment, Severity.MEDIUM, FlagStatus.OPEN)
     assert await issuer.eligibility(session, enrolment.id) is True
     credential = await issuer.issue_if_eligible(session, enrolment.id)
     payload_checks = issuer.disclosures(credential.sd_jwt)["countersigned"]["checks"]
-    assert payload_checks == ["IDENTITY", "ADMISSION", "SEAT", "STUDENT"]
+    assert payload_checks == COUNTERSIGNED_ROWS
     await session.rollback()
 
 
@@ -244,7 +251,9 @@ async def test_degree_proofs(world, session):
     assert (again.id, created_again) == (degree.id, False)
 
     payload = _jwt_part(degree.sd_jwt, 1)
-    assert payload["vct"] == "countersign:degree:v1"
+    assert payload["vct"] == "countersign:completion:v1" == issuer.COMPLETION_VCT
+    # completion attestations issued before D44 read the same
+    assert issuer.kind_of("countersign:degree:v1") is CredentialKind.COMPLETION
     assert "cnf" not in payload and "exp" not in payload and degree.expires_at is None
     assert degree.disclosable == list(issuer.DEGREE_DISCLOSABLE)
     values = issuer.disclosures(degree.sd_jwt)
@@ -303,19 +312,26 @@ async def test_an_officer_revocation(world, session):
     with pytest.raises(ApiError) as again:
         await issuer.revoke(session, credential, reason="Again.", actor_id=admin.id)
     assert again.value.code == "CREDENTIAL_REVOKED"
-    assert again.value.message == "This proof is already revoked."
+    assert again.value.message == "This attestation is already revoked."
     await session.rollback()
 
 
 @pytest.mark.parametrize(
     ("cause", "issued_again"),
-    [("officer", False), ("FLAG_CONFIRMED", False), ("ENROLMENT_WITHDRAWN", True)],
+    [
+        ("officer", False),
+        ("CLAIM_WITHDRAWN", False),
+        ("FLAG_CONFIRMED", False),
+        ("ENROLMENT_WITHDRAWN", True),
+        ("STUDENT_DISPUTE", True),
+    ],
 )
 async def test_only_a_system_release_lets_a_proof_be_issued_again(
     world, session, cause, issued_again
 ):
-    """An officer's revocation, or one from a confirmed flag, holds until an officer acts
-    again; a withdrawal undone by a later upload lets the proof come back."""
+    """An officer's revocation or withdrawal decision holds until an officer acts again;
+    a withdrawal undone by a later upload, or a dispute an officer upheld, lets the
+    attestation come back once the record is COUNTERSIGNED again (R6)."""
     from app import credentials
 
     admin = (
@@ -335,14 +351,8 @@ async def test_only_a_system_release_lets_a_proof_be_issued_again(
 
 
 def test_reason_codes_and_words():
-    assert [
-        issuer.reason_code(r) for r in (None, "ENROLMENT_WITHDRAWN", "FLAG_CONFIRMED", "x")
-    ] == [
-        None,
-        "ENROLMENT_WITHDRAWN",
-        "FLAG_CONFIRMED",
-        "ADMIN",
-    ]
+    codes = (None, "ENROLMENT_WITHDRAWN", "CLAIM_WITHDRAWN", "STUDENT_DISPUTE", "FLAG_CONFIRMED")
+    assert [issuer.reason_code(r) for r in (*codes, "x")] == [*codes, "ADMIN"]
     assert issuer.join_words(["Identity"]) == "Identity"
     assert issuer.join_words(["Identity", "Seat"]) == "Identity and Seat"
     assert issuer.display_date(datetime(2026, 10, 5).date()) == "5 Oct 2026"

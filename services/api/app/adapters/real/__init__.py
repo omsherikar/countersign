@@ -12,6 +12,7 @@ from app.adapters.base import (
     AbcResult,
     ApaarResult,
     CounsellingResult,
+    DigiLockerIdentity,
     DigiLockerResult,
     RealAdapterDisabled,
     SiiResult,
@@ -72,6 +73,16 @@ class RealDigiLocker(_RealBase):
     source = "digilocker"
 
     async def notify(self, apaar_id: str, message: str, callback_url: str) -> DigiLockerResult:
+        self._guard()
+        raise AssertionError("unreachable")
+
+    def authorize_url(self, *, state: str, nonce: str, redirect_uri: str) -> str:
+        self._guard()
+        raise AssertionError("unreachable")
+
+    async def exchange_code(
+        self, *, code: str, redirect_uri: str, nonce: str
+    ) -> DigiLockerIdentity:
         self._guard()
         raise AssertionError("unreachable")
 

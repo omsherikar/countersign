@@ -220,8 +220,10 @@ async def test_the_access_log_shows_roles_only_never_own_reads(cw, logins) -> No
     notice = await notification(cw)
     await read_entry("notification", notice, after={"via": "notice-link"})
     credential = await add_credential(cw.ravi_student, cw.ravi)
-    await read_entry("credential", credential, after={"via": "degree-qr", "ip_hash": "ab12"})
-    await read_entry("student", cw.ravi_student, cw.users["coe@univ.demo"], {"via": "degree-print"})
+    await read_entry("credential", credential, after={"via": "completion-qr", "ip_hash": "ab12"})
+    await read_entry(
+        "student", cw.ravi_student, cw.users["coe@univ.demo"], {"via": "certificate-print"}
+    )
     await read_entry("student", cw.xyz_student, cw.users["admin@aicte.demo"])  # someone else
 
     response = await student.get("/students/me/access-log", params={"page_size": 200})
@@ -230,7 +232,7 @@ async def test_the_access_log_shows_roles_only_never_own_reads(cw, logins) -> No
     items = body["items"]
     assert all(set(i) == {"at", "role", "what"} for i in items)
     assert [(i["role"], i["what"]) for i in items[:6]] == [
-        ("UNIVERSITY", "DEGREE"),
+        ("UNIVERSITY", "COMPLETION"),
         ("VERIFIER", "CREDENTIAL"),
         ("NOTICE_LINK", "NOTICE"),
         ("INSTITUTION", "RECORD"),

@@ -168,6 +168,34 @@ def test_ghost_ring_40_students_3_colleges_4_mobiles(small):
     }
 
 
+def _contact_groups(rows: list[dict]) -> int:
+    """How many groups the rows form when a shared mobile, address or email links two."""
+    parent = list(range(len(rows)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    first_seen: dict[tuple[str, str], int] = {}
+    for i, row in enumerate(rows):
+        for field in ("mobile", "address", "email"):
+            if value := row.get(field):
+                parent[find(i)] = find(first_seen.setdefault((field, value), i))
+    return len({find(i) for i in range(len(rows))})
+
+
+def test_every_planted_ring_is_one_connected_group(small):
+    """A contact graph must find each planted ring whole, not split in two."""
+    uploads = small.all_uploads()
+    rings = [r for r in small.json("ground_truth.json") if r.get("anomaly_type") == "GHOST_RING"]
+    assert rings
+    for rec in rings:
+        rows = [uploads[r["institution_aicte_id"]][r["row_no"] - 2] for r in rec["rows"]]
+        assert _contact_groups(rows) == 1, rec.get("note")
+
+
 def test_xyz_second_year_with_zero_credits(small):
     gt = small.json("ground_truth.json")
     rec = next(r for r in gt if r.get("scenario") == "xyz_zero_credits")

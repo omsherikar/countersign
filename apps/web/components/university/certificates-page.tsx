@@ -73,27 +73,36 @@ export function PdfLink({ enrolmentId, className, describedBy }: { enrolmentId: 
 
 const SEEN_KEY = "cs_cert_how_seen";
 const noSubscribe = () => () => {};
+let firstVisitCache: boolean | null = null;
+/** Read once per page load, so the panel does not close the moment the visit is remembered. */
+function readFirstVisit(): boolean {
+  if (firstVisitCache === null) {
+    try {
+      firstVisitCache = !localStorage.getItem(SEEN_KEY);
+    } catch {
+      firstVisitCache = false;
+    }
+  }
+  return firstVisitCache;
+}
 
 /**
  * How it works and the API line, as native disclosures: open on the first
  * visit, closed after that (remembered in this browser only).
  */
 function HowItWorks() {
-  const [open, setOpen] = React.useState(false);
+  const firstVisit = React.useSyncExternalStore(noSubscribe, readFirstVisit, () => false);
   const origin = React.useSyncExternalStore(noSubscribe, () => window.location.origin, () => "");
   React.useEffect(() => {
     try {
-      if (!localStorage.getItem(SEEN_KEY)) {
-        setOpen(true);
-        localStorage.setItem(SEEN_KEY, "1");
-      }
+      localStorage.setItem(SEEN_KEY, "1");
     } catch {
-      // Storage refused: the panel stays closed.
+      // Storage refused: the panel opens again next time.
     }
   }, []);
   return (
     <div className="mb-6 flex max-w-[72ch] flex-col gap-2">
-      <details className="group border-l-2 border-rule-margin bg-paper-raised px-4 py-2" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <details key={firstVisit ? "first" : "later"} className="group border-l-2 border-rule-margin bg-paper-raised px-4 py-2" open={firstVisit || undefined}>
         <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-medium text-ink-blue [&::-webkit-details-marker]:hidden">
           <ChevronRight className="size-4 shrink-0 group-open:rotate-90" aria-hidden="true" />
           {t("cert.how_heading")}

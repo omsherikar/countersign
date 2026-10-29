@@ -211,7 +211,8 @@ export interface SeatListParams {
   q?: string;
   academic_year?: string;
 }
-export type EnrolmentListParams = EnrolmentListQuery;
+/** The record filters plus the row and evidence-state filters of page spec W4-2, which the contract does not carry yet. */
+export type EnrolmentListParams = EnrolmentListQuery & { row?: CheckType; row_state?: EvidenceState };
 /** Errata 2 and A4.24: `status` also takes UNRESOLVED (OPEN, DOCS_REQUESTED, ESCALATED), the set flags_open counts, and DECIDED. */
 export type FlagStatusFilter = FlagStatus | "UNRESOLVED" | "DECIDED";
 export interface FlagListParams extends Omit<FlagListQuery, "status"> {

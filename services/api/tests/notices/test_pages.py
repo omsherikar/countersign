@@ -14,7 +14,7 @@ from app.db.session import session_factory
 from app.models.enums import NoticeChannel
 from app.models.verification import Notification
 from app.notices.student_check import wire_time
-from tests.notices.conftest import delivered, notices_of
+from tests.notices.conftest import confirm_rows, delivered, notices_of, signed_in_owner
 
 EMAIL, DIGILOCKER = NoticeChannel.EMAIL, NoticeChannel.DIGILOCKER
 NOTICE_KEYS = {
@@ -35,9 +35,16 @@ def issued(monkeypatch) -> list:
     return calls
 
 
+async def answer(token: str, response: str = "YES") -> None:
+    """The notice's own student answers, signed in through DigiLocker (D37)."""
+    async with await signed_in_owner(token) as student:
+        reply = await student.post(f"/notices/{token}/respond", json={"response": response})
+    assert reply.status_code == 200, reply.text
+
+
 async def test_the_student_sees_their_notices_and_proofs(world, mailer, public, monkeypatch):
     enrolment, tokens = await delivered(world, mailer, digilocker=False)
-    await public.post(f"/notices/{tokens[EMAIL]}/respond", json={"response": "YES"})
+    await answer(tokens[EMAIL])
     proof = {
         "id": "c1c1c1c1-3333-4444-8555-666677778888",
         "kind": "ENROLMENT",
@@ -78,8 +85,11 @@ async def test_the_student_sees_their_notices_and_proofs(world, mailer, public, 
         "FAILED",
     )
     assert body["credentials"] == [proof]
-    student_check = body["enrolments"][0]["countersign"]["checks"][-1]
-    assert student_check == {"type": "STUDENT", "status": "CONFIRMED"}
+    assert body["signed_in_with"] == "DIGILOCKER"
+    [record] = body["enrolments"]
+    [student_row] = [c for c in record["checks"] if c["type"] == "STUDENT"]
+    assert (student_row["state"], student_row["independent"]) == ("CONFIRMED", True)
+    assert (record["response"], record["can_respond"], record["decision"]) == ("YES", True, None)
 
 
 async def test_notice_states_newest_first(world, mailer):
@@ -158,7 +168,9 @@ async def test_an_enrolment_with_no_notice(world, clients):
 async def test_both_rechecks_ask_for_the_proof(world, mailer, clients, public, issued):
     confirmed, tokens = await delivered(world, mailer, apaar=None)
     waiting, _ = await delivered(world, mailer, apaar=None)
-    await public.post(f"/notices/{tokens[EMAIL]}/respond", json={"response": "YES"})
+    await confirm_rows(confirmed.id)
+    await confirm_rows(waiting.id)
+    await answer(tokens[EMAIL])
     issued.clear()
     response = await clients["admin"].post(f"/enrolments/{confirmed.id}/recheck")
     assert response.status_code == 200, response.text
@@ -166,5 +178,5 @@ async def test_both_rechecks_ask_for_the_proof(world, mailer, clients, public, i
     issued.clear()
     response = await clients["admin"].post(f"/institutions/{world.abc.id}/recheck", json={})
     assert response.status_code == 200, response.text
-    # only an enrolment whose STUDENT check passed can be eligible
+    # only a COUNTERSIGNED record can be eligible (D44): the other waits for evidence
     assert issued == [confirmed.id] and waiting.id not in issued

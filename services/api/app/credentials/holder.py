@@ -152,7 +152,7 @@ async def present(
         raise ApiError(
             409,
             "CREDENTIAL_REVOKED",
-            f"This proof was revoked on {display_date(ist_date(credential.revoked_at))} "
+            f"This attestation was revoked on {display_date(ist_date(credential.revoked_at))} "
             "and cannot be shared.",
             {"revoked_at": iso(credential.revoked_at)},
         )
@@ -161,7 +161,7 @@ async def present(
         raise ApiError(
             409,
             "CREDENTIAL_NOT_ELIGIBLE",
-            f"This proof expired on {display_date(ist_date(credential.expires_at))} "
+            f"This attestation expired on {display_date(ist_date(credential.expires_at))} "
             "and cannot be shared.",
             {"reason": "EXPIRED"},
         )

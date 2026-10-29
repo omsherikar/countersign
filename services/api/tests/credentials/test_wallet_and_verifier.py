@@ -145,7 +145,7 @@ async def test_issue_share_verify_expire_revoke(world):
                 assert missing.json() == {
                     "error": {
                         "code": "PRESENTATION_NOT_FOUND",
-                        "message": "This code is not a Countersign proof.",
+                        "message": "This code is not a Countersign attestation.",
                         "details": {},
                     }
                 }
@@ -347,7 +347,7 @@ async def test_who_may_use_the_wallet(world):
         assert claims["expires"] == "31 Aug 2027"
         unknown = await student.get(f"/credentials/{uuid.uuid4()}")
         assert unknown.status_code == 404
-        assert unknown.json()["error"]["message"] == "Credential not found."
+        assert unknown.json()["error"]["message"] == "Attestation not found."
 
         present = f"/credentials/{credential.id}/present"
         assert (await admin.post(present, json={"fields": [], "consent": True})).status_code == 403
@@ -370,7 +370,7 @@ async def test_who_may_use_the_wallet(world):
         assert (await admin.post(revoke, json={"reason": "Fraud found."})).status_code == 200
         again = await admin.post(revoke, json={"reason": "Fraud found."})
         assert again.status_code == 409
-        assert again.json()["error"]["message"] == "This proof is already revoked."
+        assert again.json()["error"]["message"] == "This attestation is already revoked."
 
         refused = await student.post(present, json={"fields": [], "consent": False})
         assert refused.status_code == 409

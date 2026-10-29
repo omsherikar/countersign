@@ -1,5 +1,10 @@
-"""Officer actions on a flag, the college's response and attachment downloads (D25,
-API_CONTRACT §A3.9 to §A3.12).
+"""Officer actions on a flag, the college's response and attachment downloads (D25, D43,
+API_CONTRACT §A3.9 to §A3.12, §A4.8 to §A4.10).
+
+A decision changes the record, the seat, the attestation and the audit trail in the
+request's one transaction, and the answer carries its `effects`. With `dry_run` the action
+and its status settling run inside a SAVEPOINT that is rolled back: the same checks and the
+same effects, and nothing stored, audited, emailed or issued.
 
 POST /flags/{id}/response takes multipart/form-data, the second exemption from the
 JSON-only rule after POST /uploads. Its files are checked and written before any database
@@ -25,14 +30,21 @@ from app.cases import attachments, transitions
 from app.cases import service as cases
 from app.core import audit
 from app.core.audit import AuditEntry
-from app.core.deps import RequestId, SessionDep, require_roles
+from app.core.deps import Adapters, RequestId, SessionDep, require_roles
 from app.core.errors import ApiError, not_found
+from app.engine import status
 from app.models.enums import AuditAction, CaseActionKind, UserRole
 from app.models.user import User
 from app.models.verification import CaseAttachment
 from app.notices.mailer import MailMessage, build_mailer
 from app.routers.flags import build_detail
-from app.schemas.flags import CaseActionIn, FlagDetail
+from app.schemas.flags import (
+    CaseActionIn,
+    CaseActionResult,
+    DecisionEffects,
+    DryRunResult,
+    FlagDetail,
+)
 
 log = logging.getLogger("countersign.cases")
 
@@ -63,29 +75,50 @@ async def send_mail(messages: Sequence[MailMessage]) -> None:
         )
 
 
-@router.post("/{flag_id}/actions", response_model=FlagDetail)
+@router.post("/{flag_id}/actions", response_model=CaseActionResult | DryRunResult)
 async def flag_action(
     flag_id: uuid.UUID,
     body: CaseActionIn,
     session: SessionDep,
     user: Officer,
     request_id: RequestId,
-) -> FlagDetail:
-    result = await cases.apply_action(
-        session,
-        user,
-        flag_id,
-        action=CaseActionKind(body.action),
-        note=body.note,
-        due_date=body.due_date,
-        assignee_id=body.assignee_id,
-        assignee_given="assignee_id" in body.model_fields_set,
-    )
+    adapters: Adapters,
+) -> CaseActionResult | DryRunResult:
+    async def act() -> tuple[cases.ActionResult, dict]:
+        result = await cases.apply_action(
+            session,
+            user,
+            flag_id,
+            action=CaseActionKind(body.action),
+            note=body.note,
+            due_date=body.due_date,
+            assignee_id=body.assignee_id,
+            assignee_given="assignee_id" in body.model_fields_set,
+            reason_code=body.reason_code,
+            docs_kind=body.docs_kind,
+            withdrawn_enrolment_ids=body.withdrawn_enrolment_ids,
+            correction=body.correction.model_dump() if body.correction else None,
+            approval_version=body.approval_version,
+            adapters=adapters,
+        )
+        return result, await cases.settle_effects(session, result)
+
+    if body.dry_run:
+        savepoint = await session.begin_nested()
+        try:
+            _, effects = await act()
+        finally:
+            await savepoint.rollback()
+            session.info.pop(status.STATUS_DIRTY, None)
+        return DryRunResult(effects=DecisionEffects(**effects))
+
+    result, effects = await act()
     detail = await build_detail(session, user, flag_id, request_id=request_id)
+    answer = CaseActionResult(**detail.model_dump(), effects=DecisionEffects(**effects))
     if result.messages:
         await session.commit()
         await send_mail(result.messages)
-    return detail
+    return answer
 
 
 def _invalid(fields: list[dict[str, str]]) -> ApiError:
@@ -138,6 +171,7 @@ async def flag_response(
         await form.close()
     try:
         await cases.college_response(session, user, flag_id, note=note, files=stored)
+        await status.settle(session)
         detail = await build_detail(session, user, flag_id, request_id=request_id)
         await session.commit()
     except BaseException:

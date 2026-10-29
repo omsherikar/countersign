@@ -15,6 +15,8 @@ import type { FlagType, InstitutionRow, InstitutionType, ItemsEnvelope, RecordCo
 
 const OFFICERS: Role[] = ["AICTE_ADMIN", "RO_OFFICER"];
 const SYNTHETIC = "Synthetic demo data. Every number comes from the Countersign demo dataset.";
+/** The first line of every CSV and the first row of every sheet, as the api writes them (copy deck report.synthetic). */
+const SYNTHETIC_LINE = "Synthetic data. Every college, student and number here is generated for the demo.";
 
 const COLUMNS: Record<Exclude<ReportName, "summary">, string[]> = {
   "by-state": [
@@ -220,10 +222,10 @@ export function reportFile(user: User, path: string): { blob: Blob; filename: st
   if (name === "summary") return { blob: pdfBlob(summaryLines(user, rows, year, scopeName)), filename };
   const header = COLUMNS[name];
   const table = year === ACADEMIC_YEAR ? tableOf(name, rows, year) : [];
-  if (format === "csv") return { blob: new Blob([csvText(header, table)], { type: "text/csv;charset=utf-8" }), filename };
+  if (format === "csv") return { blob: new Blob([csvText(header, table, SYNTHETIC_LINE)], { type: "text/csv;charset=utf-8" }), filename };
   if (format === "xlsx") {
     const about = [["Title", TITLES[name]], ["Scope", scopeName], ["Academic year", year], ["Generated", new Date().toISOString()], [SYNTHETIC]];
-    return { blob: xlsxBlob([{ name: TITLES[name], rows: [header, ...table] }, { name: "About", rows: about }]), filename };
+    return { blob: xlsxBlob([{ name: TITLES[name], rows: [[SYNTHETIC_LINE], header, ...table] }, { name: "About", rows: about }]), filename };
   }
   const widths = header.map((h, i) => Math.min(18, Math.max(h.length, ...table.slice(0, 25).map((r) => String(r[i] ?? "").length))));
   const line = (cells: unknown[]) => cells.map((c, i) => String(c ?? "").slice(0, widths[i]).padEnd(widths[i])).join(" ");

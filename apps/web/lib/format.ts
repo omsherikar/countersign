@@ -97,3 +97,14 @@ export function formatBytes(n: number): string {
   if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
+
+const DAY_MONTH = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: TZ });
+const YEAR = new Intl.DateTimeFormat("en-GB", { year: "numeric", timeZone: TZ });
+
+/** Dates on the record card: "12 Aug" within the current calendar year (IST), "12 Aug 2025" otherwise (copy deck §22). */
+export function formatCardDate(value: string | null | undefined, now: Date = new Date()): string {
+  if (!value) return "";
+  const d = toDate(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return YEAR.format(d) === YEAR.format(now) ? DAY_MONTH.format(d).replace(/\bSept\b/, "Sep") : fmtDay(d);
+}

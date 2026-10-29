@@ -12,8 +12,10 @@ function csvCell(v: unknown): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export function csvText(header: string[], rows: unknown[][]): string {
-  return "﻿" + [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+/** UTF-8 with a BOM; an optional lead line (the synthetic-data note), then the header and the rows. */
+export function csvText(header: string[], rows: unknown[][], lead?: string): string {
+  const lines = [...(lead ? [[lead]] : []), header, ...rows];
+  return "\uFEFF" + lines.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
 
 /* ---- ZIP (stored, no compression) ----------------------------------------- */

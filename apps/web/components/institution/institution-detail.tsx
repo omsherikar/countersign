@@ -21,8 +21,12 @@ import { EnrolmentsTable } from "@/components/institution/enrolments-table";
 import { FlagsTable } from "@/components/flags/flags-table";
 import { ProgrammesTable } from "@/components/institution/programmes-table";
 import { SeatsTable } from "@/components/institution/seats-table";
+import { ApprovalsTable } from "@/components/records/approvals-table";
+import { CompletenessView } from "@/components/records/completeness-view";
+import { DeadlineWord, completenessLine } from "@/components/records/deadline-word";
+import { StatusPanel } from "@/components/records/status-panel";
 
-const TABS = ["programmes", "enrolments", "seats", "flags"] as const;
+const TABS = ["programmes", "enrolments", "seats", "completeness", "approvals", "flags"] as const;
 type Tab = (typeof TABS)[number];
 
 function subscribeHash(cb: () => void) {
@@ -135,22 +139,26 @@ function DetailHeader({ d, academicYear, officer }: { d: Detail; academicYear: s
         <p className="mt-1 text-sm text-ink-muted">{second.join(", ")}</p>
         <HeaderFigures d={d} academicYear={academicYear} officer={officer} />
         <LastUploadLine last={d.last_upload} className="mt-2 text-sm text-ink-muted" />
-      </div>
-      <dl className="flex min-w-44 flex-col gap-1 border-l-2 border-rule-margin pl-4">
-        <dt className="text-xs font-medium text-ink-muted">{t("kpi.countersigned")}</dt>
-        <dd>
-          {d.countersigned_pct === null ? (
-            <span className="font-display text-lg text-ink-muted italic">{t("kpi.not_computed")}</span>
+        <p className="mt-1 flex max-w-none flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <span className="text-ink-muted">{t("completeness.heading")}:</span>
+          {officer ? (
+            <a href="#completeness" className="text-ink-blue">
+              {completenessLine(d.completeness)}
+            </a>
           ) : (
-            <span className="font-display text-3xl font-semibold">{d.countersigned_pct}%</span>
+            <span>{completenessLine(d.completeness)}</span>
           )}
-        </dd>
-        {officer && (
-          <dd className="mt-4">
-            <InstitutionRecheckButton id={d.id} academicYear={academicYear} />
-          </dd>
-        )}
-      </dl>
+          <span aria-hidden="true" className="text-ink-faint">
+            ·
+          </span>
+          <DeadlineWord state={d.deadline_state} deadline={d.completeness.deadline} firstUploadAt={d.completeness.first_upload_at} />
+        </p>
+      </div>
+      {officer && (
+        <div className="border-l-2 border-rule-margin pl-4">
+          <InstitutionRecheckButton id={d.id} academicYear={academicYear} />
+        </div>
+      )}
     </div>
   );
 }
@@ -179,7 +187,7 @@ export function InstitutionDetail({
   showFlags?: boolean;
 }) {
   const detail = useInstitution(id);
-  const allowed = showFlags ? TABS : TABS.filter((x) => x !== "flags");
+  const allowed = showFlags ? TABS : TABS.filter((x) => x !== "flags" && x !== "completeness");
   const [tab, setTab] = useHashTab(allowed);
   const d = detail.data;
 
@@ -203,15 +211,28 @@ export function InstitutionDetail({
       <Crumbs items={[crumbRoot, { label: d?.name ?? "…" }]} />
       {d ? <DetailHeader d={d} academicYear={academicYear} officer={showFlags} /> : <HeaderSkeleton />}
       {detail.isLoading && <SlowHint className="-mt-4 mb-4" />}
+      {d && (
+        <section aria-labelledby="records-heading" className="mb-8">
+          <SectionHeader id="records-heading" title={t("kpi.status_heading")} />
+          <StatusPanel
+            counts={d.records}
+            academicYear={academicYear}
+            headingId="records-heading"
+            hrefFor={(s) => `${crumbRoot.href}/institutions/${d.id}?e_status=${s}#enrolments`}
+          />
+        </section>
+      )}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 h-auto max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="programmes">{t("tab.programmes")}</TabsTrigger>
           <TabsTrigger value="enrolments">
             {t("tab.enrolments")}
             {enrolmentCount !== null && <span className="num ml-1.5 text-xs text-ink-muted">{formatCount(enrolmentCount)}</span>}
           </TabsTrigger>
           <TabsTrigger value="seats">{t("tab.seats")}</TabsTrigger>
+          {showFlags && <TabsTrigger value="completeness">{t("tab.completeness")}</TabsTrigger>}
+          <TabsTrigger value="approvals">{t("tab.approvals")}</TabsTrigger>
           {showFlags && <TabsTrigger value="flags">{d ? t("tab.flags_count", { n: formatCount(d.flags_open) }) : t("tab.flags")}</TabsTrigger>}
         </TabsList>
 
@@ -248,6 +269,17 @@ export function InstitutionDetail({
         </TabsContent>
 
         <TabsContent value="seats">{d && <SeatsTable institutionId={d.id} programmes={d.programmes} />}</TabsContent>
+
+        {showFlags && (
+          <TabsContent value="completeness">
+            {d && <CompletenessView institutionId={d.id} academicYear={academicYear} audience="officer" caseHref={(cid) => `${crumbRoot.href}/cases/${cid}`} />}
+          </TabsContent>
+        )}
+
+        <TabsContent value="approvals">
+          <SectionHeader title={t("approval.versions_heading")} aside={<span>{`${t("app.academic_year")} ${academicYear}`}</span>} />
+          {d && <ApprovalsTable programmes={d.programmes} academicYear={academicYear} />}
+        </TabsContent>
 
         {showFlags && (
           <TabsContent value="flags">

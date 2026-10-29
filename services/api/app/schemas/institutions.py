@@ -25,13 +25,23 @@ class InstitutionRow(BaseModel):
     admitted: int = 0
     enrolments: int
     flags_open: int = 0
-    integrity_index: float | None = None
+    # ACTIVE records of the year by record status (D35, API_CONTRACT §A4.20)
+    records: dict[str, int] = Field(default_factory=dict)
+    countersigned_pct: float | None = None
+    completeness_pct: float | None = None
+    missing_from_upload: int = 0
+    deadline_state: str = "NOT_DUE"
 
 
 class ApprovalOut(BaseModel):
+    id: str | None = None
     academic_year: str
     approved_intake: int
     cutoff_date: str | None = None
+    # the current approval version (D41)
+    version: int = 1
+    effective_from: str | None = None
+    source: str | None = None
 
 
 class SeatPoolOut(BaseModel):
@@ -80,14 +90,19 @@ class InstitutionDetail(BaseModel):
     university_name: str | None
     address_city: str | None
     established_year: int | None
-    integrity_index: float | None = None
-    integrity_components: dict[str, Any] | None = None
     # Same totals as the list row: approved intake for the year, every ACTIVE
     # enrolment in the current academic year (all years of study).
     approved_seats: int = 0
     admitted: int = 0
     enrolments: int = 0
     flags_open: int = 0
+    records: dict[str, int] = Field(default_factory=dict)
+    countersigned_pct: float | None = None
+    completeness_pct: float | None = None
+    missing_from_upload: int = 0
+    deadline_state: str = "NOT_DUE"
+    # the §A4.18 body without `institution` and without `missing_students`
+    completeness: dict[str, Any] | None = None
     last_upload: LastUpload | None = None
     programmes: list[ProgrammeDetail]
 

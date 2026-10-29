@@ -296,8 +296,10 @@ class Planter:
         addresses = [w.new_address(state) for _ in range(shared_mobiles)]
         emails = [w.new_email("admissions.desk") for _ in range(max(1, shared_mobiles // 2))]
         for i, row in enumerate(members):
+            # mobiles cycle fastest and addresses step once per cycle, so every member shares
+            # a contact with the next block and the ring is one connected group
             row["mobile"] = mobiles[i % len(mobiles)]
-            row["address"] = addresses[i % len(addresses)]
+            row["address"] = addresses[(i // len(mobiles)) % len(addresses)]
             if self.rng.random() < 0.6:
                 row["email"] = emails[i % len(emails)]
             if row["admission_route"] == "COUNSELLING":

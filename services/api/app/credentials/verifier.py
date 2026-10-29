@@ -45,7 +45,7 @@ class Invalid(Exception):
 
 
 def presentation_not_found() -> ApiError:
-    return ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign proof.")
+    return ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign attestation.")
 
 
 def ip_hash(ip: str) -> str:
@@ -433,7 +433,8 @@ async def _degree_by_short_id(session: AsyncSession, short_id: str) -> Credentia
 
 
 async def verify_degree_jws(session: AsyncSession, jws: str, *, ip: str) -> dict[str, Any]:
-    """GET /verify/d/{jws}: the signed summary of a printed degree proof, and its status bit."""
+    """GET /verify/d/{jws}: the signed summary of a printed completion attestation, and its
+    status bit."""
     credential = None
     try:
         claims = read_degree_jws(jws, await keys.jwks(session))
@@ -477,7 +478,7 @@ async def verify_degree_jws(session: AsyncSession, jws: str, *, ip: str) -> dict
         session,
         "credential",
         credential.id if credential is not None else None,
-        via="degree-qr",
+        via="completion-qr",
         ip=ip,
         result=result["result"],
     )
@@ -485,8 +486,9 @@ async def verify_degree_jws(session: AsyncSession, jws: str, *, ip: str) -> dict
 
 
 async def verify_degree_id(session: AsyncSession, raw_short_id: str, *, ip: str) -> dict[str, Any]:
-    """GET /verify/degree/{short_id}: AICTE's own record of a degree proof, for a reader who
-    has the printed proof id but cannot scan. 404 PRESENTATION_NOT_FOUND when unknown."""
+    """GET /verify/completion/{short_id} (and the older /verify/degree/{short_id}): AICTE's
+    own record of a completion attestation, for a reader who has the printed attestation id
+    but cannot scan. 404 PRESENTATION_NOT_FOUND when unknown."""
     short_id = degree.normalise_short_id(raw_short_id)
     credential = await _degree_by_short_id(session, short_id) if short_id else None
     if credential is None:
@@ -524,7 +526,7 @@ async def verify_degree_id(session: AsyncSession, raw_short_id: str, *, ip: str)
         session,
         "credential",
         credential.id,
-        via="degree-lookup",
+        via="completion-lookup",
         ip=ip,
         result=result["result"],
     )
