@@ -38,7 +38,7 @@ function ProgrammeVersions({ p }: { p: ProgrammeDetail }) {
       {items.map((v, i) => (
         <tr key={v.version}>
           {i === 0 && (
-            <th scope="rowgroup" rowSpan={items.length + (lower ? 1 : 0)} className="code px-3 text-left align-top font-medium">
+            <th scope="rowgroup" rowSpan={items.length + (lower ? 1 : 0)} className="code border-b border-rule px-3 py-2 text-left align-top font-medium">
               {p.code}
             </th>
           )}
