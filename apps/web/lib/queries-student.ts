@@ -2,7 +2,7 @@
 
 /**
  * TanStack Query hooks for the student notice, wallet, privacy, verifier and
- * university degree pages (API_CONTRACT Addendum 3). Same pattern as
+ * university certificate integration pages (API_CONTRACT Addenda 3 and 4). Same pattern as
  * lib/queries.ts: one hook per endpoint, keys start with the path.
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -39,9 +39,9 @@ export const studentKeys = {
   dataRequests: ["students", "me", "data-requests"] as const,
   verifyCode: (code: string) => ["verify", "code", code] as const,
   verifyDegree: (jws: string) => ["verify", "d", jws] as const,
-  verifyLookup: (shortId: string) => ["verify", "degree", shortId] as const,
+  verifyLookup: (shortId: string) => ["verify", "completion", shortId] as const,
   graduates: (params: GraduateListQuery) => ["university", "graduates", params] as const,
-  degree: (enrolmentId: string) => ["university", "degrees", enrolmentId] as const,
+  certificate: (enrolmentId: string) => ["university", "certificates", enrolmentId] as const,
 };
 
 /** Every answer of a public or student route is final (404, 409, 410, 429); only a dropped connection is worth one more try. */
@@ -171,13 +171,13 @@ export function useVerifyDegree(jws: string) {
 export function useVerifyLookup(shortId: string) {
   return useQuery({
     queryKey: studentKeys.verifyLookup(shortId),
-    queryFn: () => api.get<VerifyResult>(`/verify/degree/${encodeURIComponent(shortId)}`, undefined, { redirectOn401: false }),
+    queryFn: () => api.get<VerifyResult>(`/verify/completion/${encodeURIComponent(shortId)}`, undefined, { redirectOn401: false }),
     staleTime: Infinity,
     ...once,
   });
 }
 
-/* ---- University degrees (A3.21) ------------------------------------------ */
+/* ---- University certificate integration (A3.21, A4.15) -------------------- */
 
 export function useGraduates(params: GraduateListQuery) {
   return useQuery({
@@ -187,17 +187,17 @@ export function useGraduates(params: GraduateListQuery) {
   });
 }
 
-export function useIssueDegree() {
+export function useIssueCompletion() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (enrolmentId: string) => api.post<CertificatePrint>(`/university/degrees/${enrolmentId}/issue`),
+    mutationFn: (enrolmentId: string) => api.post<CertificatePrint>(`/university/certificates/${enrolmentId}/issue`),
     onSuccess: (print) => {
-      qc.setQueryData(studentKeys.degree(print.enrolment_id), print);
+      qc.setQueryData(studentKeys.certificate(print.enrolment_id), print);
       qc.invalidateQueries({ queryKey: ["university", "graduates"] });
     },
   });
 }
 
-export function useDegreePrint(enrolmentId: string) {
-  return useQuery({ queryKey: studentKeys.degree(enrolmentId), queryFn: () => api.get<CertificatePrint>(`/university/degrees/${enrolmentId}`) });
+export function useCertificatePrint(enrolmentId: string) {
+  return useQuery({ queryKey: studentKeys.certificate(enrolmentId), queryFn: () => api.get<CertificatePrint>(`/university/certificates/${enrolmentId}`) });
 }
