@@ -149,21 +149,24 @@ async def test_the_email_and_the_digilocker_message(world, mailer, gov):
     [message] = mailer.sent
     email, digi = await notices_of(enrolment.id)
     assert (email.channel, digi.channel) == (EMAIL, DIGILOCKER)
-    assert (
-        message.subject == "ABC College of Engineering says you joined B.Tech CSE. Is that right?"
-    )
+    # the notice only points to DigiLocker sign-in (D37), in English with Hindi under it
+    assert message.subject == "ABC College of Engineering has reported an enrolment in your name"
     token = token_of(message)
     link = f"{get_settings().web_origin}/student/notices/{token}"
-    assert message.body == (
+    english, hindi = message.body.split("\n\n")
+    assert english == (
         "ABC College of Engineering has told AICTE that you joined B.Tech Computer Science and "
-        f"Engineering for 2026-27. Please confirm whether this is right. It takes one tap: {link}. "
-        "If this is not you, tell us and an AICTE officer will look into it. This link works "
-        f"until {fmt_day(email.expires_at)}. You will not be asked for a password or any payment."
+        f"Engineering in 2026-27. To see what they reported and to answer, open {link} and sign "
+        "in with DigiLocker. Your answer is recorded only after you sign in with DigiLocker; "
+        f"nothing in this email can record it. The link works until {fmt_day(email.expires_at)}. "
+        "Never share your DigiLocker OTP with anyone, including AICTE or your college."
     )
+    assert link in hindi and "DigiLocker से साइन इन करें" in hindi
     assert message.headers == {"X-Countersign-Notice": str(email.id)}
     [inbox] = gov.digilocker.inbox
     assert inbox["message"] == (
-        "ABC College of Engineering says you joined B.Tech CSE (2026-27). Is that right?"
+        "ABC College of Engineering has reported that you joined B.Tech CSE (2026-27). "
+        "Sign in to Countersign with DigiLocker to answer."
     )
     assert inbox["callback_url"].startswith(f"{get_settings().web_origin}/student/notices/")
     # the notice lasts notices.expiry_days from its creation

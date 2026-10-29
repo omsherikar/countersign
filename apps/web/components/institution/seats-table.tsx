@@ -15,7 +15,7 @@ import { ReadLoggedNote } from "@/components/common/ledger-bits";
 import { Pager } from "@/components/common/pager";
 
 const PAGE_SIZE = 50;
-const COLS = 7;
+const COLS = 8;
 const TYPES: SeatType[] = ["REGULAR", "NRI", "TFW", "LATERAL", "INTERNATIONAL"];
 const STATUSES: SeatStatus[] = ["FREE", "ASSIGNED", "RELEASED"];
 
@@ -45,6 +45,12 @@ export function SeatsTable({ institutionId, programmes }: { institutionId: strin
   const onSearch = React.useCallback((value: string) => set({ s_q: value, s_page: null }), [set]);
   const data = list.data;
   const rows = data?.items ?? [];
+  // A4.17: a seat cites the version of its cohort's approval ("AICTE approval v2, 2026-27").
+  const approvalName = (code: string, year: string) => {
+    const p = programmes.find((x) => x.code === code);
+    const version = p && p.approval.academic_year === year ? p.approval.version : 1;
+    return t("approval.name", { version, cohort_year: year });
+  };
 
   return (
     <div>
@@ -81,6 +87,9 @@ export function SeatsTable({ institutionId, programmes }: { institutionId: strin
                 {t("col.programme")}
               </th>
               <th scope="col">{t("col.seat_type")}</th>
+              <th scope="col" title={t("approval.rule_tip")}>
+                {t("enrolment.field.intake")}
+              </th>
               <th scope="col">{t("col.reserved_for")}</th>
               <th scope="col">{t("col.status")}</th>
               <th scope="col">{t("col.holder")}</th>
@@ -108,6 +117,7 @@ export function SeatsTable({ institutionId, programmes }: { institutionId: strin
                 </td>
                 <td className="code">{s.programme_code}</td>
                 <td>{tk(`seat_type.${s.seat_type}`)}</td>
+                <td className="text-ink-muted">{approvalName(s.programme_code, s.academic_year)}</td>
                 <td className="text-ink-muted">{s.reserved_for ?? ""}</td>
                 <td>
                   <span className={cn("inline-flex h-5 items-center rounded-chip border px-1.5 text-xs font-medium", STATUS_CHIP[s.status])}>

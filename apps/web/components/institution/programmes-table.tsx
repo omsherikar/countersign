@@ -145,7 +145,10 @@ export function ProgrammesTable({
                   <td>{tk(`level.${p.level}`)}</td>
                   <td>{tk(`shift.${p.shift}`)}</td>
                   <td className="text-ink-muted">{p.mode ? tk(`mode.${p.mode}`) : ""}</td>
-                  <td className="num">{formatCount(p.approval.approved_intake)}</td>
+                  <td className="num" title={t("approval.name", { version: p.approval.version, cohort_year: p.approval.academic_year })}>
+                    {formatCount(p.approval.approved_intake)}
+                    <span className="ml-1 text-xs text-ink-muted">v{p.approval.version}</span>
+                  </td>
                   <td className="num font-medium">
                     {formatCount(p.enrolments)}
                   </td>

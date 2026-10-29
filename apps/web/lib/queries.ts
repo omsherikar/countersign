@@ -14,8 +14,8 @@ import type {
   DashboardSummary,
   EnrolmentDetail,
   EnrolmentListParams,
+  EnrolmentPage,
   EnrolmentRecheck,
-  EnrolmentRow,
   FlagDetail,
   FlagListParams,
   FlagPage,
@@ -158,7 +158,7 @@ export function useInstitutionSeats(id: string, params: SeatListParams, enabled 
 export function useInstitutionEnrolments(id: string, params: EnrolmentListParams, enabled = true) {
   return useQuery({
     queryKey: keys.enrolments(id, params),
-    queryFn: ({ signal }) => api.get<Page<EnrolmentRow>>(`/institutions/${id}/enrolments`, { ...params }, { signal }),
+    queryFn: ({ signal }) => api.get<EnrolmentPage>(`/institutions/${id}/enrolments`, { ...params }, { signal }),
     placeholderData: keepPreviousData,
     enabled,
   });

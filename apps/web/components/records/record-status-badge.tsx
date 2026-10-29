@@ -7,7 +7,11 @@ import { cn } from "@/lib/utils";
 
 /** Icon and hue per status (page spec W4, the marks table). The word always travels with them. */
 export const STATUS_MARK: Record<RecordStatus, { Icon: LucideIcon; chip: string; ink: string }> = {
-  AWAITING_EVIDENCE: { Icon: Hourglass, chip: "bg-check-pending-soft text-check-pending-ink border-check-pending/50 border-dashed", ink: "text-check-pending-ink" },
+  AWAITING_EVIDENCE: {
+    Icon: Hourglass,
+    chip: "bg-check-pending-soft text-check-pending-ink border-check-pending/50 border-dashed",
+    ink: "text-check-pending-ink",
+  },
   COUNTERSIGNED: { Icon: BadgeCheck, chip: "bg-check-pass-soft text-check-pass-ink border-check-pass/50", ink: "text-check-pass-ink" },
   UNDER_REVIEW: { Icon: FileSearch, chip: "bg-flag-open-soft text-flag-open-ink border-flag-open/50", ink: "text-flag-open-ink" },
   DISPUTED: { Icon: OctagonAlert, chip: "bg-check-fail-soft text-check-fail-ink border-check-fail/60 border-2", ink: "text-check-fail-ink" },

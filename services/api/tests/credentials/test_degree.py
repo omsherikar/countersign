@@ -1,4 +1,4 @@
-"""The degree QR, its short names and length, and the printed insert."""
+"""The completion attestation QR, its short names and length, and the certificate block."""
 
 from __future__ import annotations
 
@@ -140,37 +140,39 @@ def _print_data(id_kind="APAAR", id_masked="XXXX XXXX 0011"):
         "university": {"code": "MSTU", "name": "Maharashtra State Technical University"},
         "academic_year": "2025-26",
         "year_of_award": 2026,
-        "degree": {
+        "attestation": {
             "short_id": "4ZK8M2QD",
             "issued_at": "2026-10-29T07:00:00Z",
             "verify_url": "http://localhost:3000/verify/d/eyJhbGciOiJFUzI1NiJ9.e30.sig",
-            "lookup_url": "http://localhost:3000/verify/degree/4ZK8M2QD",
+            "lookup_url": "http://localhost:3000/verify/completion/4ZK8M2QD",
         },
     }
 
 
-def test_the_insert_renders():
-    pdf = degree.insert_pdf(_print_data())
+def test_the_certificate_block_renders():
+    pdf = degree.block_pdf(_print_data())
     assert pdf.startswith(b"%PDF-") and pdf.rstrip().endswith(b"%%EOF")
     assert pdf.count(b"/Type /Page\n") + pdf.count(b"/Type /Page ") >= 1
     assert b"/MediaBox [ 0 0 595.2756 841.8898 ]" in pdf
     text = _pdf_text(pdf)
     for line in (
         "Maharashtra State Technical University",
-        "This insert accompanies the degree awarded to",
+        "For the certificate awarded by Maharashtra State Technical University to",
         "Asha Patil",
         "Programme: B.Tech Computer Science and Engineering",
         "Institution: ABC College of Engineering",
-        "Year of award: 2026",
+        "Year of completion: 2026",
         "APAAR XXXX XXXX 0011",
-        "Proof id 4ZK8M2QD",
+        "Attestation id 4ZK8M2QD",
         "Scan to verify at localhost:3000/verify",
-        "Proof issued 29 Oct 2026",
+        "Completion attestation issued 29 Oct 2026",
         degree.FOOTER,
     ):
         assert f"({line})" in text, line
     assert "verify/d/" not in text  # the QR's link is never printed as text
     assert " rg" not in text.replace("0 0 0 rg", "")  # black only
 
-    provisional = _pdf_text(degree.insert_pdf(_print_data("PROVISIONAL", "PRV-XXXXN7A")))
-    assert "(Provisional id PRV-XXXXN7A)" in provisional
+    # the block never calls itself a degree, except to say it is not one
+    assert "degree" not in text.replace("does not issue degrees", "").replace("is not a degree", "")
+    provisional = _pdf_text(degree.block_pdf(_print_data("PROVISIONAL", "PRV-XXXXN7A")))
+    assert "(Provisional ID PRV-XXXXN7A)" in provisional

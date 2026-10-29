@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from slowapi.util import get_remote_address
-from sqlalchemy import Select, String, case, cast, func, or_, select
+from sqlalchemy import Float, Select, String, case, cast, func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core import audit
@@ -33,7 +33,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.geo import Region, State, University
-from app.models.institution import Approval, Institution, Programme
+from app.models.institution import Approval, ApprovalVersion, Institution, Programme
 from app.models.seat import Seat, SeatEvent, SeatPool
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
@@ -46,7 +46,13 @@ from app.routers._enrolment_rows import (
     row_stmt,
     unresolved_flag_exists,
 )
-from app.routers._stats import institution_stats_stmt, region_label
+from app.routers._stats import (
+    InstitutionStats,
+    completeness_body,
+    institution_stats_stmt,
+    region_label,
+    stats_of,
+)
 from app.schemas.common import Page, PageParams, page_params
 from app.schemas.enrolments import EnrolmentPage
 from app.schemas.institutions import (
@@ -77,10 +83,13 @@ ListSort = Literal[
     "flags_open_desc",
     "enrolments_desc",
     "name_asc",
+    "completeness_asc",
+    "countersigned_asc",
     "name",
     "enrolments",
     "approved_seats",
 ]
+DeadlineStateFilter = Literal["NOT_DUE", "ON_TIME", "LATE", "OVERDUE"]
 EnrolmentSort = Literal["name_asc", "year_desc", "route_asc", "status_priority"]
 # copy deck `record_status.sort.attention`
 ATTENTION_ORDER = (
@@ -107,6 +116,32 @@ async def _count(session, stmt: Select) -> int:
 # ---------------------------------------------------------------------------- list
 
 
+def institution_row(stats: InstitutionStats) -> InstitutionRow:
+    inst, uni = stats.institution, stats.university
+    return InstitutionRow(
+        id=str(inst.id),
+        aicte_permanent_id=inst.aicte_permanent_id,
+        name=inst.name,
+        type=inst.type.value,
+        state_code=stats.state.code,
+        state_name=stats.state.name,
+        region=stats.region.code,
+        region_name=region_label(stats.region),
+        university_id=str(uni.id) if uni else None,
+        university_name=uni.name if uni else None,
+        programmes=stats.programmes,
+        approved_seats=stats.approved_seats,
+        admitted=stats.admitted,
+        enrolments=stats.enrolments,
+        flags_open=stats.flags_open,
+        records=stats.records,
+        countersigned_pct=stats.countersigned_pct,
+        completeness_pct=stats.completeness_pct,
+        missing_from_upload=stats.missing,
+        deadline_state=stats.deadline_state,
+    )
+
+
 @router.get("", response_model=Page[InstitutionRow])
 async def list_institutions(
     session: SessionDep,
@@ -116,11 +151,13 @@ async def list_institutions(
     region: Annotated[str | None, Query(max_length=20)] = None,
     type: InstitutionType | None = None,
     q: Annotated[str | None, Query(max_length=120)] = None,
+    deadline_state: DeadlineStateFilter | None = None,
     sort: ListSort = "flags_open_desc",
     order: Literal["asc", "desc"] | None = None,
 ) -> Page[InstitutionRow]:
     year = get_settings().academic_year
     stmt = institution_stats_stmt(user, year)
+    columns = stmt.selected_columns
     if state:
         stmt = stmt.where(State.code == state.upper())
     if region and user.role is not UserRole.RO_OFFICER:
@@ -132,53 +169,34 @@ async def list_institutions(
         stmt = stmt.where(
             or_(Institution.name.ilike(needle), Institution.aicte_permanent_id.ilike(needle))
         )
+    if deadline_state:
+        stmt = stmt.where(columns["deadline_state"] == deadline_state)
 
-    enrolments_col = stmt.selected_columns["enrolments"]
-    flags_col = stmt.selected_columns["flags_open"]
+    enrolments_col = columns["enrolments"]
+    flags_col = columns["flags_open"]
     name_key = func.lower(Institution.name)
     if sort == "flags_open_desc":
         keys = [flags_col.asc() if order == "asc" else flags_col.desc(), enrolments_col.desc()]
     elif sort in ("enrolments_desc", "enrolments"):
         keys = [enrolments_col.asc() if order == "asc" else enrolments_col.desc()]
     elif sort == "approved_seats":
-        seats_col = stmt.selected_columns["approved_seats"]
+        seats_col = columns["approved_seats"]
         keys = [seats_col.asc() if order == "asc" else seats_col.desc()]
+    elif sort == "completeness_asc":
+        keys = [columns["completeness_pct"].asc().nulls_last()]
+    elif sort == "countersigned_asc":
+        share = case(
+            (enrolments_col > 0, cast(columns["countersigned"], Float) / enrolments_col),
+            else_=None,
+        )
+        keys = [share.asc().nulls_last()]
     else:
         keys = [name_key.desc() if order == "desc" else name_key.asc()]
     stmt = stmt.order_by(*keys, Institution.name.asc(), Institution.id.asc())
 
     total = await _count(session, stmt)
     rows = (await session.execute(stmt.offset(paging.offset).limit(paging.page_size))).all()
-    items = [
-        InstitutionRow(
-            id=str(inst.id),
-            aicte_permanent_id=inst.aicte_permanent_id,
-            name=inst.name,
-            type=inst.type.value,
-            state_code=st.code,
-            state_name=st.name,
-            region=rg.code,
-            region_name=region_label(rg),
-            university_id=str(uni.id) if uni else None,
-            university_name=uni.name if uni else None,
-            programmes=programmes,
-            approved_seats=approved_seats,
-            admitted=admitted,
-            enrolments=enrolments,
-            flags_open=flags_open,
-        )
-        for (
-            inst,
-            st,
-            rg,
-            uni,
-            programmes,
-            approved_seats,
-            enrolments,
-            admitted,
-            flags_open,
-        ) in rows
-    ]
+    items = [institution_row(stats_of(row)) for row in rows]
     return Page(items=items, total=total, page=paging.page, page_size=paging.page_size)
 
 
@@ -208,6 +226,21 @@ async def institution_detail(
     )
     prog_rows = (await session.execute(prog_stmt)).all()
     approval_ids = [a.id for _, a in prog_rows]
+    current_versions: dict[uuid.UUID, ApprovalVersion] = {}
+    if approval_ids:
+        current_versions = {
+            v.approval_id: v
+            for v in (
+                await session.execute(
+                    select(ApprovalVersion)
+                    .join(Approval, Approval.id == ApprovalVersion.approval_id)
+                    .where(
+                        Approval.id.in_(approval_ids),
+                        ApprovalVersion.version == Approval.current_version,
+                    )
+                )
+            ).scalars()
+        }
 
     pools_by_approval: dict[uuid.UUID, list[SeatPool]] = defaultdict(list)
     seat_counts: dict[uuid.UUID, dict[SeatStatus, int]] = defaultdict(dict)
@@ -255,6 +288,7 @@ async def institution_detail(
     programmes: list[ProgrammeDetail] = []
     for programme, approval in prog_rows:
         total, unseated = enrolled.get(programme.id, (0, 0))
+        version = current_versions.get(approval.id)
         pools_out = []
         for pool in sorted(pools_by_approval[approval.id], key=lambda p: order[p.seat_type]):
             assigned = seat_counts[pool.id].get(SeatStatus.ASSIGNED, 0)
@@ -284,9 +318,13 @@ async def institution_detail(
                 shift=programme.shift.value,
                 mode=programme.mode.value,
                 approval=ApprovalOut(
+                    id=str(approval.id),
                     academic_year=approval.academic_year,
                     approved_intake=approval.approved_intake,
                     cutoff_date=approval.cutoff_date.isoformat() if approval.cutoff_date else None,
+                    version=approval.current_version,
+                    effective_from=version.effective_from.isoformat() if version else None,
+                    source=version.source if version else None,
                 ),
                 enrolments=total,
                 seated=sum(p.assigned for p in pools_out),
@@ -295,12 +333,13 @@ async def institution_detail(
             )
         )
 
-    [stats] = (
+    [row] = (
         await session.execute(
             institution_stats_stmt(user, year).where(Institution.id == institution.id)
         )
     ).all()
-    *_, approved_seats, enrolments_total, admitted, flags_open = stats
+    stats = stats_of(row)
+    completeness = await completeness_body(session, institution.id, year, with_students=False)
 
     batch = (
         (
@@ -341,10 +380,16 @@ async def institution_detail(
         university_name=university.name if university else None,
         address_city=institution.address_city,
         established_year=institution.established_year,
-        approved_seats=approved_seats,
-        admitted=admitted,
-        enrolments=enrolments_total,
-        flags_open=flags_open,
+        approved_seats=stats.approved_seats,
+        admitted=stats.admitted,
+        enrolments=stats.enrolments,
+        flags_open=stats.flags_open,
+        records=stats.records,
+        countersigned_pct=stats.countersigned_pct,
+        completeness_pct=stats.completeness_pct,
+        missing_from_upload=stats.missing,
+        deadline_state=stats.deadline_state,
+        completeness=completeness,
         last_upload=last_upload,
         programmes=programmes,
     )

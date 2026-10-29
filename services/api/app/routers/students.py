@@ -1,48 +1,47 @@
-"""GET /students/me (API_CONTRACT A.10, §A3.6). STUDENT only; the read is audited."""
+"""The student's own page (API_CONTRACT A.10, §A3.6, §A4.5, §A4.13). STUDENT only, signed in
+through DigiLocker; every read is audited."""
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Request
 
 from app.core import audit
 from app.core.crypto import mask_apaar, mask_mobile
 from app.core.deps import RequestId, SessionDep, require_roles
 from app.core.errors import not_found
+from app.core.ratelimit import limiter
 from app.credentials import holder
-from app.models.enums import UserRole
-from app.models.institution import Institution, Programme
-from app.models.student import Enrolment, Student
+from app.engine import status
+from app.models.enums import NoticeResponse, UserRole
+from app.models.student import Student
 from app.models.user import User
-from app.notices.service import notices_for_student
-from app.routers._enrolment_rows import brief_rows
+from app.notices import service
+from app.notices.records import student_enrolments
+from app.routers.institutions import user_key
+from app.schemas.notices import NoticeRespondRequest
 from app.schemas.students import StudentEnrolment, StudentMe
 
 router = APIRouter(prefix="/students", tags=["students"])
 
+StudentUser = Annotated[User, Depends(require_roles(UserRole.STUDENT))]
+RESPOND_LIMIT = "10/minute"  # per signed-in student
 
-@router.get("/me", response_model=StudentMe)
-async def students_me(
-    session: SessionDep,
-    user: Annotated[User, Depends(require_roles(UserRole.STUDENT))],
-    request_id: RequestId,
-) -> StudentMe:
+
+async def _student(session, user: User) -> Student:
     student = await session.get(Student, user.student_id) if user.student_id else None
     if student is None:
         raise not_found("Student")
-    rows = (
-        await session.execute(
-            select(Enrolment, Institution, Programme)
-            .join(Institution, Institution.id == Enrolment.institution_id)
-            .join(Programme, Programme.id == Enrolment.programme_id)
-            .where(Enrolment.student_id == student.id)
-            .order_by(Enrolment.academic_year.desc(), Institution.name)
-        )
-    ).all()
-    checks = await brief_rows(session, [enrolment.id for enrolment, _, _ in rows])
-    notices = await notices_for_student(session, student.id)
+    return student
+
+
+@router.get("/me", response_model=StudentMe)
+async def students_me(session: SessionDep, user: StudentUser, request_id: RequestId) -> StudentMe:
+    student = await _student(session, user)
+    enrolments = await student_enrolments(session, student)
+    notices = await service.notices_for_student(session, student.id)
     wallet = await holder.wallet_summary(session, student.id)
     await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
     return StudentMe(
@@ -54,20 +53,27 @@ async def students_me(
         dob=student.dob.isoformat(),
         email=student.email,
         mobile_masked=mask_mobile(student.mobile_last4),
-        enrolments=[
-            StudentEnrolment(
-                id=str(enrolment.id),
-                institution_id=str(institution.id),
-                institution_name=institution.name,
-                programme_code=programme.code,
-                programme_name=programme.name,
-                academic_year=enrolment.academic_year,
-                year_of_study=enrolment.year_of_study,
-                status=enrolment.status.value,
-                checks=checks[enrolment.id],
-            )
-            for enrolment, institution, programme in rows
-        ],
+        enrolments=[StudentEnrolment.model_validate(e) for e in enrolments],
         notices=notices,
         credentials=wallet,
     )
+
+
+@router.post("/me/enrolments/{enrolment_id}/respond", response_model=StudentEnrolment)
+@limiter.shared_limit(RESPOND_LIMIT, scope="students-respond", key_func=user_key)
+async def respond_to_claim(
+    request: Request,
+    enrolment_id: uuid.UUID,
+    body: NoticeRespondRequest,
+    session: SessionDep,
+    user: StudentUser,
+) -> StudentEnrolment:
+    """The student answers a claim on their own enrolments page, with or without a notice
+    link (§A4.13); the answer is recorded as one given after DigiLocker sign-in."""
+    student = await _student(session, user)
+    await service.respond_as_student(
+        session, user, enrolment_id, NoticeResponse(body.response), body.comment
+    )
+    await status.settle(session)
+    [enrolment] = await student_enrolments(session, student, only=[enrolment_id])
+    return StudentEnrolment.model_validate(enrolment)

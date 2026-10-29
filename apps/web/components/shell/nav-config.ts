@@ -1,9 +1,9 @@
 import {
   Bell,
   BookOpen,
+  ClipboardCheck,
   FileChartColumn,
   Flag,
-  Gauge,
   Inbox,
   LayoutDashboard,
   Landmark,
@@ -55,7 +55,7 @@ export const NAV: Record<Exclude<Role, "VERIFIER">, NavItem[]> = {
     { label: "nav.upload", href: "/college/upload", icon: Upload, week: 2, available: true },
     { label: "nav.enrolments", href: "/college/enrolments", icon: Users, week: 1, available: true },
     { label: "nav.flags", href: "/college/flags", icon: Flag, week: 2, available: true },
-    { label: "nav.score", href: "/college/score", icon: Gauge, week: 4, available: false },
+    { label: "nav.completeness", href: "/college/completeness", icon: ClipboardCheck, week: 4, available: true },
   ],
   STUDENT: [
     { label: "nav.my_enrolment", href: "/student", icon: UserRound, week: 1, available: true, exact: true },

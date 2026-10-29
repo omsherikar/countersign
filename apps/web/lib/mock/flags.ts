@@ -351,7 +351,7 @@ function build(): StoredFlag[] {
 
   /* Records the state admission authority's joining record does not hold, after the 30 Sep deadline. */
   const notJoined: [string, string][] = [
-    [IDS.abc, "Ananya Deshmukh"],
+    [IDS.abc, "Sanika Ghorpade"],
     [IDS.abc, "Tejas More"],
     [IDS.xyz, "Lakshmi Narayanan"],
     [PUNE, "Pranav Salunkhe"],

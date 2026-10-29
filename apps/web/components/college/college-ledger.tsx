@@ -14,6 +14,8 @@ import { KpiStrip } from "@/components/overview/kpi-strip";
 import { ProgrammesTable } from "@/components/institution/programmes-table";
 import { CollegeFlagsPanel } from "@/components/college/college-flags-panel";
 import { LastUploadLine } from "@/components/uploads/last-upload-line";
+import { StatusPanel } from "@/components/records/status-panel";
+import { DeadlineWord, completenessLine, deadlineTip } from "@/components/records/deadline-word";
 
 /** "What are pools?": a disclosure, so it works on touch and with a keyboard. */
 function PoolsHelp() {
@@ -96,6 +98,49 @@ export function CollegeLedger() {
               <Skeleton key={i} className="h-9" />
             ))}
           </div>
+        )}
+      </section>
+
+      <section aria-labelledby="records-heading" className="mb-10">
+        <SectionHeader id="records-heading" title={t("kpi.status_heading")} />
+        <StatusPanel
+          counts={summary.data?.kpis.records}
+          academicYear={academicYear}
+          headingId="records-heading"
+          loading={summary.isLoading}
+          failed={summary.isError && !summary.data}
+          onRetry={() => summary.refetch()}
+          hrefFor={(s) => `/college/enrolments?e_status=${s}`}
+        />
+      </section>
+
+      <section aria-labelledby="completeness-heading" className="mb-10">
+        <SectionHeader id="completeness-heading" title={t("completeness.heading")} aside={summary.data?.completeness && summary.data.completeness.missing > 0 ? <Link href="/college/completeness">{t("missing.heading", { n: formatCount(summary.data.completeness.missing) })}</Link> : undefined} />
+        {summary.isLoading ? (
+          <Skeleton className="h-16" />
+        ) : summary.isError && !summary.data ? (
+          <ErrorBlock error={summary.error} onRetry={() => summary.refetch()} />
+        ) : summary.data?.completeness ? (
+          <div className="flex flex-col gap-1.5 border-l-2 border-rule-margin bg-paper-raised px-4 py-3">
+            <p className="max-w-none font-display text-lg font-semibold">
+              <Link href="/college/completeness" className="text-ink">
+                {completenessLine(summary.data.completeness)}
+              </Link>
+            </p>
+            <p className="flex max-w-none flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <DeadlineWord
+                state={summary.data.completeness.deadline_state}
+                deadline={summary.data.completeness.deadline}
+                firstUploadAt={summary.data.completeness.first_upload_at}
+                className="font-medium"
+              />
+              <span className="text-ink-muted">
+                {deadlineTip(summary.data.completeness.deadline_state, summary.data.completeness.deadline, summary.data.completeness.first_upload_at)}
+              </span>
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-muted">{t("completeness.line_none")}</p>
         )}
       </section>
 

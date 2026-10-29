@@ -1,13 +1,29 @@
-"""GET /students/me (API_CONTRACT A.10)."""
+"""GET /students/me and the student's own answer (API_CONTRACT A.10, §A4.5, §A4.13)."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas.enrolments import EvidenceRowBrief
-from app.schemas.notices import StudentNotice
+from app.schemas.notices import NoticeResponseWire, StudentNotice
+
+
+class EvidenceRowBrief(BaseModel):
+    type: str
+    state: str
+    finding: str | None = None
+    independent: bool = False
+    resolved: bool = False
+
+
+class StudentDecision(BaseModel):
+    """The latest decision or escalation of the student's dispute (never the note or the
+    officer)."""
+
+    outcome: Literal["UPHELD", "CORRECTED", "WITHDRAWN", "ESCALATED"]
+    reason_code: str | None
+    at: str
 
 
 class StudentEnrolment(BaseModel):
@@ -19,8 +35,14 @@ class StudentEnrolment(BaseModel):
     academic_year: str
     year_of_study: int
     status: str
-    # the five evidence rows, brief, in row order (API_CONTRACT §A4.5)
+    record_status: str | None = None
+    status_reason: str | None = None
+    next_step: str | None = None
     checks: list[EvidenceRowBrief] = Field(default_factory=list)
+    response: NoticeResponseWire | None = None
+    can_respond: bool = False
+    claimed: bool = False
+    decision: StudentDecision | None = None
 
 
 class StudentMe(BaseModel):
@@ -32,6 +54,7 @@ class StudentMe(BaseModel):
     dob: str
     email: str | None
     mobile_masked: str | None
+    signed_in_with: Literal["DIGILOCKER"] = "DIGILOCKER"
     enrolments: list[StudentEnrolment]
     notices: list[StudentNotice] = Field(default_factory=list)
     # StudentCredentialBrief (API_CONTRACT §A3.6), shaped by credentials.holder

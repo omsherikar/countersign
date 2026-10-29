@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.credentials import status_list
 from app.db.session import session_factory
-from app.models.enums import CheckStatus, CheckType, EnrolmentStatus
+from app.models.enums import CheckStatus, CheckType, EnrolmentStatus, RecordStatus
 from app.models.institution import Institution
 from app.models.student import Enrolment, Student
 from app.models.verification import Check
@@ -113,10 +113,28 @@ async def set_check(
 
 
 async def make_countersigned(session: AsyncSession, enrolment_id: uuid.UUID) -> None:
-    """The student said Yes and no source disagrees: every FAIL becomes PASS too."""
+    """The record reads COUNTERSIGNED (D35): every contradicted row becomes CONFIRMED, the
+    student said Yes after DigiLocker sign-in (an independent row), and the record carries
+    the status. The status is set here rather than recomputed, so these tests stay about
+    issuance, whatever evidence the fixture's sources hold."""
     await session.execute(
         update(Check)
         .where(Check.enrolment_id == enrolment_id, Check.status == CheckStatus.CONTRADICTED)
         .values(status=CheckStatus.CONFIRMED)
     )
     await set_check(session, enrolment_id, CheckType.STUDENT, CheckStatus.CONFIRMED)
+    await session.execute(
+        update(Check)
+        .where(Check.enrolment_id == enrolment_id, Check.type == CheckType.STUDENT)
+        .values(independent=True, supplied_by="Student via DigiLocker sign-in")
+    )
+    await set_record_status(session, enrolment_id, RecordStatus.COUNTERSIGNED)
+
+
+async def set_record_status(
+    session: AsyncSession, enrolment_id: uuid.UUID, record_status: RecordStatus
+) -> None:
+    enrolment = await session.get(Enrolment, enrolment_id)
+    assert enrolment is not None
+    enrolment.record_status = record_status
+    await session.flush()

@@ -1,9 +1,11 @@
-"""Student notices: the public page and reply, and resends (API_CONTRACT §A3.3 to §A3.5).
+"""Student notices: the public page and reply, and resends (API_CONTRACT §A3.3 to §A3.5,
+§A4.13).
 
-`GET /notices/{token}` and `POST /notices/{token}/respond` are public: the link token is
-the only authority, any cookie is ignored, and a malformed or unknown token gets the same
-404. A resend commits its QUEUED rows before delivery starts, on the worker or, with
-UPLOAD_INLINE, after the response in this process.
+`GET /notices/{token}` is public: the link token opens the page, and the `cs_access` and
+`cs_dl_claim` cookies are read only to say who is looking. `POST /notices/{token}/respond`
+records an answer only for the record's own student, signed in through DigiLocker (D37).
+A malformed or unknown token gets the same 404. A resend commits its QUEUED rows before
+delivery starts, on the worker or, with UPLOAD_INLINE, after the response in this process.
 """
 
 from __future__ import annotations
@@ -16,10 +18,12 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from sqlalchemy import select
 
+from app.auth import digilocker
 from app.core.config import get_settings
 from app.core.deps import Adapters, SessionDep, require_roles, scope_institutions
 from app.core.errors import not_found
 from app.core.ratelimit import limiter
+from app.core.security import COOKIE_NAME
 from app.models.enums import NoticeResponse, UserRole
 from app.models.institution import Institution
 from app.models.student import Enrolment
@@ -51,10 +55,23 @@ ResendUser = Annotated[
 ]
 
 
+async def _viewer(request: Request, session) -> User | None:
+    user = await digilocker.session_user(session, request.cookies.get(COOKIE_NAME))
+    if user is not None:
+        request.state.user_id = user.id
+    return user
+
+
 @router.get("/notices/{token}", response_model=NoticePublic)
 @limiter.shared_limit(NOTICE_LIMIT, scope=NOTICE_SCOPE)
 async def get_notice(request: Request, token: str, session: SessionDep) -> NoticePublic:
-    return NoticePublic.model_validate(await service.open_notice(session, token))
+    body = await service.open_notice(
+        session,
+        token,
+        user=await _viewer(request, session),
+        pending=digilocker.read_claim(request.cookies.get(digilocker.CLAIM_COOKIE)),
+    )
+    return NoticePublic.model_validate(body)
 
 
 @router.post("/notices/{token}/respond", response_model=NoticePublic)
@@ -62,7 +79,13 @@ async def get_notice(request: Request, token: str, session: SessionDep) -> Notic
 async def respond_to_notice(
     request: Request, token: str, body: NoticeRespondRequest, session: SessionDep
 ) -> NoticePublic:
-    answer = await service.respond(session, token, NoticeResponse(body.response), body.comment)
+    answer = await service.respond(
+        session,
+        token,
+        NoticeResponse(body.response),
+        body.comment,
+        user=await _viewer(request, session),
+    )
     return NoticePublic.model_validate(answer)
 
 

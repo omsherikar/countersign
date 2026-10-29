@@ -49,6 +49,16 @@ class AdapterRequestError(AdapterError):
         self.status_code = status_code
 
 
+class IdTokenInvalid(AdapterError):
+    """A DigiLocker id token that fails verification: signature, issuer, audience, expiry,
+    nonce or a missing claim. Nobody is signed in."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"digilocker: id token rejected ({reason})")
+        self.source = "digilocker"
+        self.reason = reason
+
+
 @dataclass(slots=True, frozen=True)
 class ApaarResult:
     exists: bool
@@ -124,6 +134,18 @@ class DigiLockerResult:
 
 
 @dataclass(slots=True, frozen=True)
+class DigiLockerIdentity:
+    """The person a verified DigiLocker id token names (D37). The APAAR is kept in memory
+    only: it is used to find a student who already holds it, never stored, never logged."""
+
+    sub: str
+    name: str
+    birthdate: date
+    gender: str | None = None
+    apaar_id: str | None = field(default=None, repr=False)
+
+
+@dataclass(slots=True, frozen=True)
 class SiiResult:
     admitted: bool
     institution_aicte_id: str | None = None
@@ -180,6 +202,12 @@ class AbcAdapter(Protocol):
 class DigiLockerAdapter(Protocol):
     async def notify(self, apaar_id: str, message: str, callback_url: str) -> DigiLockerResult: ...
     async def ping(self) -> None: ...
+    # sign-in (API_CONTRACT §A4.12): the page the browser opens, and the code exchange that
+    # returns the verified identity (IdTokenInvalid when the token fails verification)
+    def authorize_url(self, *, state: str, nonce: str, redirect_uri: str) -> str: ...
+    async def exchange_code(
+        self, *, code: str, redirect_uri: str, nonce: str
+    ) -> DigiLockerIdentity: ...
 
 
 @runtime_checkable

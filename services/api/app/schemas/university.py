@@ -1,4 +1,4 @@
-"""University graduates and degree print data (API_CONTRACT A3.21)."""
+"""University graduates and certificate print data (API_CONTRACT A3.21, §A4.15)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class GraduateProgramme(BaseModel):
     level: str
 
 
-class GraduateDegree(BaseModel):
+class GraduateAttestation(BaseModel):
     credential_id: str
     short_id: str
     status: str
@@ -39,7 +39,7 @@ class GraduateRow(BaseModel):
     programme: GraduateProgramme
     academic_year: str
     year_of_award: int
-    degree: GraduateDegree | None
+    attestation: GraduateAttestation | None
 
 
 class PrintStudent(BaseModel):
@@ -65,7 +65,7 @@ class PrintUniversity(BaseModel):
     name: str
 
 
-class PrintDegree(BaseModel):
+class PrintAttestation(BaseModel):
     credential_id: str
     short_id: str
     status: str
@@ -77,7 +77,7 @@ class PrintDegree(BaseModel):
     qr_svg: str
 
 
-class DegreePrint(BaseModel):
+class CertificatePrint(BaseModel):
     enrolment_id: str
     student: PrintStudent
     programme: PrintProgramme
@@ -85,4 +85,4 @@ class DegreePrint(BaseModel):
     university: PrintUniversity
     academic_year: str
     year_of_award: int
-    degree: PrintDegree | None
+    attestation: PrintAttestation | None
