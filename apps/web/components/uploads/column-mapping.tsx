@@ -161,7 +161,11 @@ export function MappingRows({
   const { duplicates } = problemsOf(choices);
   const dupColumns = new Set(duplicates.map((d) => d.column));
   const ids = React.useId();
-  let refGiven = false;
+  // The first header whose column is chosen twice takes the focus when the reader continues.
+  const firstDup = headers.find((h) => {
+    const v = choices[h] ?? "";
+    return v !== "" && dupColumns.has(v);
+  });
   return (
     <div className="border-l-2 border-rule-margin bg-paper-raised">
       <div className="hidden grid-cols-[minmax(10rem,1fr)_minmax(14rem,1.4fr)] gap-4 border-b border-rule-strong px-4 py-2 text-xs font-medium text-ink-muted md:grid">
@@ -172,8 +176,7 @@ export function MappingRows({
         {headers.map((h, i) => {
           const value = choices[h] ?? "";
           const dup = value !== "" && dupColumns.has(value);
-          const giveRef = dup && !refGiven;
-          if (giveRef) refGiven = true;
+          const giveRef = dup && h === firstDup;
           return (
             <li
               key={`${h}-${i}`}
