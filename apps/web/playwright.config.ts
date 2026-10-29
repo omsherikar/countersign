@@ -1,11 +1,13 @@
 import { defineConfig } from "@playwright/test";
 
 /**
- * End-to-end tests for the demo path (ARCHITECTURE section 12, D33). They
- * drive the running compose stack from the host and share one seeded
- * database, so they run one at a time in file order. Only Playwright's
- * bundled headless Chromium is used; no `channel` is ever set, so no
- * installed browser is launched or copied.
+ * End-to-end tests for the 60-second pitch path (ARCHITECTURE section 12,
+ * D33, D49). They drive the running compose stack from the host and share
+ * one seeded database, so they run one at a time in file order. Only
+ * Playwright's bundled headless Chromium is used; no `channel` is ever set,
+ * so no installed browser is launched or copied. A student's sign-in goes
+ * through the Demo DigiLocker and back, so a test may take a few minutes on
+ * a busy machine.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -14,7 +16,7 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   forbidOnly: Boolean(process.env.CI),
-  timeout: 120_000,
+  timeout: 240_000,
   expect: { timeout: 30_000 },
   reporter: [["list"]],
   use: {

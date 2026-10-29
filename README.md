@@ -149,15 +149,30 @@ After the seed, Ravi Kumar Sharma and Xavier Paul (ABC College CSE) are the two 
 
 ## End-to-end tests
 
-Playwright tests in `apps/web/e2e` walk the demo path, one file per flow: every role signs in; ABC College CSE shows 120 approved and 132 admitted with its Excess admission flag; the R. K. Sharma duplicate leads to Ravi Kumar Sharma; Ravi's notice from Mailpit is answered Yes, his Enrolment proof is shared with three fields and verifies, then shows Revoked once AICTE revokes it; a No from the DigiLocker inbox raises a High Student denied flag; an officer requests documents, the registrar answers with a PDF and the officer clears; a degree insert prints and its QR verifies; the audit chain verifies. They run from the host against the running stack, one at a time, with Playwright's bundled headless Chromium.
+Playwright tests in `apps/web/e2e` follow the 60-second pitch, one file per flow, in order:
+
+1. Officers, registrars and the university sign in with the demo password; Ravi signs in only through the Demo DigiLocker from the login page's Student card (OTP 123456); a signed-out `/aicte` goes to `/login`.
+2. The sample record (Vinayak Akshay Chavan, ABC College CSE) reads exactly as the deck's card: Identity Confirmed, Seat fits approval v2, Joining record Contradicted, Credits Not yet due, Student "I never joined" after DigiLocker sign-in, Disputed (priority) with a next step and the legend.
+3. ABC College CSE shows 120 approved (v2) and 132 admitted with its Excess admission case; the R. K. Sharma duplicate leads to Ravi.
+4. A record with an independent joining record is Countersigned with no answer from the student, and that student's enrolment attestation shares three fields that verify as Valid.
+5. Ravi's notice from Mailpit shows the claim but asks for DigiLocker sign-in before any answer; he says Yes and his Student row is confirmed; sharing three fields of his attestation is marked fixme while the open R. K. Sharma duplicate case keeps his record Under review; another signed-in student is told the notice is for someone else.
+6. Xavier Paul's notice from the DigiLocker inbox, answered No after sign-in: the record turns Disputed, a High Student dispute case opens, the attestation is revoked; officers read the comment, the registrar does not.
+7. The regional officer requests admission documents on that dispute, the registrar answers with a PDF, the AICTE officer withdraws the claim (record withdrawn, seat released in the ledger, no live attestation, decision in the history), and upholds another case whose record then follows the evidence rule.
+8. Priyanka Salunkhe, who has no APAAR, signs in with DigiLocker and claims her record by provisional ID; Identity reads Confirmed through her sign-in.
+9. The overview counts records by status and completeness; a college with missing students lists them by name; the signals page lists the shared contact ring and the anomalies, and a case opened from the ring puts that college's members Under review; the registrar is refused signals.
+10. One report downloads as CSV, XLSX and PDF.
+11. The university issues a completion attestation, prints the certificate block (masked APAAR, QR) and the QR verifies.
+12. The audit chain verifies as intact.
+
+They run from the host against the running stack, one at a time, with Playwright's bundled headless Chromium (no video). The demo cast comes from the datagen manifest in the compose volume (read through the api container; `E2E_MANIFEST` names a copy instead).
 
 ```
 cd apps/web && pnpm install && pnpm exec playwright install --only-shell chromium   # once
-make demo-reset   # a clean run starts from a fresh seed
-make e2e          # about 2 minutes once the web has compiled its pages
+make demo-reset   # a clean run starts from a fresh seed (about 15 minutes)
+make e2e          # about 14 minutes; each student sign-in goes through the Demo DigiLocker
 ```
 
-A clean run starts from `make demo-reset`, because the tests answer the two notices the seed keeps for the live demo, clear one ABC College flag and issue one degree proof. A second run without a reset still passes: it answers other unanswered ABC College notices found through Mailpit, skips sharing Ravi's proof (an officer's revocation holds, so it is not issued again), and takes the next flag and graduate, printing a `note:` line for each of these. `E2E_BASE_URL`, `E2E_API_URL`, `E2E_MAILPIT_URL` and `E2E_MOCKGOV_URL` move the addresses; a failed test keeps its trace and screenshot under `apps/web/test-results`.
+A clean run starts from `make demo-reset`, because the tests use one-time state the seed keeps for the live demo: Ravi's and Xavier's unanswered notices, Priyanka's unclaimed record, the ring's first case, one decision of each kind and one completion attestation. A second run without a reset still passes: it answers and disputes other unanswered ABC College notices (their students sign in through the Demo DigiLocker, and their emails are found in Mailpit), checks Priyanka's claimed record instead of claiming it again, opens the ring's case for the next college or checks the cases already opened, decides the next open case and takes the next graduate, printing a `note:` line for each. Tests marked fixme name a product bug in one line. `E2E_BASE_URL`, `E2E_API_URL`, `E2E_MAILPIT_URL` and `E2E_MOCKGOV_URL` move the addresses; a failed test keeps its trace and screenshot under `apps/web/test-results`, which is safe to delete.
 
 ## Private matching (stretch)
 

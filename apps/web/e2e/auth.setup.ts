@@ -15,6 +15,7 @@ setup("the stack answers", async ({ request }) => {
   }
 });
 
+// Officers, the registrar and the university sign in with a password; students only ever sign in through DigiLocker.
 for (const role of Object.keys(ROLES) as Role[]) {
   setup(`sign in as ${ROLES[role].email}`, async () => {
     await signIn(role);
