@@ -60,7 +60,7 @@ async def abc_reconciled(seeded) -> AsyncIterator[str]:
                             "joined_on": "2026-08-04",
                             "round": 2,
                             "route": "COUNSELLING",
-                            "apaar_last4": "8812",
+                            "apaar_masked": "XXXX XXXX 8812",
                         }
                     ],
                     "published": True,

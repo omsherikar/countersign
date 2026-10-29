@@ -212,6 +212,7 @@ async def test_open_case_puts_the_named_records_under_review(ring_world, clients
     [case] = body["cases"]
     assert (case["type"], case["severity"], case["status"]) == ("GHOST_RING", "HIGH", "OPEN")
     assert case["institution"]["id"] == str(first.id) and case["related_count"] == 14
+    assert case["signal_id"] == str(ring_id)  # the case list reads it from the dedupe key
     assert body["signal"]["status"] == "CASE_OPENED"
     assert body["signal"]["cases"] == [
         {"id": case["id"], "institution_id": str(first.id), "status": "OPEN"}

@@ -23,6 +23,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db.session import dispose_engine, session_factory
 from app.engine import status
+from app.engine.completeness import reconcile_all
 from app.signals import service as signals
 
 MANIFEST = "manifest.json"
@@ -38,12 +39,8 @@ def year_from(source: Path, fallback: str) -> str:
     return years[0] if len(years) == 1 else fallback
 
 
-async def reconcile(academic_year: str) -> dict[str, Any] | None:
-    """Completeness for every institution; None when this build has no reconciliation."""
-    try:
-        from app.engine.completeness import reconcile_all
-    except ImportError:
-        return None
+async def reconcile(academic_year: str) -> dict[str, Any]:
+    """Completeness for every institution with an approval for the year."""
     adapters = build_adapters(get_settings())
     try:
         return await reconcile_all(session_factory(), adapters, academic_year)
@@ -58,7 +55,7 @@ async def detect(academic_year: str) -> dict[str, Any]:
     return result
 
 
-async def derive(academic_year: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+async def derive(academic_year: str) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         completeness = await reconcile(academic_year)
         found = await detect(academic_year)
@@ -84,10 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     year = args.academic_year or year_from(Path(args.source), settings.academic_year)
     started = time.perf_counter()
     completeness, found = asyncio.run(derive(year))
-    if completeness is None:
-        print(f"completeness {year}: not part of this build; skipped")
-    else:
-        print(f"completeness {year}: " + ", ".join(f"{k} {v}" for k, v in completeness.items()))
+    print(f"completeness {year}: " + ", ".join(f"{k} {v}" for k, v in completeness.items()))
     model = found["model"]
     print(
         f"signals {year}: {found['rings']} rings, {found['anomalies']} unusual colleges "

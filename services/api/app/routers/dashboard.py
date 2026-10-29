@@ -14,17 +14,16 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func, select
 
-from app.core import audit
 from app.core.config import get_settings
 from app.core.deps import RequestId, SessionDep, require_roles, scope_institutions
+from app.engine import completeness as reconciliation
 from app.engine.contracts import UNRESOLVED_FLAG_STATUSES
-from app.models.enums import AuditAction, FlagType, UserRole
+from app.models.enums import FlagType, UserRole
 from app.models.institution import Institution
 from app.models.user import User
 from app.models.verification import Flag
 from app.routers._stats import (
     InstitutionStats,
-    completeness_body,
     institution_ref,
     institution_stats_stmt,
     pct,
@@ -186,20 +185,11 @@ async def dashboard_summary(
         ]
 
     completeness = None
-    if user.role is UserRole.INSTITUTION and user.institution_id is not None:
-        completeness = await completeness_body(
-            session, user.institution_id, year, with_students=True
+    if user.role is UserRole.INSTITUTION and user.institution is not None:
+        # the college's own completeness page body, its missing students included (audited)
+        completeness = await reconciliation.read(
+            session, user, user.institution, year, request_id=request_id
         )
-        if completeness["missing_students"]:
-            await audit.record(
-                session,
-                user.id,
-                AuditAction.READ,
-                "institution_score",
-                user.institution_id,
-                after={"via": "completeness", "missing": len(completeness["missing_students"])},
-                request_id=request_id,
-            )
 
     return DashboardSummary(
         academic_year=year,
