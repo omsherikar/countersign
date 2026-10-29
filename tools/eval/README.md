@@ -64,5 +64,5 @@ The scoring is pure functions over plain views, tested on hand-made ground truth
 
 ```
 cd tools/eval && uv run pytest
-docker compose --profile eval run --rm eval pytest -q
+docker compose --profile eval run --rm --no-deps eval pytest -q
 ```
