@@ -498,8 +498,10 @@ class _BatchRun:
             if o.outcome != "unchanged" and o.status is EnrolmentStatus.ACTIVE
         }
         wanted.update(self.seated)
+        # only records the batch left unchanged can be in neither set yet
+        rest = [e for e in dict.fromkeys(active) if e not in wanted]
         async with self.factory() as session:
-            for part in chunks(list(dict.fromkeys(active))):
+            for part in chunks(rest):
                 unchecked = select(Enrolment.id).where(
                     Enrolment.id.in_(part),
                     ~exists().where(Check.enrolment_id == Enrolment.id),
