@@ -50,7 +50,7 @@ function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmi
   if (variant !== "university") {
     cols.push(
       { key: "flags_open", label: t("col.flags_open"), num: true, sort: "flags_open_desc", tip: t("table.sort_tip") },
-      { key: "integrity", label: t("col.integrity"), num: true },
+      { key: "countersigned", label: t("kpi.countersigned"), num: true, tip: t("kpi.countersigned_tip") },
     );
   }
   return cols;
@@ -249,7 +249,7 @@ export function InstitutionsTable({
                     <td className={cn("num", r.flags_open > 0 ? "font-semibold text-ink" : "text-ink-muted")}>
                       {formatCount(r.flags_open)}
                     </td>
-                    <td className="num">{r.integrity_index === null ? <NotComputed /> : Math.round(r.integrity_index)}</td>
+                    <td className="num">{r.countersigned_pct === null ? <NotComputed /> : `${r.countersigned_pct}%`}</td>
                   </>
                 )}
               </tr>

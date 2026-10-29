@@ -260,7 +260,7 @@ async def test_cross_flag_detail_officer_and_college(ids, as_role) -> None:
 
     assert (await (await as_role("registrar@xyz.edu.demo")).get(f"/flags/{flag.id}")).json()[
         "error"
-    ]["message"] == "Flag not found."
+    ]["message"] == "Case not found."
     assert (
         await (await as_role("ro.south@aicte.demo")).get(f"/flags/{flag.id}")
     ).status_code == 404

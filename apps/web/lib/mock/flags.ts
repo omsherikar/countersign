@@ -5,8 +5,10 @@
  * handler applies (A2.16 redaction) and never sends on the wire.
  */
 import { ACADEMIC_YEAR, IDS, RULE, SEEDS, STATES } from "@/lib/mock/fixtures";
-import { entryByName, programmesFor, rollFor, updateFilename, type RollEntry } from "@/lib/mock/roll";
-import type { EvidenceFact, FlagStatus, FlagType, Severity } from "@/lib/types";
+import { sentenceDate } from "@/lib/mock/evidence";
+import { REPORTING_DEADLINE, joinedCounts } from "@/lib/mock/joinings";
+import { CHECKED_AT, deadlineOf, entryByName, joiningYearOf, programmesFor, rollFor, updateFilename, type RollEntry } from "@/lib/mock/roll";
+import type { CheckType, DocsKind, EvidenceFact, FlagStatus, FlagType, Severity } from "@/lib/types";
 
 export interface StoredFact extends EvidenceFact {
   audience?: "OFFICER" | "INSTITUTION";
@@ -28,7 +30,21 @@ export interface StoredFlag {
   rule_source: string;
   created_at: string;
   updated_at: string;
+  /** Where the case stands, for the record's next step (A4.3): the last document request and any escalation. */
+  progress: { docs: { kind: DocsKind; due_on: string | null; responded_at: string | null } | null; escalated_at: string | null };
 }
+
+/** The row a case covers (A4.10), or null. */
+export const COVERS: Partial<Record<FlagType, CheckType>> = {
+  INVALID_APAAR: "IDENTITY",
+  NAME_MISMATCH: "IDENTITY",
+  EXCESS_ADMISSION: "SEAT",
+  QUOTA_BREACH: "SEAT",
+  ELIGIBILITY_BREACH: "SEAT",
+  NOT_IN_JOINING_RECORD: "ADMISSION",
+  NO_ACADEMIC_ACTIVITY: "STUDYING",
+  STUDENT_DENIED: "STUDENT",
+};
 
 export const SEVERITY_RANK: Record<Severity, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
 export const UNRESOLVED: FlagStatus[] = ["OPEN", "DOCS_REQUESTED", "ESCALATED"];
@@ -38,6 +54,7 @@ const KARAD = "10000000-0004-4000-8000-000000000004";
 const KAVERI = "10000000-0006-4000-8000-000000000006";
 const LUCKNOW = "10000000-0007-4000-8000-000000000007";
 const PUNE = "10000000-0010-4000-8000-000000000010";
+const GAYATRI = "10000000-0003-4000-8000-000000000003";
 
 function nameOf(id: string) {
   return SEEDS.find((s) => s.id === id)!.name;
@@ -78,6 +95,7 @@ function flag(
     rule_source,
     created_at,
     updated_at: created_at,
+    progress: { docs: null, escalated_at: null },
   };
 }
 
@@ -330,6 +348,71 @@ function build(): StoredFlag[] {
       "2026-10-28T08:15:55Z",
     ),
   );
+
+  /* Records the state admission authority's joining record does not hold, after the 30 Sep deadline. */
+  const notJoined: [string, string][] = [
+    [IDS.abc, "Ananya Deshmukh"],
+    [IDS.abc, "Tejas More"],
+    [IDS.xyz, "Lakshmi Narayanan"],
+    [PUNE, "Pranav Salunkhe"],
+    [GAYATRI, "Sai Varma"],
+  ];
+  notJoined.forEach(([home, name], i) => {
+    const e = entryByName(home, name);
+    const year = joiningYearOf(e.row);
+    const deadline = sentenceDate(deadlineOf(year));
+    const state = stateNameOf(home);
+    flags.push(
+      flag(
+        40 + i,
+        "NOT_IN_JOINING_RECORD",
+        "MEDIUM",
+        e,
+        e,
+        `Not found in the ${state} admission authority's joining record for ${e.programme.code} (${year}) after the reporting deadline of ${deadline}.`,
+        [
+          { label: "Programme and year", value: `${e.programme.code} (${year})`, source: "College upload" },
+          { label: "Joining record", value: "Not found", source: "State admission authority" },
+          { label: "Checked on", value: sentenceDate(CHECKED_AT), source: "State admission authority" },
+          { label: "Reporting deadline", value: deadline, source: "AICTE reporting schedule" },
+        ],
+        [],
+        "State admission authority joining record",
+        CHECKED_AT,
+      ),
+    );
+  });
+
+  /* Colleges whose uploads leave out students the authority lists as joined (D40). */
+  [IDS.abc, KARAD, PUNE, KAVERI].forEach((home, i) => {
+    const c = joinedCounts(home);
+    if (c.missing.length === 0) return;
+    const share = c.joined ? Math.round((c.matched / c.joined) * 1000) / 10 : 0;
+    const state = stateNameOf(home);
+    const ids = c.missing.map((m) => m.apaar_masked ?? `Roll XXXX${(m.roll_no ?? "").slice(-4)}`).join(", ");
+    flags.push({
+      ...flag(
+        50 + i,
+        "MISSING_FROM_UPLOAD",
+        "MEDIUM",
+        { institutionId: home, programmeId: "" },
+        null,
+        `${c.missing.length} students the ${state} admission authority lists as joined at ${nameOf(home)} in ${ACADEMIC_YEAR} are not in the college's uploads.`,
+        [
+          { label: "Joined (authority)", value: String(c.joined), source: "State admission authority" },
+          { label: "Uploaded and joined", value: String(c.matched), source: "Reconciliation" },
+          { label: "Missing", value: String(c.missing.length), source: "Reconciliation" },
+          { label: "Completeness", value: `${share}%`, source: "Reconciliation" },
+          { label: "Reporting deadline", value: sentenceDate(REPORTING_DEADLINE), source: "AICTE reporting schedule" },
+          { label: "Missing students", value: ids, source: "State admission authority" },
+        ],
+        [],
+        `State admission authority joining record; reporting deadline ${sentenceDate(REPORTING_DEADLINE)}`,
+        "2026-10-28T06:00:00Z",
+      ),
+      programmeId: null,
+    });
+  });
 
   return flags;
 }

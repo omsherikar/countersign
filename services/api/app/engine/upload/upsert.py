@@ -22,11 +22,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.core.crypto import encrypt, hmac_bytes, normalise
+from app.engine import versions
 from app.engine.contracts import EngineSuite
 from app.engine.upload.mask import mask_value
 from app.engine.upload.types import CleanRow, RowIssue, RowOutcome, UpsertResult, upload_date
 from app.engine.upload.validate import STATUS_WORDS
-from app.models.enums import AuditAction, ConsentStatus, EnrolmentStatus, Gender, RowErrorLevel
+from app.models.enums import (
+    AuditAction,
+    ConsentStatus,
+    EnrolmentStatus,
+    Gender,
+    RowErrorLevel,
+    UploadSource,
+    VersionSource,
+)
 from app.models.institution import Institution
 from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
@@ -255,6 +264,8 @@ async def upsert_rows(
 
     entries: list[audit.AuditEntry] = []
     new_students: list[Student] = []  # not added to the session: inserted in bulk below
+    # the versioned student fields as stored before this chunk changed them (D42)
+    student_before: dict[uuid.UUID, dict[str, Any]] = {}
     new_enrolments: list[Enrolment] = []
     for plan in plans:
         student: Student | None
@@ -284,6 +295,7 @@ async def upsert_rows(
                 )
             )
         else:
+            student_before.setdefault(student.id, versions.student_fields(student))
             changes = _update_student(student, plan, by_apaar=plan.apaar_hmac is not None)
             plan.consent_changed = "consent_status" in changes
             if changes:
@@ -320,12 +332,15 @@ async def upsert_rows(
         .all()
     )
     enrolments = {(e.student_id, e.programme_id): e for e in existing}
+    source = VersionSource.SEED if batch.source is UploadSource.SEED else VersionSource.UPLOAD
+    version_writes: list[versions.VersionWrite] = []
 
     for plan in plans:
         row, student = plan.row, plan.student
         assert student is not None
         enrolment = enrolments.get((student.id, row.programme_id))
         released = False
+        before: dict[str, Any] | None = None
         if enrolment is None:
             status = row.status or EnrolmentStatus.ACTIVE
             enrolment = Enrolment(
@@ -355,6 +370,10 @@ async def upsert_rows(
                 result.issues.append(_not_previously_enrolled(row, status))
             _count_status(result, None, status)
         else:
+            before = {
+                **(student_before.get(student.id) or versions.student_fields(student)),
+                **versions.enrolment_fields(enrolment),
+            }
             status = row.status or enrolment.status
             admission_date = row.admission_date or enrolment.admission_date
             wanted = (
@@ -419,6 +438,18 @@ async def upsert_rows(
                     },
                 )
             )
+        changed = versions.diff(before, versions.snapshot(enrolment, student))
+        if changed:
+            version_writes.append(
+                versions.VersionWrite(
+                    enrolment_id=enrolment.id,
+                    changes=changed,
+                    source=source,
+                    batch_id=batch.id,
+                    actor_id=actor_id,
+                    at=batch.created_at,
+                )
+            )
         plan.enrolment_id = enrolment.id
         result.outcomes.append(
             RowOutcome(
@@ -433,6 +464,8 @@ async def upsert_rows(
 
     await _insert(session, Student, new_students, STUDENT_COLUMNS)
     await _insert(session, Enrolment, new_enrolments, ENROLMENT_COLUMNS)
+    # after the inserts, so each version finds its enrolment
+    result.versions += await versions.record_many(session, version_writes)
     # after the inserts, so each consent row finds its student and enrolment
     for plan in plans:
         if plan.consent_changed and plan.student is not None and plan.enrolment_id is not None:

@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { keys } from "@/lib/queries";
 import type {
   AccessLogRow,
+  CertificatePrint,
   ConsentPurpose,
   ConsentsView,
   ConsentWithdrawResult,
@@ -17,7 +18,6 @@ import type {
   CredentialDetail,
   DataRequestCreate,
   DataRequestRow,
-  DegreePrint,
   GraduateListQuery,
   GraduateRow,
   NoticePublic,
@@ -190,7 +190,7 @@ export function useGraduates(params: GraduateListQuery) {
 export function useIssueDegree() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (enrolmentId: string) => api.post<DegreePrint>(`/university/degrees/${enrolmentId}/issue`),
+    mutationFn: (enrolmentId: string) => api.post<CertificatePrint>(`/university/degrees/${enrolmentId}/issue`),
     onSuccess: (print) => {
       qc.setQueryData(studentKeys.degree(print.enrolment_id), print);
       qc.invalidateQueries({ queryKey: ["university", "graduates"] });
@@ -199,5 +199,5 @@ export function useIssueDegree() {
 }
 
 export function useDegreePrint(enrolmentId: string) {
-  return useQuery({ queryKey: studentKeys.degree(enrolmentId), queryFn: () => api.get<DegreePrint>(`/university/degrees/${enrolmentId}`) });
+  return useQuery({ queryKey: studentKeys.degree(enrolmentId), queryFn: () => api.get<CertificatePrint>(`/university/degrees/${enrolmentId}`) });
 }

@@ -46,6 +46,8 @@ function toastFor(action: OfficerAction, flag: FlagDetail): string {
       return t("case.confirmed_toast");
     case "REOPEN":
       return t("case.reopened_toast");
+    case "CORRECT":
+      return t("case.correct");
     case "NOTE":
       return t("case.note_toast");
     case "ASSIGN":

@@ -3,7 +3,6 @@
 import * as React from "react";
 import Link from "next/link";
 import { Bell, Check, Link2, Minus, Wallet, X } from "lucide-react";
-import { CHECK_ORDER } from "@/components/brand/CountersignScore";
 import { ConsentBadge } from "@/components/brand/ConsentBadge";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { MaskedApaar } from "@/components/brand/MaskedApaar";
@@ -13,7 +12,7 @@ import { useStudentMe } from "@/lib/queries";
 import type { StudentCredentialBrief, StudentEnrolment } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
-import { CountersignStrip } from "@/components/common/ledger-bits";
+import { RecordStatusBadge } from "@/components/records/record-status-badge";
 import { StatusWord, useNow } from "@/components/student/bits";
 import { groupNotices, homeLine, type NoticeGroup } from "@/components/student/notice-groups";
 import { ReplyWord } from "@/components/student/notices-page";
@@ -31,14 +30,11 @@ function EnrolmentCard({ e, group }: { e: StudentEnrolment; group: NoticeGroup |
       </p>
       <div className="mt-5 flex flex-col gap-2 border-t border-rule pt-4">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium">{t("col.countersign")}</span>
-          <CountersignStrip countersign={e.countersign} size="md" />
-          {e.countersign.score && (
-            <span className="text-md text-ink-muted">{t("student.strip_caption", { passes: e.countersign.score.passes, applicable: e.countersign.score.applicable })}</span>
-          )}
+          <span className="text-sm font-medium">{t("col.record_status")}</span>
+          <RecordStatusBadge status={e.record_status} size="md" tip={null} />
         </div>
+        {e.record_status && <p className="max-w-[60ch] text-md text-ink-muted">{tk(`record_status.student.${e.record_status}`)}</p>}
         {line && e.status === "ACTIVE" && <p className="max-w-[60ch] text-md text-ink-muted">{line}</p>}
-        <p className="text-md text-ink-muted">{CHECK_ORDER.map((c) => tk(`check.${c}`)).join(" · ")}</p>
       </div>
     </section>
   );
