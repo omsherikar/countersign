@@ -50,7 +50,19 @@ PORTAL = "PORTAL"
 ACCESS_READY = "Your data is ready to download."
 EXPORT_PATH = "/students/me/export.json"
 # readers with no account: how a public page reached the record
-VERIFIER_VIAS = frozenset({"verifier", "verifier-paste", "degree-qr", "degree-lookup"})
+# (`degree-*` entries were written before D44 and stay readable)
+VERIFIER_VIAS = frozenset(
+    {
+        "verifier",
+        "verifier-paste",
+        "completion-qr",
+        "completion-lookup",
+        "degree-qr",
+        "degree-lookup",
+    }
+)
+# a university reading the record for its certificate (`degree-print` before D44)
+CERTIFICATE_VIAS = frozenset({"certificate-print", "degree-print"})
 NOTICE_LINK_VIA = "notice-link"
 CLAIM_LABELS = {
     "name": "Name",
@@ -62,13 +74,14 @@ CLAIM_LABELS = {
     "year_of_study": "Year of study",
     "countersigned": "Countersigned by",
     "university": "University",
-    "year_of_award": "Year of award",
+    "year_of_award": "Year of completion",
 }
+# the rows' labels (copy deck check.*)
 CHECK_WORDS = {
     "IDENTITY": "Identity",
-    "ADMISSION": "Admission",
     "SEAT": "Seat",
-    "STUDYING": "Studying",
+    "ADMISSION": "Joining record",
+    "STUDYING": "Credits",
     "STUDENT": "Student",
 }
 
@@ -402,7 +415,10 @@ def _access_stmt(student_id: uuid.UUID, own_user_id: uuid.UUID | None):
 
 def _access_row(at: datetime, entity_type: str, via: str | None, role: Any) -> dict[str, Any]:
     if entity_type == "student":
-        what = {"export": "EXPORT", "degree-print": "DEGREE"}.get(via or "", "RECORD")
+        if via in CERTIFICATE_VIAS:
+            what = "COMPLETION"
+        else:
+            what = {"export": "EXPORT"}.get(via or "", "RECORD")
     else:
         what = {"notification": "NOTICE", "credential": "CREDENTIAL"}.get(entity_type, "PROOF")
     if role is not None:

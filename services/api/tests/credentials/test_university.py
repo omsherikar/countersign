@@ -1,5 +1,6 @@
-"""Degree print over HTTP: graduates, issue, print data, the insert, and the two ways a
-printed proof is checked, which must agree."""
+"""Certificate integration over HTTP (D44, API_CONTRACT §A4.15): graduates, issue, print
+data, the certificate block, and the two ways a printed attestation is checked, which must
+agree."""
 
 from __future__ import annotations
 
@@ -53,7 +54,7 @@ async def test_graduates_by_scope_and_search(world):
         assert meera["institution"]["aicte_permanent_id"] == "1-ABC-0001"
         assert meera["programme"]["code"] == "CSE" and meera["programme"]["level"] == "UG"
         assert meera["academic_year"] == "2025-26" and meera["year_of_award"] == 2026
-        assert meera["degree"] is None
+        assert meera["attestation"] is None
         gauri = own["items"][1]
         assert gauri["student"] == {
             "id": gauri["student"]["id"],
@@ -108,21 +109,25 @@ async def test_issue_print_and_verify_a_degree(world):
         signed_in("student@demo") as student,
         public() as anyone,
     ):
-        assert (await university.post(f"/university/degrees/{sowmya}/issue")).status_code == 404
-        not_graduated = await university.post(f"/university/degrees/{ravi}/issue")
+        assert (
+            await university.post(f"/university/certificates/{sowmya}/issue")
+        ).status_code == 404
+        not_graduated = await university.post(f"/university/certificates/{ravi}/issue")
         assert not_graduated.status_code == 409
         assert not_graduated.json()["error"] == {
             "code": "CREDENTIAL_NOT_ELIGIBLE",
-            "message": "Degree proofs are issued only for graduated students.",
+            "message": "Completion attestations are issued only for graduated students.",
             "details": {"reason": "NOT_GRADUATED"},
         }
-        before = (await university.get(f"/university/degrees/{meera}")).json()
-        assert before["degree"] is None
-        not_issued = await university.get(f"/university/degrees/{meera}/insert.pdf")
+        for gone in (f"/university/degrees/{meera}", f"/university/degrees/{meera}/insert.pdf"):
+            assert (await university.get(gone)).status_code == 404
+        before = (await university.get(f"/university/certificates/{meera}")).json()
+        assert before["attestation"] is None
+        not_issued = await university.get(f"/university/certificates/{meera}/block.pdf")
         assert not_issued.status_code == 409
         assert not_issued.json()["error"]["details"] == {"reason": "NOT_ISSUED"}
 
-        issued = await university.post(f"/university/degrees/{meera}/issue", json={})
+        issued = await university.post(f"/university/certificates/{meera}/issue", json={})
         assert issued.status_code == 201
         body = issued.json()
         assert body["student"] == {
@@ -140,10 +145,12 @@ async def test_issue_print_and_verify_a_degree(world):
             "code": "MSTU",
             "name": "Maharashtra State Technical University",
         }
-        proof = body["degree"]
+        proof = body["attestation"]
         assert proof["status"] == "ACTIVE" and len(proof["short_id"]) == 8
         assert proof["verify_url"] == f"http://localhost:3000/verify/d/{proof['jws']}"
-        assert proof["lookup_url"] == f"http://localhost:3000/verify/degree/{proof['short_id']}"
+        assert proof["lookup_url"] == (
+            f"http://localhost:3000/verify/completion/{proof['short_id']}"
+        )
         assert proof["qr_svg"].startswith("<svg") and len(proof["verify_url"]) < 400
         assert b64json(proof["jws"].split(".")[1]) == {
             "v": 1,
@@ -155,9 +162,9 @@ async def test_issue_print_and_verify_a_degree(world):
             "y": 2026,
             "a": "0401",
         }
-        again = await university.post(f"/university/degrees/{meera}/issue")
+        again = await university.post(f"/university/certificates/{meera}/issue")
         assert again.status_code == 200
-        assert again.json()["degree"]["short_id"] == proof["short_id"]
+        assert again.json()["attestation"]["short_id"] == proof["short_id"]
 
         # it is in the graduate's wallet, without a holder binding
         async with session_factory()() as session:
@@ -169,7 +176,10 @@ async def test_issue_print_and_verify_a_degree(world):
         assert (await student.get(f"/credentials/{card['id']}")).status_code == 404
 
         by_qr = (await anyone.get(f"/verify/d/{proof['jws']}")).json()
-        by_id = (await anyone.get(f"/verify/degree/{proof['short_id'].lower()}")).json()
+        by_id = (await anyone.get(f"/verify/completion/{proof['short_id'].lower()}")).json()
+        # blocks printed with the older address still verify
+        old_path = (await anyone.get(f"/verify/degree/{proof['short_id']}")).json()
+        assert {**old_path, "status_checked_at": None} == {**by_id, "status_checked_at": None}
         assert by_qr["result"] == by_id["result"] == "VALID"
         assert (by_qr["method"], by_id["method"]) == ("signature", "register_lookup")
         assert by_qr["kind"] == by_id["kind"] == "COMPLETION"
@@ -203,14 +213,14 @@ async def test_issue_print_and_verify_a_degree(world):
         assert by_qr["institution_name"] == "ABC College of Engg."
         assert by_id["institution_name"] == "ABC College of Engineering"
 
-        pdf = await university.get(f"/university/degrees/{meera}/insert.pdf")
+        pdf = await university.get(f"/university/certificates/{meera}/block.pdf")
         assert pdf.status_code == 200
         assert pdf.headers["content-type"] == "application/pdf"
         assert pdf.headers["content-disposition"] == (
-            f'attachment; filename="degree-insert-{proof["short_id"]}.pdf"'
+            f'attachment; filename="certificate-block-{proof["short_id"]}.pdf"'
         )
         text = _pdf_text(pdf.content)
-        assert "(APAAR XXXX XXXX 0401)" in text and f"(Proof id {proof['short_id']})" in text
+        assert "(APAAR XXXX XXXX 0401)" in text and f"(Attestation id {proof['short_id']})" in text
         assert "202500000401" not in text
 
         # a changed QR does not verify; an unknown id is not found
@@ -219,7 +229,7 @@ async def test_issue_print_and_verify_a_degree(world):
         assert (await anyone.get(f"/verify/d/{forged}")).json()["result"] == "INVALID"
         assert (await anyone.get("/verify/d/not-a-jws")).json()["result"] == "INVALID"
         for unknown in ("ZZZZZZZZ", "short"):
-            missing = await anyone.get(f"/verify/degree/{unknown}")
+            missing = await anyone.get(f"/verify/completion/{unknown}")
             assert missing.status_code == 404
             assert missing.json()["error"]["code"] == "PRESENTATION_NOT_FOUND"
 
@@ -228,25 +238,27 @@ async def test_issue_print_and_verify_a_degree(world):
         )
         assert revoked.status_code == 200
         after_qr = (await anyone.get(f"/verify/d/{proof['jws']}")).json()
-        after_id = (await anyone.get(f"/verify/degree/{proof['short_id']}")).json()
+        after_id = (await anyone.get(f"/verify/completion/{proof['short_id']}")).json()
         assert after_qr["result"] == after_id["result"] == "REVOKED"
         assert after_qr["disclosed"] == after_id["disclosed"] == []
         assert after_qr["revoked_at"] == after_id["revoked_at"] is not None
-        blocked = await university.get(f"/university/degrees/{meera}/insert.pdf")
+        blocked = await university.get(f"/university/certificates/{meera}/block.pdf")
         assert blocked.status_code == 409
         assert blocked.json()["error"]["code"] == "CREDENTIAL_REVOKED"
         listed = (await university.get("/university/graduates", params={"q": "Meera"})).json()
-        assert listed["items"][0]["degree"]["status"] == "REVOKED"
-        reissued = await university.post(f"/university/degrees/{meera}/issue")
+        assert listed["items"][0]["attestation"]["status"] == "REVOKED"
+        reissued = await university.post(f"/university/certificates/{meera}/issue")
         assert reissued.status_code == 201
-        assert reissued.json()["degree"]["short_id"] != proof["short_id"]
-        assert (await university.get(f"/university/degrees/{meera}/insert.pdf")).status_code == 200
+        assert reissued.json()["attestation"]["short_id"] != proof["short_id"]
+        assert (
+            await university.get(f"/university/certificates/{meera}/block.pdf")
+        ).status_code == 200
 
     async with session_factory()() as session:
         entries = (await session.execute(select(AuditLog).order_by(AuditLog.seq))).scalars().all()
     vias = [(e.entity_type, (e.after or {}).get("via")) for e in entries if e.after]
-    assert ("student", "degree-print") in vias
-    assert ("credential", "degree-qr") in vias and ("credential", "degree-lookup") in vias
+    assert ("student", "certificate-print") in vias
+    assert ("credential", "completion-qr") in vias and ("credential", "completion-lookup") in vias
     creates = [e for e in entries if e.entity_type == "credential" and e.action == "CREATE"]
     assert len(creates) == 2 and all(e.actor_id is not None for e in creates)
 
@@ -254,18 +266,18 @@ async def test_issue_print_and_verify_a_degree(world):
 async def test_a_provisional_graduate_and_a_shared_degree(world):
     gauri = await _graduate("Gauri Sathe")
     async with signed_in("admin@aicte.demo") as admin, public() as anyone:
-        body = (await admin.post(f"/university/degrees/{gauri}/issue")).json()
+        body = (await admin.post(f"/university/certificates/{gauri}/issue")).json()
         assert body["student"]["id_kind"] == "PROVISIONAL"
         assert body["student"]["id_masked"] == "PRV-XXXXKN7A"
-        proof = body["degree"]
+        proof = body["attestation"]
         assert b64json(proof["jws"].split(".")[1])["a"] == "PRV-XXXXKN7A"
         by_qr = (await anyone.get(f"/verify/d/{proof['jws']}")).json()
-        by_id = (await anyone.get(f"/verify/degree/{proof['short_id']}")).json()
+        by_id = (await anyone.get(f"/verify/completion/{proof['short_id']}")).json()
         for result in (by_qr, by_id):
             fields = {d["key"]: d["value"] for d in result["disclosed"]}
             assert fields["provisional_id"] == "PRV-XXXXKN7A" and "apaar_masked" not in fields
-        pdf = await admin.get(f"/university/degrees/{gauri}/insert.pdf")
-        assert "(Provisional id PRV-XXXXKN7A)" in _pdf_text(pdf.content)
+        pdf = await admin.get(f"/university/certificates/{gauri}/block.pdf")
+        assert "(Provisional ID PRV-XXXXKN7A)" in _pdf_text(pdf.content)
         assert "GQ4DKN7A" not in _pdf_text(pdf.content)
 
 

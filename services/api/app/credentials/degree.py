@@ -1,10 +1,11 @@
-"""Degree proofs for universities (D28, API_CONTRACT A3.21).
+"""Certificate integration for awarding bodies (D44; API_CONTRACT A3.21, §A4.15).
 
-A university lists the graduates of its affiliates, issues a Degree proof into a
-graduate's wallet and prints an insert with the masked APAAR and a QR. The QR carries a
-compact JWS signed by the issuer key over a short summary of the degree, so a reader with
-a phone and no account can check the paper; the proof id printed under it lets a reader
-who cannot scan look the proof up in AICTE's register instead.
+Countersign does not issue degrees. A university lists the graduates of its affiliates,
+issues a completion attestation into a graduate's wallet, and gets for its own certificate
+the masked APAAR and a QR, through the API or as a printed certificate block. The QR
+carries a compact JWS signed by the issuer key over a short summary of the completion, so
+a reader with a phone and no account can check the paper; the attestation id printed under
+it lets a reader who cannot scan look it up in AICTE's register instead.
 """
 
 from __future__ import annotations
@@ -60,7 +61,11 @@ _ABBREVIATIONS = (
 _DANGLING = {"of", "&", "and", "in", "for", "the", "at"}
 _SHORT_ID = re.compile(r"[\s-]+")
 _LOOKALIKES = str.maketrans({"O": "0", "I": "1", "L": "1"})
-FOOTER = "Sample degree insert generated from synthetic demo data. Not a degree certificate."
+FOOTER = (
+    "Sample certificate block generated from synthetic demo data. "
+    "Countersign does not issue degrees."
+)
+PRINT_VIA = "certificate-print"
 
 
 # ---------------------------------------------------------------- names and ids
@@ -108,7 +113,7 @@ def masked_id(student: Student) -> tuple[str, str]:
 
 
 def normalise_short_id(raw: str) -> str | None:
-    """A typed proof id as stored, or None when it cannot be one."""
+    """A typed attestation id as stored, or None when it cannot be one."""
     if not isinstance(raw, str):
         return None
     text = _SHORT_ID.sub("", raw.strip().upper()).translate(_LOOKALIKES)
@@ -135,7 +140,7 @@ class GraduateQuery:
     q: str | None = None
     institution_id: uuid.UUID | None = None
     academic_year: str | None = None
-    degree: str | None = None  # issued or not_issued
+    attestation: str | None = None  # issued or not_issued
     university_id: uuid.UUID | None = None  # AICTE_ADMIN only
 
 
@@ -216,15 +221,15 @@ async def graduates(session: AsyncSession, user: User, query: GraduateQuery) -> 
                 Student.provisional_id.ilike(pattern, escape="\\"),
             )
         )
-    if query.degree in ("issued", "not_issued"):
-        has_degree = exists(
+    if query.attestation in ("issued", "not_issued"):
+        has_attestation = exists(
             select(Credential.id).where(
                 Credential.enrolment_id == Enrolment.id,
                 Credential.kind == CredentialKind.COMPLETION,
                 Credential.revoked.is_(False),
             )
         )
-        stmt = stmt.where(has_degree if query.degree == "issued" else ~has_degree)
+        stmt = stmt.where(has_attestation if query.attestation == "issued" else ~has_attestation)
     total = (
         await session.execute(select(func.count()).select_from(stmt.order_by(None).subquery()))
     ).scalar_one()
@@ -262,7 +267,7 @@ async def graduates(session: AsyncSession, user: User, query: GraduateQuery) -> 
                 },
                 "academic_year": enrolment.academic_year,
                 "year_of_award": issuer.year_end(enrolment.academic_year),
-                "degree": (
+                "attestation": (
                     {
                         "credential_id": str(credential.id),
                         "short_id": credential.short_id,
@@ -339,7 +344,7 @@ def verify_url(jws: str) -> str:
 
 
 def lookup_url(short_id: str) -> str:
-    return f"{get_settings().web_origin}/verify/degree/{short_id}"
+    return f"{get_settings().web_origin}/verify/completion/{short_id}"
 
 
 def fitted_payload(record: DegreeRecord, short_id: str, header: str) -> str:
@@ -381,14 +386,14 @@ async def compact_jws(session: AsyncSession, credential: Credential) -> str:
 
 
 async def print_body(session: AsyncSession, record: DegreeRecord) -> dict[str, Any]:
-    """The print data of A3.21 for a graduate; `degree` is null until a proof is issued."""
+    """The print data of §A4.15 for a graduate; `attestation` is null until one is issued."""
     credential = await degree_for(session, record.enrolment.id)
     id_kind, id_masked = masked_id(record.student)
-    degree = None
+    attestation = None
     if credential is not None:
         jws = await compact_jws(session, credential)
         url = verify_url(jws)
-        degree = {
+        attestation = {
             "credential_id": str(credential.id),
             "short_id": credential.short_id,
             "status": issuer.status_of(credential),
@@ -419,12 +424,12 @@ async def print_body(session: AsyncSession, record: DegreeRecord) -> dict[str, A
         },
         "academic_year": record.enrolment.academic_year,
         "year_of_award": issuer.year_end(record.enrolment.academic_year),
-        "degree": degree,
+        "attestation": attestation,
     }
 
 
 async def print_data(session: AsyncSession, user: User, enrolment_id: uuid.UUID) -> dict[str, Any]:
-    """GET /university/degrees/{enrolment_id}, with its READ audit entry."""
+    """GET /university/certificates/{enrolment_id}, with its READ audit entry."""
     record = await scoped_graduate(session, user, enrolment_id)
     body = await print_body(session, record)
     await audit_print(session, user, record)
@@ -438,7 +443,7 @@ async def audit_print(session: AsyncSession, user: User, record: DegreeRecord) -
         AuditAction.READ,
         "student",
         record.student.id,
-        after={"via": "degree-print"},
+        after={"via": PRINT_VIA},
     )
 
 
@@ -480,27 +485,29 @@ def _centered(pdf: canvas.Canvas, text: str, y: float, font: str, size: float) -
     return y
 
 
-def insert_pdf(data: Mapping[str, Any]) -> bytes:
-    """One A4 portrait page from the print data: who, what, where, when, the masked id,
-    the QR about 40 mm wide with the proof id under it, and the sample footer. Black on
-    white; nothing is filled but the QR."""
-    degree = data["degree"]
-    assert degree is not None, "print data without a degree proof"
+def block_pdf(data: Mapping[str, Any]) -> bytes:
+    """One A4 portrait page from the print data, the copy deck's certificate block: for
+    whom, the programme, institution and year, the masked id, the QR about 40 mm wide with
+    the attestation id and the verify address under it, and the sample footer. Black on
+    white; nothing is filled but the QR. It never says degree except to say it is not one."""
+    attestation = data["attestation"]
+    assert attestation is not None, "print data without a completion attestation"
+    university = data["university"]["name"]
     width, height = A4
     out = io.BytesIO()
     pdf = canvas.Canvas(out, pagesize=A4, pageCompression=1)
-    pdf.setTitle(f"Degree insert {degree['short_id']}")
+    pdf.setTitle(f"Certificate block {attestation['short_id']}")
     pdf.setAuthor("Countersign")
-    pdf.setSubject("Sample degree insert")
+    pdf.setSubject("Sample certificate block")
     pdf.setFillColorRGB(0, 0, 0)
     pdf.setStrokeColorRGB(0, 0, 0)
     pdf.setLineWidth(0.8)
     pdf.rect(15 * mm, 15 * mm, width - 30 * mm, height - 30 * mm, stroke=1, fill=0)
 
     y = height - 40 * mm
-    y = _centered(pdf, data["university"]["name"], y, "Helvetica-Bold", 18)
+    y = _centered(pdf, university, y, "Helvetica-Bold", 18)
     y -= 6 * mm
-    y = _centered(pdf, "This insert accompanies the degree awarded to", y, "Helvetica", 11)
+    y = _centered(pdf, f"For the certificate awarded by {university} to", y, "Helvetica", 11)
     y -= 2 * mm
     y = _centered(pdf, data["student"]["name"], y, "Helvetica-Bold", 16)
     y -= 6 * mm
@@ -509,12 +516,12 @@ def insert_pdf(data: Mapping[str, Any]) -> bytes:
     id_line = (
         f"APAAR {student['id_masked']}"
         if student["id_kind"] == "APAAR"
-        else f"Provisional id {student['id_masked']}"
+        else f"Provisional ID {student['id_masked']}"
     )
     for label, value in (
         ("Programme", data["programme"]["name"]),
         ("Institution", data["institution"]["name"]),
-        ("Year of award", str(data["year_of_award"])),
+        ("Year of completion", str(data["year_of_award"])),
     ):
         y = _centered(pdf, f"{label}: {value}", y, "Helvetica", 12)
         y -= 1 * mm
@@ -522,17 +529,24 @@ def insert_pdf(data: Mapping[str, Any]) -> bytes:
 
     qr_width = 40 * mm
     qr_y = y - 10 * mm - qr_width
-    _qr_rects(pdf, degree["verify_url"], (width - qr_width) / 2, qr_y, qr_width)
+    _qr_rects(pdf, attestation["verify_url"], (width - qr_width) / 2, qr_y, qr_width)
     y = qr_y - 7 * mm
-    y = _centered(pdf, f"Proof id {degree['short_id']}", y, "Helvetica-Bold", 12)
-    y = _centered(pdf, f"Scan to verify at {_host_path(degree['lookup_url'])}", y, "Helvetica", 10)
+    y = _centered(pdf, f"Attestation id {attestation['short_id']}", y, "Helvetica-Bold", 12)
+    verify_at = _host_path(attestation["lookup_url"])
+    y = _centered(pdf, f"Scan to verify at {verify_at}", y, "Helvetica", 10)
     y -= 6 * mm
-    issued = datetime.fromisoformat(degree["issued_at"].replace("Z", "+00:00"))
-    y = _centered(pdf, f"Proof issued {display_date(ist_date(issued))}", y, "Helvetica", 10)
+    issued = datetime.fromisoformat(attestation["issued_at"].replace("Z", "+00:00"))
+    y = _centered(
+        pdf,
+        f"Completion attestation issued {display_date(ist_date(issued))}",
+        y,
+        "Helvetica",
+        10,
+    )
     _centered(
         pdf,
-        f"Signed by Countersign for {data['university']['name']}. "
-        "A changed insert does not verify.",
+        f"Signed by Countersign for {university}. "
+        "This block is not a degree, and a changed block does not verify.",
         y,
         "Helvetica",
         10,
@@ -544,18 +558,18 @@ def insert_pdf(data: Mapping[str, Any]) -> bytes:
 
 
 def _host_path(url: str) -> str:
-    """`http://localhost:3000/verify/degree/4ZK8M2QD` gives `localhost:3000/verify`."""
+    """`http://localhost:3000/verify/completion/4ZK8M2QD` gives `localhost:3000/verify`."""
     return f"{urlsplit(url).netloc}/verify"
 
 
 def active_degree_or_conflict(credential: Credential | None) -> Credential:
-    """The proof the insert prints: 409 NOT_ISSUED without one, CREDENTIAL_REVOKED when the
-    latest is revoked."""
+    """The completion attestation the block prints: 409 NOT_ISSUED without one,
+    CREDENTIAL_REVOKED when the latest is revoked."""
     if credential is None:
         raise ApiError(
             409,
             "CREDENTIAL_NOT_ELIGIBLE",
-            "Issue the degree proof first.",
+            "Issue the completion attestation first.",
             {"reason": "NOT_ISSUED"},
         )
     if credential.revoked:
@@ -563,7 +577,7 @@ def active_degree_or_conflict(credential: Credential | None) -> Credential:
         raise ApiError(
             409,
             "CREDENTIAL_REVOKED",
-            f"This proof was revoked on {display_date(ist_date(credential.revoked_at))} "
+            f"This attestation was revoked on {display_date(ist_date(credential.revoked_at))} "
             "and cannot be shared.",
             {"revoked_at": iso(credential.revoked_at)},
         )
