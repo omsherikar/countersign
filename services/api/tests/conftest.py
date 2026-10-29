@@ -116,9 +116,7 @@ async def login_as(email: str) -> httpx.AsyncClient:
     transport = httpx.ASGITransport(app=app)
     c = httpx.AsyncClient(transport=transport, base_url="http://test")
     async with session_factory()() as session:
-        user = (
-            await session.execute(select(User).where(User.email == email))
-        ).scalar_one_or_none()
+        user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user is not None and user.role is UserRole.STUDENT:
         c.cookies.set(COOKIE_NAME, create_access_token(user.id, user.role.value))
         return c
