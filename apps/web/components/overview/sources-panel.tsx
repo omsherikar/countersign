@@ -12,7 +12,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 export const SOURCE_NAME: Record<SourceKey, string> = {
   apaar: t("source.APAAR"),
-  counselling: t("source.COUNSELLING"),
+  counselling: t("source.counselling_adapter"),
+  admission_authority: t("source.ADMISSION_AUTHORITY"),
   abc: t("source.ABC"),
   digilocker: t("source.DIGILOCKER"),
   sii: t("source.SII"),

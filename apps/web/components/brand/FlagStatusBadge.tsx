@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronsUp, CircleCheck, CircleDot, FileQuestion, Stamp } from "lucide-react";
+import { ChevronsUp, CircleCheck, CircleDot, CircleSlash, FileQuestion, PencilLine } from "lucide-react";
 import { tk } from "@/lib/copy";
 import { cn } from "@/lib/utils";
 
@@ -15,8 +15,8 @@ const STYLE: Record<FlagStatus, { chip: string; Icon: React.ComponentType<{ clas
   DOCS_REQUESTED: { chip: "bg-flag-docs-soft text-flag-docs-ink border-flag-docs/40", Icon: FileQuestion },
   UPHELD: { chip: "bg-flag-cleared-soft text-flag-cleared-ink border-flag-cleared/40", Icon: CircleCheck },
   ESCALATED: { chip: "bg-flag-escalated-soft text-flag-escalated-ink border-flag-escalated/40", Icon: ChevronsUp },
-  WITHDRAWN: { chip: "bg-flag-confirmed-soft text-flag-confirmed-ink border-flag-confirmed/40", Icon: Stamp },
-  CORRECTED: { chip: "bg-flag-confirmed-soft text-flag-confirmed-ink border-flag-confirmed/40", Icon: Stamp },
+  CORRECTED: { chip: "bg-flag-open-soft text-flag-open-ink border-flag-open/40", Icon: PencilLine },
+  WITHDRAWN: { chip: "bg-check-na-soft text-check-na-ink border-check-na/40", Icon: CircleSlash },
 };
 
 export interface FlagStatusBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -26,9 +26,9 @@ export interface FlagStatusBadgeProps extends React.HTMLAttributes<HTMLSpanEleme
 }
 
 /**
- * Where a flag is in its life: raised, waiting on the college, closed as
- * clear, sent up a level, or confirmed by an officer. CONFIRMED is the only
- * state that says a problem is real, and it wears the stamp glyph.
+ * Where a case is in its life: open, waiting on the college, sent up to
+ * AICTE, or decided as Claim upheld, Claim corrected or Claim withdrawn
+ * (W4 marks table). Each word travels with its icon; no decision is red.
  */
 export function FlagStatusBadge({ status, compact = false, className, ...rest }: FlagStatusBadgeProps) {
   const { chip, Icon } = STYLE[status];

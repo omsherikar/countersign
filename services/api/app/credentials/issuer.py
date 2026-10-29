@@ -1,10 +1,11 @@
-"""Issuing and revoking proofs (D26, D28; API_CONTRACT A3.15, A3.18).
+"""Issuing and revoking attestations (D26, D44; API_CONTRACT A3.15, A3.18, §A4.14).
 
-An Enrolment proof is an SD-JWT VC bound to the student's holder key (`cnf`), issued once
-the enrolment is countersigned: its STUDENT check is PASS, no check is FAIL and no
-unresolved HIGH flag names it. A Degree proof has no `cnf` and no `exp`, because a printed
-proof cannot be tied to a phone. Every claim that identifies the student is selectively
-disclosable, one top-level disclosure each, so the holder chooses what a verifier sees.
+An enrolment attestation is an SD-JWT VC bound to the student's holder key (`cnf`), issued
+when the record is COUNTERSIGNED (the evidence rule, D35): the attestation says what the
+record card says. A completion attestation, for the awarding body's own certificate, has
+no `cnf` and no `exp`, because a printed block cannot be tied to a phone; Countersign
+issues no degree. Every claim that identifies the student is selectively disclosable, one
+top-level disclosure each, so the holder chooses what a verifier sees.
 """
 
 from __future__ import annotations
@@ -37,15 +38,16 @@ from app.models.enums import (
     CheckType,
     CredentialKind,
     EnrolmentStatus,
-    Severity,
+    RecordStatus,
 )
 from app.models.geo import University
 from app.models.institution import Institution, Programme
 from app.models.student import Enrolment, Student
 from app.models.verification import Check
-from app.routers._enrolment_rows import flags_for
 
 ENROLMENT_VCT = "countersign:enrolment:v1"
+COMPLETION_VCT = "countersign:completion:v1"
+# completion attestations issued before D44 carry this type and still verify
 DEGREE_VCT = "countersign:degree:v1"
 ENROLMENT_DISCLOSABLE = (
     "name",
@@ -66,7 +68,13 @@ DEGREE_DISCLOSABLE = (
     "year_of_award",
 )
 ALWAYS_DISCLOSED = ("institution", "programme")
-REASON_CODES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "FLAG_CONFIRMED", "STUDENT_DISPUTE")
+REASON_CODES = (
+    "ENROLMENT_WITHDRAWN",
+    "ENROLMENT_TRANSFERRED",
+    "CLAIM_WITHDRAWN",
+    "STUDENT_DISPUTE",
+    "FLAG_CONFIRMED",
+)
 ADMIN_REASON = "ADMIN"
 
 ISSUER_NAME = "Countersign"
@@ -87,19 +95,24 @@ LABELS = {
     "year_of_study": "Year of study",
     "countersigned": "Countersigned by",
     "university": "University",
-    "year_of_award": "Year of award",
-    "proof_id": "Proof id",
+    "year_of_award": "Year of completion",
+    "proof_id": "Attestation id",
     "issued": "Issued",
     "expires": "Valid until",
 }
+# the rows' labels (copy deck check.*)
 CHECK_WORDS = {
     CheckType.IDENTITY: "Identity",
-    CheckType.ADMISSION: "Admission",
     CheckType.SEAT: "Seat",
-    CheckType.STUDYING: "Studying",
+    CheckType.ADMISSION: "Joining record",
+    CheckType.STUDYING: "Credits",
     CheckType.STUDENT: "Student",
 }
-_VCT_KIND = {ENROLMENT_VCT: CredentialKind.ENROLMENT, DEGREE_VCT: CredentialKind.COMPLETION}
+_VCT_KIND = {
+    ENROLMENT_VCT: CredentialKind.ENROLMENT,
+    COMPLETION_VCT: CredentialKind.COMPLETION,
+    DEGREE_VCT: CredentialKind.COMPLETION,
+}
 
 
 # ------------------------------------------------------------------ wire helpers
@@ -149,7 +162,7 @@ def disclosable_for(kind: CredentialKind) -> tuple[str, ...]:
 
 
 def join_words(words: Iterable[str]) -> str:
-    """`Identity, Admission, Seat and Student`."""
+    """`Identity, Seat and Joining record`."""
     items = list(words)
     if len(items) <= 1:
         return "".join(items)
@@ -203,7 +216,7 @@ def wire_reason_code(credential: Credential) -> str | None:
 
 
 def holder_bound(credential: Credential) -> bool:
-    """Enrolment proofs carry the holder's key; degree proofs do not."""
+    """Enrolment attestations carry the holder's key; completion attestations do not."""
     return credential.kind is CredentialKind.ENROLMENT
 
 
@@ -266,11 +279,6 @@ async def _checks(session: AsyncSession, enrolment_id: uuid.UUID) -> dict[CheckT
     return {check_type: status for check_type, status in rows}
 
 
-async def _has_unresolved_high_flag(session: AsyncSession, enrolment: Enrolment) -> bool:
-    flags = await flags_for(session, {enrolment.id: enrolment.institution_id}, unresolved_only=True)
-    return any(f.severity is Severity.HIGH for f in flags.get(enrolment.id, []))
-
-
 async def _active_credential(
     session: AsyncSession, enrolment_id: uuid.UUID, kind: CredentialKind
 ) -> Credential | None:
@@ -285,31 +293,29 @@ async def _active_credential(
     ).scalar_one_or_none()
 
 
-async def _eligible(
-    session: AsyncSession, enrolment: Enrolment, checks: Mapping[CheckType, CheckStatus]
-) -> bool:
+async def _eligible(session: AsyncSession, enrolment: Enrolment) -> bool:
+    """D44: ACTIVE, COUNTERSIGNED, no live enrolment attestation, and none revoked with a
+    code that holds."""
     if enrolment.status is not EnrolmentStatus.ACTIVE:
         return False
-    if checks.get(CheckType.STUDENT) is not CheckStatus.CONFIRMED:
-        return False
-    if any(status is CheckStatus.CONTRADICTED for status in checks.values()):
-        return False
-    if await _has_unresolved_high_flag(session, enrolment):
+    if enrolment.record_status is not RecordStatus.COUNTERSIGNED:
         return False
     if await _revoked_by_officer(session, enrolment.id):
         return False
     return await _active_credential(session, enrolment.id, CredentialKind.ENROLMENT) is None
 
 
-# revocations a later upload can undo (the enrolment comes back ACTIVE); an officer's own
-# revocation or a confirmed flag stays until an officer acts again
-# a dispute an officer later upheld does not block a new attestation either (R6)
+# revocations that do not hold: a later upload can undo a withdrawal or a transfer (the
+# enrolment comes back ACTIVE), and a dispute an officer later upheld does not block a new
+# attestation (R6). Every other code holds until an officer acts again: ADMIN (an officer's
+# own words), CLAIM_WITHDRAWN and the retired FLAG_CONFIRMED.
 SYSTEM_RELEASES = ("ENROLMENT_WITHDRAWN", "ENROLMENT_TRANSFERRED", "STUDENT_DISPUTE")
+HOLDING_CODES = ("ADMIN", "CLAIM_WITHDRAWN", "FLAG_CONFIRMED")
 
 
 async def _revoked_by_officer(session: AsyncSession, enrolment_id: uuid.UUID) -> bool:
-    """Whether an officer revoked an Enrolment proof of this enrolment (ADMIN or
-    FLAG_CONFIRMED); such a proof is never issued again on its own."""
+    """Whether an enrolment attestation of this enrolment was revoked with a code that
+    holds; such an attestation is never issued again on its own."""
     found = await session.scalar(
         select(Credential.id)
         .where(
@@ -324,11 +330,11 @@ async def _revoked_by_officer(session: AsyncSession, enrolment_id: uuid.UUID) ->
 
 
 async def eligibility(session: AsyncSession, enrolment_id: uuid.UUID) -> bool:
-    """Whether an Enrolment proof may be issued for the enrolment now (D26)."""
+    """Whether an enrolment attestation may be issued for the enrolment now (D44)."""
     enrolment = await session.get(Enrolment, enrolment_id)
     if enrolment is None:
         return False
-    return await _eligible(session, enrolment, await _checks(session, enrolment_id))
+    return await _eligible(session, enrolment)
 
 
 # --------------------------------------------------------------------- issuance
@@ -363,7 +369,7 @@ async def _sign_and_store(
     the index is inside the signed payload.
     """
     key = await keys.active_issuer_key(session)
-    vct = ENROLMENT_VCT if kind is CredentialKind.ENROLMENT else DEGREE_VCT
+    vct = ENROLMENT_VCT if kind is CredentialKind.ENROLMENT else COMPLETION_VCT
     order = [k for k in disclosable_for(kind) if k in claims]
     for _ in range(_ATTEMPTS):
         now = datetime.now(UTC)
@@ -446,14 +452,16 @@ async def _lock(session: AsyncSession, enrolment_id: uuid.UUID) -> Enrolment | N
 
 
 async def issue_if_eligible(session: AsyncSession, enrolment_id: uuid.UUID) -> Credential | None:
-    """The Enrolment proof, issued in the caller's transaction when the enrolment is
-    eligible; None otherwise (never raises for an ineligible enrolment). Flushes only."""
+    """The enrolment attestation, issued in the caller's transaction when the enrolment is
+    eligible; None otherwise (never raises for an ineligible enrolment). Flushes only.
+
+    The `countersigned` claim lists the rows CONFIRMED at issue, in row order."""
     enrolment = await _lock(session, enrolment_id)
     if enrolment is None:
         return None
-    checks = await _checks(session, enrolment.id)
-    if not await _eligible(session, enrolment, checks):
+    if not await _eligible(session, enrolment):
         return None
+    checks = await _checks(session, enrolment.id)
     student, institution, programme = await _parts(session, enrolment)
     holder = await keys.holder_key(session, student.id, create=True)
     assert holder is not None
@@ -483,7 +491,7 @@ def not_graduated() -> ApiError:
     return ApiError(
         409,
         "CREDENTIAL_NOT_ELIGIBLE",
-        "Degree proofs are issued only for graduated students.",
+        "Completion attestations are issued only for graduated students.",
         {"reason": "NOT_GRADUATED"},
     )
 
@@ -491,8 +499,9 @@ def not_graduated() -> ApiError:
 async def issue_degree(
     session: AsyncSession, enrolment_id: uuid.UUID, *, actor_id: uuid.UUID
 ) -> tuple[Credential, bool]:
-    """(the active Degree proof, whether it was made now). A revoked earlier proof does not
-    block a new one. 409 CREDENTIAL_NOT_ELIGIBLE NOT_GRADUATED for any other status."""
+    """(the active completion attestation, whether it was made now), for the awarding
+    body's certificate (D44). A revoked earlier one does not block a new one. 409
+    CREDENTIAL_NOT_ELIGIBLE NOT_GRADUATED for any other status."""
     enrolment = await _lock(session, enrolment_id)
     if enrolment is None:
         raise ApiError(404, "NOT_FOUND", "Enrolment not found.")
@@ -549,7 +558,7 @@ async def revoke(
         raise ApiError(
             409,
             "CREDENTIAL_REVOKED",
-            "This proof is already revoked.",
+            "This attestation is already revoked.",
             {"revoked_at": iso(credential.revoked_at)},
         )
     credential.revoked = True

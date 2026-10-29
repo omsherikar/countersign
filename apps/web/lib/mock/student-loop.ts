@@ -1,9 +1,15 @@
 /**
- * Mock routes for the student notice, wallet, privacy, verifier and
- * university degree pages (API_CONTRACT A3.3 to A3.6 and A3.15 to A3.22).
- * State lives in sessionStorage, so answering a notice, then opening the
- * wallet, sharing a proof and checking its code all work in one tab, as the
- * demo path does against the api.
+ * Mock routes for the student notice, DigiLocker claim, wallet, privacy,
+ * verifier and university certificate integration pages (API_CONTRACT A3.3
+ * to A3.6, A3.15 to A3.22, A4.12 to A4.15). State lives in sessionStorage,
+ * so signing in with the demo DigiLocker, answering a notice, then opening
+ * the wallet, sharing an attestation and checking its code all work in one
+ * tab, as the demo path does against the api.
+ *
+ * Answering needs a DigiLocker sign-in (/auth/digilocker/demo stands in for
+ * mockgov's simulator): Ravi Kumar Sharma matches his notices, Meera Nair is
+ * someone else, and Asha Patil has no APAAR, so she claims her record with
+ * the provisional ID first (demo-provisional).
  *
  * Notice links to try (no sign-in needed):
  *   /student/notices/demo-ravi              Ravi's email notice, unanswered
@@ -24,13 +30,17 @@ import { ApiError, type Query } from "@/lib/api";
 import { t } from "@/lib/copy";
 import { formatDate } from "@/lib/format";
 import { ACADEMIC_YEAR, IDS, INSTITUTIONS } from "@/lib/mock/fixtures";
-import { studentMe } from "@/lib/mock/roll";
-import { readBrowserToken, userFromToken } from "@/lib/mock/session";
+import { DEMO_ACCOUNTS, readPendingClaim, writePendingClaim } from "@/lib/mock/digilocker";
+import { makeRow, sentenceDate } from "@/lib/mock/evidence";
+import { recordFor, withRecord } from "@/lib/mock/records";
+import { entryById, rollFor, setRows, studentMe, versionsOf, type RollEntry } from "@/lib/mock/roll";
+import { readBrowserToken, tokenFor, userFromToken, writeBrowserToken } from "@/lib/mock/session";
 import type {
   AccessLogRow,
   AccessedWhat,
   AccessorRole,
   ClaimKey,
+  ClaimResult,
   ConsentCurrent,
   ConsentPurpose,
   ConsentRow,
@@ -38,8 +48,8 @@ import type {
   CredentialClaim,
   CredentialStatus,
   DataRequestCreate,
+  CertificatePrint,
   DataRequestRow,
-  DegreePrint,
   DisclosableField,
   DisclosedField,
   GraduateRow,
@@ -50,9 +60,11 @@ import type {
   NoticeResponse,
   NoticeState,
   Page,
+  PendingClaim,
   PresentationCreated,
   PrivacyNotice,
   Role,
+  StudentEnrolment,
   StudentMe,
   StudentNotice,
   User,
@@ -61,7 +73,7 @@ import type {
 
 export const UNHANDLED = Symbol("unhandled");
 
-const STORE_KEY = "cs_mock_student_loop_v1";
+const STORE_KEY = "cs_mock_student_loop_v2";
 const DAY = 86_400_000;
 const MIN = 60_000;
 const ISSUER = { name: "Countersign", url: "http://localhost:8000" };
@@ -76,6 +88,8 @@ interface StoredNotice {
   id: string;
   enrolment_id: string;
   ravi: boolean;
+  /** Whose DigiLocker sign-in matches this notice (A4.13). */
+  owner: "ravi" | "asha";
   channel: NoticeChannel;
   institution_name: string;
   programme_code: string;
@@ -113,12 +127,16 @@ interface StoredPresentation {
 }
 
 interface StoredGraduate {
-  row: Omit<GraduateRow, "degree">;
+  row: Omit<GraduateRow, "attestation">;
   universityId: string;
   credentialId: string | null;
 }
 
 interface State {
+  /** When Asha Patil claimed her record through DigiLocker, if she has. */
+  claimedAt: string | null;
+  /** Failed claim attempts, epoch ms, for the 5-in-15-minutes limit. */
+  claimFailures: number[];
   notices: StoredNotice[];
   credentials: StoredCredential[];
   presentations: StoredPresentation[];
@@ -266,7 +284,7 @@ const DEGREE_FIELDS: DisclosableField[] = [
   { key: "institution", label: "Institution", always: true },
   { key: "programme", label: "Programme", always: true },
   { key: "university", label: "University", always: false },
-  { key: "year_of_award", label: "Year of award", always: false },
+  { key: "year_of_award", label: "Year of completion", always: false },
 ];
 
 const FIRST = ["Aarav", "Ananya", "Vihaan", "Diya", "Aditya", "Isha", "Arjun", "Kavya", "Rohan", "Meera", "Siddharth", "Pooja", "Nikhil", "Sneha", "Kunal", "Tanvi", "Harsh", "Riya", "Omkar", "Shruti"];
@@ -319,6 +337,7 @@ function raviNotice(token: string, channel: NoticeChannel, t0: number): StoredNo
     id: uid(),
     enrolment_id: RAVI_ENROLMENT,
     ravi: true,
+    owner: "ravi",
     channel,
     institution_name: ABC.name,
     programme_code: "CSE",
@@ -350,17 +369,96 @@ function otherNotice(token: string, patch: Partial<StoredNotice>, t0: number): S
   };
 }
 
+/* ---- Asha Patil: a refused-consent first-year who claims her record (A4.25 PROVISIONAL_CLAIM) ---- */
+
+let ASHA: RollEntry | null = null;
+
+/**
+ * ABC College, B.Tech CSE, year 1, consent refused, with a joining record:
+ * after she claims the record through DigiLocker, Identity reads Confirmed
+ * and the record can be Countersigned.
+ */
+export function ashaEntry(): RollEntry {
+  if (ASHA) return ASHA;
+  const pick =
+    rollFor(IDS.abc).find(
+      (e) =>
+        !e.planted &&
+        e.row.status === "ACTIVE" &&
+        e.row.year_of_study === 1 &&
+        e.row.programme_code === "CSE" &&
+        e.row.student.consent_status === "REFUSED" &&
+        e.checks.some((c) => c.type === "ADMISSION" && c.state === "CONFIRMED") &&
+        e.checks.some((c) => c.type === "SEAT" && c.state === "CONFIRMED"),
+    ) ?? rollFor(IDS.abc).find((e) => !e.planted && e.row.status === "ACTIVE" && e.row.student.consent_status !== "LINKED")!;
+  pick.row.student = { ...pick.row.student, name: "Asha Patil", provisional_id: pick.row.student.provisional_id ?? "PRV-7Q2MK4PX" };
+  pick.dob = "2008-01-14";
+  pick.gender = "F";
+  ASHA = pick;
+  return pick;
+}
+
+export function ashaProvisionalId(): string {
+  return ashaEntry().row.student.provisional_id!;
+}
+
+function ashaNotice(t0: number): StoredNotice {
+  const e = ashaEntry();
+  const id = e.row.student.provisional_id!;
+  return {
+    ...raviNotice("demo-provisional", "EMAIL", t0),
+    ravi: false,
+    owner: "asha",
+    enrolment_id: e.row.id,
+    programme_code: e.row.programme_code,
+    programme_name: e.programme.name,
+    id_kind: "PROVISIONAL",
+    id_masked: `PRV-XXXX${id.slice(-4)}`,
+  };
+}
+
+/** The Identity row once the record is claimed through DigiLocker (A4.12, basis DIGILOCKER_CLAIM). */
+function applyAshaClaim() {
+  const at = load().claimedAt;
+  if (!at) return;
+  const e = ashaEntry();
+  const identity = e.checks.find((c) => c.type === "IDENTITY");
+  if (identity?.state === "CONFIRMED") return;
+  const row = makeRow(
+    "IDENTITY",
+    {
+      state: "CONFIRMED",
+      basis: "DIGILOCKER_CLAIM",
+      source: "DIGILOCKER",
+      finding: "claimed through DigiLocker",
+      supplied_by: "Student via DigiLocker sign-in",
+      observed_at: at,
+      independent: true,
+      source_line: `Student sign-in via DigiLocker · ${sentenceDate(at)}`,
+      summary: "The student signed in with DigiLocker and claimed the record with its provisional ID; the name and date of birth match.",
+      detail: { claimed_at: at },
+    },
+    at,
+  );
+  setRows(
+    e,
+    e.checks.map((c) => (c.type === "IDENTITY" ? row : c)),
+  );
+}
+
 function seed(): State {
   const t0 = now();
   const graduates = seedGraduates();
   const state: State = {
+    claimedAt: null,
+    claimFailures: [],
     notices: [
       raviNotice("demo-ravi", "EMAIL", t0),
       raviNotice("demo-ravi-digilocker", "DIGILOCKER", t0),
       otherNotice("demo-answered", { response: "YES", responded_at: iso(t0 - 2 * DAY) }, t0),
       otherNotice("demo-changed", { response: "YES", responded_at: iso(t0 - 3 * DAY), previous_response: "NO", changed_at: iso(t0 - 2 * DAY) }, t0),
       otherNotice("demo-closed", { response: "NO", responded_at: iso(t0 - 9 * DAY), uploaded_at: iso(t0 - 12 * DAY), sent_at: iso(t0 - 11 * DAY) }, t0),
-      otherNotice("demo-provisional", { id_kind: "PROVISIONAL", id_masked: "PRV-XXXXK4PX", programme_code: "ECE", programme_name: "B.Tech Electronics and Communication Engineering" }, t0),
+      ashaNotice(t0),
     ],
     credentials: [],
     presentations: [],
@@ -393,11 +491,11 @@ function seed(): State {
     ],
     graduates,
   };
-  // Two degree proofs already issued, one of them since revoked.
+  // Two completion attestations already issued, one of them since revoked.
   for (const [i, revoked] of [[0, false], [4, true]] as const) {
     const g = graduates[i];
     const cred = degreeCredential(g, t0 - (revoked ? 5 : 1) * DAY);
-    if (revoked) Object.assign(cred, { revoked: true, revoked_at: iso(t0 - 2 * DAY), revoked_reason_code: "ADMIN", revoked_reason: "Degree withdrawn by the university." });
+    if (revoked) Object.assign(cred, { revoked: true, revoked_at: iso(t0 - 2 * DAY), revoked_reason_code: "ADMIN", revoked_reason: "The university withdrew the award." });
     state.credentials.push(cred);
     g.credentialId = cred.id;
   }
@@ -429,6 +527,8 @@ function load(): State {
   try {
     const raw = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(STORE_KEY);
     memory = raw ? (JSON.parse(raw) as State) : seed();
+    memory.claimFailures ??= [];
+    memory.claimedAt ??= null;
   } catch {
     memory = seed();
   }
@@ -468,7 +568,39 @@ function noticePublic(n: StoredNotice): NoticePublic {
     can_change_until: until && until > now() ? iso(until) : null,
     consent_text: NOTICE_TEXT(n.institution_name),
     notice_version: "v1",
+    ...noticeViewer(n),
   };
+}
+
+/** Who is looking at a notice (A4.13): only a signed-in student whose identity matches can answer. */
+function noticeViewer(n: StoredNotice): Pick<NoticePublic, "viewer" | "can_answer" | "sign_in_url" | "claim_url"> {
+  const user = userFromToken(readBrowserToken());
+  const pending = user ? null : readPendingClaim();
+  const owner = n.owner ?? (n.id_kind === "PROVISIONAL" ? "asha" : "ravi");
+  const claimed = Boolean(load().claimedAt);
+  let match: NoticePublic["viewer"]["match"] = null;
+  let name: string | null = null;
+  if (user) {
+    name = user.role === "STUDENT" ? user.name : null;
+    const mine = user.role === "STUDENT" && ((owner === "ravi" && user.email === "student@demo") || (owner === "asha" && user.email === "asha.patil@digilocker.invalid" && claimed));
+    match = mine ? "MATCH" : "SOMEONE_ELSE";
+  } else if (pending) {
+    name = pending.name;
+    match = owner === "asha" && !claimed ? "CLAIM_NEEDED" : "SOMEONE_ELSE";
+  }
+  const back = `/student/notices/${n.token}`;
+  const open = !n.response || (Boolean(noticeChangeUntil(n)) && !n.changed_at);
+  return {
+    viewer: { signed_in: Boolean(user), name, match },
+    can_answer: match === "MATCH" && open,
+    sign_in_url: `/api/auth/digilocker/start?next=${encodeURIComponent(back)}`,
+    claim_url: match === "CLAIM_NEEDED" ? `/student/claim?next=${encodeURIComponent(back)}` : null,
+  };
+}
+
+function noticeChangeUntil(n: StoredNotice): string | null {
+  const until = n.responded_at && !n.changed_at ? Date.parse(n.responded_at) + 7 * DAY : null;
+  return until && until > now() ? iso(until) : null;
 }
 
 function findNotice(token: string): StoredNotice {
@@ -481,6 +613,9 @@ function findNotice(token: string): StoredNotice {
 }
 
 function respond(n: StoredNotice, body: { response?: string; comment?: string }): NoticePublic {
+  // A4.13: no session is 401, anyone but the notice's student is 403, and nothing is recorded either way.
+  if (!userFromToken(readBrowserToken())) throw new ApiError(401, "SIGNIN_REQUIRED", "Sign in with DigiLocker to answer this notice.");
+  if (noticeViewer(n).viewer.match !== "MATCH") throw new ApiError(403, "NOTICE_IDENTITY_MISMATCH", "This notice is for someone else. Nothing was recorded.");
   const response = body.response;
   if (response !== "YES" && response !== "NO") throw validation("response", "Choose YES or NO.");
   if (typeof body.comment === "string" && body.comment.length > 500) throw validation("comment", "At most 500 characters.");
@@ -561,11 +696,18 @@ function enrolmentCredential(): StoredCredential {
       { key: "programme", label: "Programme", value: "B.Tech Computer Science and Engineering (UG)", disclosable: true },
       { key: "academic_year", label: "Academic year", value: ACADEMIC_YEAR, disclosable: true },
       { key: "year_of_study", label: "Year of study", value: "1", disclosable: true },
-      { key: "countersigned", label: "Countersigned by", value: `${joinAnd(["Identity", "Admission", "Seat", "Student"])}, as of ${issuedDate}`, disclosable: true },
+      { key: "countersigned", label: "Countersigned by", value: `${joinAnd(confirmedRowWords())}, as of ${issuedDate}`, disclosable: true },
       { key: "issued", label: "Issued", value: issuedDate, disclosable: false },
       { key: "expires", label: "Valid until", value: "31 Aug 2027", disclosable: false },
     ],
   };
+}
+
+/** The rows that were Confirmed when the attestation was issued, in the deck's order (A4.14). */
+function confirmedRowWords(): string[] {
+  const words: Record<string, string> = { IDENTITY: "Identity", SEAT: "Seat", ADMISSION: "Joining record", STUDYING: "Credits", STUDENT: "Student" };
+  const { rows } = raviRows();
+  return ["IDENTITY", "SEAT", "ADMISSION", "STUDYING", "STUDENT"].filter((t) => rows.some((r) => r.type === t && r.state === "CONFIRMED")).map((t) => words[t]);
 }
 
 function studentNotices(): StudentNotice[] {
@@ -594,16 +736,49 @@ function studentNotices(): StudentNotice[] {
     .sort((a, b) => (b.sent_at ?? "").localeCompare(a.sent_at ?? ""));
 }
 
-/** GET /students/me with the Week 3 lists filled and the Student check following Ravi's reply. */
+/** Ravi's rows with the Student row following his answer here, after DigiLocker sign-in. */
+function raviRows() {
+  const entry = entryById(RAVI_ENROLMENT)!;
+  const reply = raviReply();
+  if (!reply) return { entry, rows: entry.checks };
+  const answered = load().notices.filter((n) => n.ravi && n.response === reply).sort((a, b) => (a.responded_at ?? "").localeCompare(b.responded_at ?? ""))[0];
+  const at = answered?.responded_at ?? iso(now());
+  const yes = reply === "YES";
+  const student = makeRow(
+    "STUDENT",
+    {
+      state: yes ? "CONFIRMED" : "CONTRADICTED",
+      basis: yes ? "CONFIRMED" : "DENIED",
+      finding: yes ? "\"I joined\"" : "\"I never joined\"",
+      source: "STUDENT_NOTICE",
+      source_line: `Student sign-in via DigiLocker · ${sentenceDate(at)}`,
+      summary: `The student signed in with DigiLocker on ${sentenceDate(at)} and said they ${yes ? "joined" : "never joined"}.`,
+      supplied_by: "Student via DigiLocker sign-in",
+      observed_at: at,
+      independent: true,
+      detail: { notice_state: yes ? "CONFIRMED" : "DENIED", responded_at: at },
+    },
+    at,
+  );
+  return { entry, rows: entry.checks.map((c) => (c.type === "STUDENT" ? student : c)) };
+}
+
+/** GET /students/me with the Week 3 lists filled and the record following Ravi's answer. */
 function studentMeLive(): StudentMe {
   const me = studentMe();
   const reply = raviReply();
+  const { entry, rows } = raviRows();
+  const record = recordFor(entry, rows);
   const enrolments = me.enrolments.map((e) => {
-    if (e.id !== RAVI_ENROLMENT || !reply) return e;
-    const checks = e.countersign.checks.map((c) => (c.type === "STUDENT" ? { ...c, status: reply === "YES" ? ("CONFIRMED" as const) : ("CONTRADICTED" as const) } : c));
-    const applicable = checks.filter((c) => c.status !== "NOT_APPLICABLE" && c.status !== "NOT_YET_DUE").length;
-    const passes = checks.filter((c) => c.status === "CONFIRMED").length;
-    return { ...e, countersign: { score: { passes, applicable }, checks } };
+    if (e.id !== RAVI_ENROLMENT) return e;
+    return {
+      ...e,
+      record_status: record.record_status,
+      status_reason: record.status_reason,
+      next_step: record.next_step,
+      checks: rows.map((r) => ({ type: r.type, state: r.state, finding: r.finding, independent: r.independent, resolved: r.resolved !== null })),
+      response: reply,
+    };
   });
   const credentials = load()
     .credentials.filter((c) => c.student === "ravi")
@@ -644,22 +819,22 @@ function card(c: StoredCredential): CredentialCard {
 
 function ownCredential(id: string): StoredCredential {
   const c = load().credentials.find((x) => x.id === id && x.student === "ravi");
-  if (!c) throw new ApiError(404, "NOT_FOUND", "Credential not found.");
+  if (!c) throw new ApiError(404, "NOT_FOUND", "Attestation not found.");
   return c;
 }
 
 function present(c: StoredCredential, body: { fields?: unknown; consent?: unknown }): PresentationCreated {
-  if (body.consent !== true) throw validation("consent", "Agree to the share text to create a proof.");
+  if (body.consent !== true) throw validation("consent", "Agree to the share text to share this attestation.");
   const fields = Array.isArray(body.fields) ? (body.fields as string[]) : [];
   const known = c.disclosable.map((d) => d.key as string);
   const unknown = fields.find((f) => !known.includes(f));
   if (unknown) throw validation("fields", `Unknown field: ${unknown}.`);
   const status = credentialStatus(c);
   if (status === "REVOKED") {
-    throw new ApiError(409, "CREDENTIAL_REVOKED", `This proof was revoked on ${formatDate(c.revoked_at)} and cannot be shared.`, { revoked_at: c.revoked_at });
+    throw new ApiError(409, "CREDENTIAL_REVOKED", `This attestation was revoked on ${formatDate(c.revoked_at)} and cannot be shared.`, { revoked_at: c.revoked_at });
   }
   if (status === "EXPIRED") {
-    throw new ApiError(409, "CREDENTIAL_NOT_ELIGIBLE", `This proof expired on ${formatDate(c.expires_at)} and cannot be shared.`, { reason: "EXPIRED" });
+    throw new ApiError(409, "CREDENTIAL_NOT_ELIGIBLE", `This attestation expired on ${formatDate(c.expires_at)} and cannot be shared.`, { reason: "EXPIRED" });
   }
   const chosen = new Set([...fields, "institution", "programme"]);
   const disclosed = c.disclosable.map((d) => d.key).filter((k) => chosen.has(k));
@@ -777,13 +952,13 @@ function demoCode(code: string): VerifyResult | null {
 
 function verifyCode(raw: string): VerifyResult {
   const code = normaliseCode(raw);
-  if (!code) throw new ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign proof.");
+  if (!code) throw new ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign attestation.");
   const demo = demoCode(code);
   if (demo) return demo;
   const state = load();
   const p = state.presentations.find((x) => x.code === code);
   const c = p && state.credentials.find((x) => x.id === p.credential_id);
-  if (!p || !c) throw new ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign proof.");
+  if (!p || !c) throw new ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign attestation.");
   const at = iso(now());
   p.verify_count += 1;
   p.first_verified_at ??= at;
@@ -795,13 +970,13 @@ function verifyCode(raw: string): VerifyResult {
 
 function verifyPaste(body: { presentation?: unknown }): VerifyResult {
   const text = typeof body.presentation === "string" ? body.presentation.trim() : "";
-  if (text.length < 1 || text.length > 16384) throw validation("presentation", "Paste the proof text.");
+  if (text.length < 1 || text.length > 16384) throw validation("presentation", "Paste the attestation text.");
   if (!/^eyJ[\w-]+\.[\w-]+\.[\w-]+~/.test(text)) return INVALID;
   const valid = demoCode("K7PQ-3M2X-9ZAB-4TNE-W8RC-6HDF")!;
   return { ...valid, expires_at: "2027-08-31T18:29:59Z", nonce: "K7PQ-3M2X-9ZAB-4TNE-W8RC-6HDF" };
 }
 
-/* ---- Degrees (A3.21, A3.20) ---------------------------------------------- */
+/* ---- Certificate integration: completion attestations (A3.21, A4.15) ----- */
 
 function shortName(name: string): string {
   const s = name
@@ -830,7 +1005,7 @@ function degreeCredential(g: StoredGraduate, issued: number): StoredCredential {
     kind: "COMPLETION",
     revoked: false,
     student: "graduate",
-    vct: "countersign:degree:v1",
+    vct: "countersign:completion:v1",
     short_id: crockford(8),
     issuer: ISSUER,
     enrolment_id: r.enrolment_id,
@@ -851,7 +1026,7 @@ function degreeCredential(g: StoredGraduate, issued: number): StoredCredential {
       { key: "institution", label: "Institution", value: `${r.institution.name} (${r.institution.aicte_permanent_id})`, disclosable: true },
       { key: "programme", label: "Programme", value: `${r.programme.name} (UG)`, disclosable: true },
       { key: "university", label: "University", value: "Maharashtra State Technical University (MSTU)", disclosable: true },
-      { key: "year_of_award", label: "Year of award", value: String(r.year_of_award), disclosable: true },
+      { key: "year_of_award", label: "Year of completion", value: String(r.year_of_award), disclosable: true },
     ],
   };
 }
@@ -864,7 +1039,7 @@ function graduateScope(user: User): StoredGraduate[] {
 
 function graduateRow(g: StoredGraduate): GraduateRow {
   const c = g.credentialId ? load().credentials.find((x) => x.id === g.credentialId) : undefined;
-  return { ...g.row, degree: c ? { credential_id: c.id, short_id: c.short_id, status: credentialStatus(c), issued_at: c.issued_at } : null };
+  return { ...g.row, attestation: c ? { credential_id: c.id, short_id: c.short_id, status: credentialStatus(c), issued_at: c.issued_at } : null };
 }
 
 function degreeJws(g: StoredGraduate, c: StoredCredential): string {
@@ -885,7 +1060,7 @@ function degreeJws(g: StoredGraduate, c: StoredCredential): string {
   return `${header}.${payload}.mock${crockford(40).toLowerCase()}`;
 }
 
-function degreePrint(g: StoredGraduate): DegreePrint {
+function degreePrint(g: StoredGraduate): CertificatePrint {
   const r = g.row;
   const c = g.credentialId ? load().credentials.find((x) => x.id === g.credentialId) : undefined;
   const jws = c ? degreeJws(g, c) : null;
@@ -900,7 +1075,7 @@ function degreePrint(g: StoredGraduate): DegreePrint {
     university: { code: "MSTU", name: "Maharashtra State Technical University" },
     academic_year: r.academic_year,
     year_of_award: r.year_of_award,
-    degree:
+    attestation:
       c && jws
         ? {
             credential_id: c.id,
@@ -910,7 +1085,7 @@ function degreePrint(g: StoredGraduate): DegreePrint {
             revoked_at: c.revoked_at,
             jws,
             verify_url: verifyUrl,
-            lookup_url: `${origin()}/verify/degree/${c.short_id}`,
+            lookup_url: `${origin()}/verify/completion/${c.short_id}`,
             qr_svg: mockQrSvg(verifyUrl, 45),
           }
         : null,
@@ -919,13 +1094,13 @@ function degreePrint(g: StoredGraduate): DegreePrint {
 
 function degreeFields(c: StoredCredential, g: StoredGraduate | undefined, fromPayload?: Record<string, unknown>): DisclosedField[] {
   const r = g?.row;
-  const fields: DisclosedField[] = [{ key: "proof_id", label: "Proof id", value: c.short_id }];
+  const fields: DisclosedField[] = [{ key: "proof_id", label: "Attestation id", value: c.short_id }];
   const name = String(fromPayload?.n ?? r?.student.name ?? "");
   fields.push({ key: "name", label: "Name", value: name });
   fields.push({ key: "programme", label: "Programme", value: String(fromPayload?.p ?? c.programme_name) });
   fields.push({ key: "institution", label: "Institution", value: String(fromPayload?.i ?? c.institution_name) });
   fields.push({ key: "university", label: "University", value: "Maharashtra State Technical University (MSTU)" });
-  fields.push({ key: "year_of_award", label: "Year of award", value: String(fromPayload?.y ?? r?.year_of_award ?? "") });
+  fields.push({ key: "year_of_award", label: "Year of completion", value: String(fromPayload?.y ?? r?.year_of_award ?? "") });
   const a = fromPayload ? String(fromPayload.a ?? "") : (r?.student.apaar_masked?.slice(-4) ?? maskProvisional(r?.student.provisional_id ?? ""));
   if (a.startsWith("PRV-")) fields.push({ key: "provisional_id", label: "Provisional id", value: a });
   else fields.push({ key: "apaar_masked", label: "APAAR (masked)", value: `XXXX XXXX ${a}` });
@@ -955,7 +1130,7 @@ function verifyDegreeLookup(raw: string): VerifyResult {
   const id = raw.trim().toUpperCase().replace(/O/g, "0").replace(/[IL]/g, "1");
   const state = load();
   const c = state.credentials.find((x) => x.kind === "COMPLETION" && x.short_id === id);
-  if (!c) throw new ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign proof.");
+  if (!c) throw new ApiError(404, "PRESENTATION_NOT_FOUND", "This code is not a Countersign attestation.");
   const g = state.graduates.find((x) => x.credentialId === c.id);
   const base = verifyResult(c, [], null, "register_lookup");
   base.status_checked_at = iso(now());
@@ -1114,8 +1289,20 @@ function exportData(): MyDataExport {
       status_date: "2026-10-28",
       admission_date: "2026-08-02",
       seat_code: "CSE-R-001",
-      checks: e.countersign.checks.map((c) => ({ type: c.type, status: c.status, summary: "", checked_at: null })),
+      record_status: e.record_status,
+      status_reason: e.status_reason,
+      checks: raviRows().rows.map((c) => ({
+        type: c.type,
+        state: c.state,
+        finding: c.finding,
+        source_line: c.source_line,
+        summary: c.summary,
+        supplied_by: c.supplied_by,
+        observed_at: c.observed_at,
+        checked_at: c.checked_at,
+      })),
       flags: [],
+      history: versionsOf(entryById(e.id)!).map(({ actor: _actor, ...v }) => (void _actor, v)),
     })),
     notices: state.notices
       .filter((n) => n.ravi)
@@ -1154,21 +1341,22 @@ function exportData(): MyDataExport {
   };
 }
 
-/* ---- A small PDF for the insert ------------------------------------------ */
+/* ---- A small PDF for the certificate block -------------------------------- */
 
-function insertPdf(print: DegreePrint): Blob {
+function insertPdf(print: CertificatePrint): Blob {
   const id = print.student.id_kind === "APAAR" ? `APAAR ${print.student.id_masked}` : `Provisional id ${print.student.id_masked}`;
   const lines: [number, number, number, string][] = [
     [18, 72, 760, print.university.name],
-    [11, 72, 730, "This insert accompanies the degree awarded to"],
+    [11, 72, 730, `For the certificate awarded by ${print.university.name} to`],
     [11, 72, 700, `Name            ${print.student.name}`],
     [11, 72, 682, `Programme       ${print.programme.name}`],
     [11, 72, 664, `Institution     ${print.institution.name}`],
-    [11, 72, 646, `Year of award   ${print.year_of_award}`],
+    [11, 72, 646, `Year of completion   ${print.year_of_award}`],
     [11, 72, 628, id],
-    [11, 72, 590, `Proof id ${print.degree?.short_id ?? ""}`],
+    [11, 72, 590, `Attestation ID ${print.attestation?.short_id ?? ""}`],
     [11, 72, 572, `Scan to verify at ${origin().replace(/^https?:\/\//, "")}/verify`],
-    [9, 72, 80, "Sample degree insert generated from synthetic demo data. Not a degree certificate."],
+    [11, 72, 536, `Completion attestation issued ${formatDate(print.attestation?.issued_at ?? null)}.`],
+    [9, 72, 80, "Sample certificate block generated from synthetic demo data. Countersign does not issue degrees."],
   ];
   const esc = (s: string) => s.replace(/[\\()]/g, (m) => `\\${m}`);
   const stream = lines.map(([size, x, y, text]) => `BT /F1 ${size} Tf ${x} ${y} Td (${esc(text)}) Tj ET`).join("\n");
@@ -1189,6 +1377,131 @@ function insertPdf(print: DegreePrint): Blob {
   pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("")}`;
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return new Blob([pdf], { type: "application/pdf" });
+}
+
+/* ---- DigiLocker claim by provisional ID (A4.12) ---------------------------- */
+
+const PROVISIONAL = /^PRV-[0-9A-Z]{8}$/;
+
+function pendingClaim(): PendingClaim {
+  const p = readPendingClaim();
+  if (!p) throw new ApiError(401, "DIGILOCKER_STATE_INVALID", "This sign-in has expired or was started in another browser.");
+  return { name: p.name, birthdate: p.birthdate, next: p.next };
+}
+
+function enrolmentOf(e: RollEntry, response: NoticeResponse | null): StudentEnrolment {
+  const rec = withRecord(e);
+  return {
+    id: e.row.id,
+    institution_id: e.institutionId,
+    institution_name: INSTITUTIONS.find((i) => i.id === e.institutionId)?.name ?? "",
+    programme_code: e.row.programme_code,
+    programme_name: e.programme.name,
+    academic_year: e.row.academic_year,
+    year_of_study: e.row.year_of_study,
+    status: e.row.status,
+    record_status: rec.record_status,
+    status_reason: rec.status_reason,
+    next_step: rec.next_step,
+    checks: e.row.checks,
+    response,
+    can_respond: e.row.status === "ACTIVE",
+    claimed: Boolean(load().claimedAt),
+    decision: null,
+  };
+}
+
+function claim(body: { provisional_id?: unknown }): ClaimResult {
+  const p = readPendingClaim();
+  if (!p) throw new ApiError(401, "DIGILOCKER_STATE_INVALID", "This sign-in has expired or was started in another browser.");
+  const state = load();
+  const recent = state.claimFailures.filter((at) => at > now() - 15 * MIN);
+  if (recent.length >= 5) {
+    throw new ApiError(429, "RATE_LIMITED", "Too many tries.", { retry_after: Math.ceil((recent[0] + 15 * MIN - now()) / 1000) });
+  }
+  const raw = typeof body.provisional_id === "string" ? body.provisional_id : "";
+  const id = raw.trim().toUpperCase().replace(/\s+/g, "");
+  const normal = id.startsWith("PRV-") ? id : `PRV-${id.replace(/^PRV/, "")}`;
+  if (!PROVISIONAL.test(normal)) throw validation("provisional_id", "A provisional ID is PRV- followed by 8 letters and digits.");
+  const e = ashaEntry();
+  const account = DEMO_ACCOUNTS.find((a) => a.digilocker_id === p.sub);
+  const matches = account?.role === "PROVISIONAL_CLAIM" && normal === e.row.student.provisional_id && p.birthdate === e.dob;
+  if (!matches) {
+    state.claimFailures = [...recent, now()];
+    save();
+    throw new ApiError(422, "CLAIM_NO_MATCH", "This provisional ID does not match the name and date of birth on your DigiLocker.");
+  }
+  const at = iso(now());
+  state.claimedAt ??= at;
+  state.claimFailures = [];
+  save();
+  applyAshaClaim();
+  writePendingClaim(null);
+  writeBrowserToken(tokenFor(account!.email));
+  const user = userFromToken(readBrowserToken())!;
+  return { user, next: p.next, claimed: { student_id: e.row.student.id, enrolments: [enrolmentOf(e, null)] } };
+}
+
+/** GET /students/me for Asha, once she has claimed her record. */
+function ashaMe(): StudentMe {
+  const e = ashaEntry();
+  const notices = load().notices.filter((n) => n.owner === "asha");
+  const answered = notices.find((n) => n.response);
+  return {
+    id: e.row.student.id,
+    name: e.row.student.name,
+    apaar_masked: null,
+    consent_status: e.row.student.consent_status,
+    provisional_id: e.row.student.provisional_id,
+    dob: e.dob,
+    email: "asha.patil@example.demo",
+    mobile_masked: e.mobileMasked,
+    signed_in_with: "DIGILOCKER",
+    enrolments: [enrolmentOf(e, answered?.response ?? null)],
+    notices: notices.map((n) => {
+      const pub = noticePublic(n);
+      return {
+        id: n.id,
+        enrolment_id: n.enrolment_id,
+        channel: n.channel,
+        institution_name: n.institution_name,
+        programme_name: n.programme_name,
+        academic_year: n.academic_year,
+        state: (n.response ? "ANSWERED" : "AWAITING") as NoticeState,
+        delivery_status: "SENT" as const,
+        sent_at: n.sent_at,
+        expires_at: n.expires_at,
+        response: n.response,
+        responded_at: n.responded_at,
+        changed_at: n.changed_at,
+        can_change_until: pub.can_change_until,
+      };
+    }),
+    credentials: [],
+  };
+}
+
+/** A DigiLocker identity that holds no record in this demo (the someone-else account). */
+function otherStudentMe(user: User): StudentMe {
+  return {
+    id: user.scope.student_id ?? user.id,
+    name: user.name,
+    apaar_masked: "XXXX XXXX 9035",
+    consent_status: "LINKED",
+    provisional_id: null,
+    dob: "2007-06-02",
+    email: null,
+    mobile_masked: null,
+    signed_in_with: "DIGILOCKER",
+    enrolments: [],
+    notices: [],
+    credentials: [],
+  };
+}
+
+/** Whether Asha has claimed her record, for the demo DigiLocker page (step 4 of A4.12 signs her in directly). */
+export function ashaClaimed(): boolean {
+  return Boolean(load().claimedAt);
 }
 
 /* ---- Routing ------------------------------------------------------------- */
@@ -1216,15 +1529,25 @@ export async function studentLoopRequest(method: string, pathname: string, query
   if (parts[0] === "verify") {
     if (parts.length === 1 && method === "POST") return verifyPaste(data);
     if (parts[1] === "d" && parts[2]) return verifyDegreeJws(parts.slice(2).join("/"));
-    if (parts[1] === "degree" && parts[2]) return verifyDegreeLookup(decodeURIComponent(parts[2]));
+    if ((parts[1] === "completion" || parts[1] === "degree") && parts[2]) return verifyDegreeLookup(decodeURIComponent(parts[2]));
     if (parts.length === 2) return verifyCode(decodeURIComponent(parts[1]));
   }
 
   if (pathname === "/privacy/notice") return PRIVACY_NOTICE;
 
   if (pathname === "/students/me") {
-    requireRole(currentUser(), ["STUDENT"]);
+    const user = currentUser();
+    requireRole(user, ["STUDENT"]);
+    applyAshaClaim();
+    if (user.email === "asha.patil@digilocker.invalid") return ashaMe();
+    if (user.email !== "student@demo") return otherStudentMe(user);
     return studentMeLive();
+  }
+
+  if (pathname === "/auth/digilocker/claim") {
+    await new Promise((r) => setTimeout(r, 200));
+    if (method === "GET") return pendingClaim();
+    if (method === "POST") return claim(data as { provisional_id?: unknown });
   }
 
   if (parts[0] === "students" && parts[1] === "me") {
@@ -1280,11 +1603,12 @@ export async function studentLoopRequest(method: string, pathname: string, query
             (g.row.student.provisional_id ?? "").toLowerCase().includes(q),
         );
       }
-      if (query?.degree === "issued") rows = rows.filter((g) => g.credentialId);
-      if (query?.degree === "not_issued") rows = rows.filter((g) => !g.credentialId);
+      const issued = query?.attestation ?? query?.degree;
+      if (issued === "issued") rows = rows.filter((g) => g.credentialId);
+      if (issued === "not_issued") rows = rows.filter((g) => !g.credentialId);
       return paginate(rows.map(graduateRow), query);
     }
-    if (parts[1] === "degrees" && parts[2]) {
+    if ((parts[1] === "certificates" || parts[1] === "degrees") && parts[2]) {
       const g = scope.find((x) => x.row.enrolment_id === parts[2]);
       if (!g) throw new ApiError(404, "NOT_FOUND", "Enrolment not found.");
       if (parts[3] === "issue" && method === "POST") {
@@ -1304,20 +1628,20 @@ export async function studentLoopRequest(method: string, pathname: string, query
   return UNHANDLED;
 }
 
-/** File downloads for these pages: the student's export and the degree insert PDF. */
+/** File downloads for these pages: the student's export and the certificate block PDF. */
 export async function studentLoopDownload(path: string): Promise<{ blob: Blob; filename: string } | null> {
   if (path === "/students/me/export.json") {
     requireRole(currentUser(), ["STUDENT"]);
     return { blob: new Blob([JSON.stringify(exportData(), null, 2)], { type: "application/json" }), filename: "countersign-my-data.json" };
   }
-  const m = /^\/university\/degrees\/([^/]+)\/insert\.pdf$/.exec(path);
+  const m = /^\/university\/(?:certificates\/([^/]+)\/block|degrees\/([^/]+)\/insert)\.pdf$/.exec(path);
   if (m) {
-    const g = graduateScope(currentUser()).find((x) => x.row.enrolment_id === m[1]);
+    const g = graduateScope(currentUser()).find((x) => x.row.enrolment_id === (m[1] ?? m[2]));
     if (!g) throw new ApiError(404, "NOT_FOUND", "Enrolment not found.");
     const print = degreePrint(g);
-    if (!print.degree) throw new ApiError(409, "CREDENTIAL_NOT_ELIGIBLE", "Issue the degree proof first.", { reason: "NOT_ISSUED" });
-    if (print.degree.status === "REVOKED") throw new ApiError(409, "CREDENTIAL_REVOKED", "This proof is already revoked.", { revoked_at: print.degree.revoked_at });
-    return { blob: insertPdf(print), filename: `degree-insert-${print.degree.short_id}.pdf` };
+    if (!print.attestation) throw new ApiError(409, "CREDENTIAL_NOT_ELIGIBLE", "Issue the completion attestation first.", { reason: "NOT_ISSUED" });
+    if (print.attestation.status === "REVOKED") throw new ApiError(409, "CREDENTIAL_REVOKED", "This attestation is already revoked.", { revoked_at: print.attestation.revoked_at });
+    return { blob: insertPdf(print), filename: `certificate-block-${print.attestation.short_id}.pdf` };
   }
   return null;
 }

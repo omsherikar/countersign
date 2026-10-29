@@ -2,30 +2,30 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { RefreshCw } from "lucide-react";
-import { CheckBadge } from "@/components/brand/CheckBadge";
+import { CircleSlash, ListCollapse, ListTree, RefreshCw } from "lucide-react";
 import { ConsentBadge } from "@/components/brand/ConsentBadge";
 import { EmptyState } from "@/components/brand/EmptyState";
-import { EvidenceCard } from "@/components/brand/EvidenceCard";
 import { FlagStatusBadge } from "@/components/brand/FlagStatusBadge";
 import { MaskedApaar } from "@/components/brand/MaskedApaar";
 import { SeverityBadge } from "@/components/brand/SeverityBadge";
 import { ApiError } from "@/lib/api";
-import { awaitsSource, ordered, statusWord } from "@/lib/checks";
+import { awaitsSource, stateWord, statusWord } from "@/lib/checks";
 import { t, tk } from "@/lib/copy";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatCardDate, formatDate, formatDateTime } from "@/lib/format";
 import { useEnrolment, useRecheckEnrolment } from "@/lib/queries";
-import type { Check, EnrolmentDetail as Detail, EnrolmentRecheck, FlagType } from "@/lib/types";
+import type { EnrolmentDetail as Detail, EnrolmentRecheck, Eligibility, FlagType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBlock, SlowHint, errorMessage } from "@/components/common/query-state";
 import { Crumbs, SectionHeader, type Crumb } from "@/components/common/page-header";
 import { ReadLoggedNote } from "@/components/common/ledger-bits";
-import { CountersignStrip } from "@/components/countersign/countersign-strip";
 import { useMe } from "@/components/providers/root-provider";
 import { NoticeBlock } from "@/components/enrolment/notice-block";
-import { ProofsBlock } from "@/components/enrolment/proofs-block";
+import { AttestationsBlock } from "@/components/enrolment/attestations-block";
+import { RecordCard, RecordCardSkeleton, programmeShort, recordHeader, type CardAudience } from "@/components/records/record-card";
+import { RecordStatusBadge } from "@/components/records/record-status-badge";
+import { HistoryBlock } from "@/components/records/history-block";
 
 export type EnrolmentVariant = "aicte" | "ro" | "college" | "university";
 
@@ -33,15 +33,22 @@ const BASE: Record<EnrolmentVariant, string> = { aicte: "/aicte", ro: "/ro", col
 
 function crumbsFor(variant: EnrolmentVariant, d: Detail | undefined): Crumb[] {
   const name = d?.student.name ?? "…";
-  if (variant === "college") return [{ label: t("nav.ledger"), href: "/college" }, { label: t("nav.enrolments"), href: "/college/enrolments" }, { label: name }];
+  if (variant === "college")
+    return [{ label: t("nav.ledger"), href: "/college" }, { label: t("nav.enrolments"), href: "/college/enrolments" }, { label: name }];
   const base = BASE[variant];
   const root = variant === "university" ? t("nav.affiliated") : t("nav.overview");
   const inst = d ? { label: d.institution.name, href: `${base}/institutions/${d.institution.id}` } : { label: "…" };
   if (variant === "university") return [{ label: root, href: base }, inst, { label: name }];
-  return [{ label: root, href: base }, inst, { label: t("nav.enrolments"), href: d ? `${base}/institutions/${d.institution.id}#enrolments` : undefined }, { label: name }];
+  return [
+    { label: root, href: base },
+    inst,
+    { label: t("nav.enrolments"), href: d ? `${base}/institutions/${d.institution.id}#enrolments` : undefined },
+    { label: name },
+  ];
 }
 
-function flagHref(variant: EnrolmentVariant, id: string): string | null {
+/** Case detail for officers and the registrar; the university reads case names without links. */
+function caseHref(variant: EnrolmentVariant, id: string): string | null {
   if (variant === "university") return null;
   return variant === "college" ? `/college/flags/${id}` : `${BASE[variant]}/cases/${id}`;
 }
@@ -65,7 +72,15 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-/** "Recheck pending checks" and its result, read out in a live region (A2.12). */
+/** The eligibility the college reported (A4.16): TFW income certificate, NRI sponsored, CIWG, or none. */
+function eligibilityWords(e: Eligibility): string {
+  const words = (["tfw_income_certified", "nri_sponsored", "ciwg"] as const)
+    .filter((k) => e[k] !== null)
+    .map((k) => (e[k] ? tk(`field.${k}`) : `${tk(`field.${k}`)}: no`));
+  return words.length ? words.join(", ") : t("app.none");
+}
+
+/** "Recheck evidence" and its result, read out in a live region (A4.6, copy deck §17). */
 function Recheck({ id, show }: { id: string; show: boolean }) {
   const recheck = useRecheckEnrolment(id);
   const [result, setResult] = React.useState<EnrolmentRecheck | null>(null);
@@ -74,18 +89,19 @@ function Recheck({ id, show }: { id: string; show: boolean }) {
     ? result.rechecked === 0
       ? [t("recheck.none")]
       : result.results.map((r) =>
-          awaitsSource({ status: r.after })
-            ? t("recheck.still_pending", { check: tk(`check.${r.type}`) })
-            : t("recheck.result_line", { check: tk(`check.${r.type}`), before_word: tk(`check.status.${r.before}`), after_word: tk(`check.status.${r.after}`) }),
+          r.before === r.after
+            ? t("recheck.no_change", { check: tk(`check.${r.type}`), state_word: stateWord(r.after) })
+            : t("recheck.result_line", { check: tk(`check.${r.type}`), before_word: stateWord(r.before), after_word: stateWord(r.after) }),
         )
     : [];
   if (result && result.flags_raised > 0) lines.push(t("recheck.flags_raised", { n: result.flags_raised }));
+  if (result?.record_status) lines.push(t("recheck.status_line", { status_word: statusWord(result.record_status) }));
   return (
     <div className="flex flex-col items-start gap-2">
       {(show || result) && (
         <Button
           variant="outline"
-          size="sm"
+          className="h-11 w-full sm:h-9 sm:w-auto"
           title={t("recheck.enrolment_tip")}
           disabled={recheck.isPending || (!show && Boolean(result))}
           onClick={() => recheck.mutate(undefined, { onSuccess: setResult })}
@@ -117,78 +133,60 @@ function Recheck({ id, show }: { id: string; show: boolean }) {
   );
 }
 
-/** "28 Oct 2026" over "18:08 IST": two short lines keep the column narrow without breaking the date. */
-function CheckedAt({ value }: { value: string }) {
-  const [day, time] = formatDateTime(value).split(", ");
-  return (
-    <>
-      <span className="block whitespace-nowrap">{day}</span>
-      {time && <span className="block whitespace-nowrap">{time}</span>}
-    </>
-  );
-}
-
-/**
- * Only the result badge keeps to one line; source, time and detail wrap, so
- * the table fits its column on desktop and the detail sentence is never cut.
- * On phones it scrolls inside its own box.
- */
-function ChecksTable({ checks }: { checks: Check[] }) {
-  if (checks.length === 0) return <EmptyState title={t("empty.checks")} />;
-  return (
-    <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
-      <table className="ledger-table">
-        <caption className="sr-only">{t("enrolment.section.checks")}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t("col.check")}</th>
-            <th scope="col">{t("col.result")}</th>
-            <th scope="col">{t("col.source")}</th>
-            <th scope="col">{t("col.checked_at")}</th>
-            <th scope="col">{t("col.detail")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ordered(checks).map((c) => (
-            <tr key={c.type}>
-              <td className="font-medium">{tk(`check.${c.type}`)}</td>
-              <td>
-                <CheckBadge status={c.status} word={statusWord(c)} />
-              </td>
-              <td className="wrap leading-snug text-ink-muted">{tk(`source.${c.source}`)}</td>
-              <td className="wrap py-1.5 text-xs leading-snug text-ink-muted">{c.checked_at ? <CheckedAt value={c.checked_at} /> : t("check.never")}</td>
-              <td className="wrap !h-auto min-w-[12rem] py-2 leading-snug [overflow-wrap:anywhere]">
-                {c.detail.summary}
-                {c.attempts > 0 && <span className="mt-0.5 block text-xs text-ink-muted">{t("check.attempts", { n: c.attempts })}</span>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function HeaderSkeleton() {
   return (
-    <div className="mb-8 flex flex-col gap-3" aria-hidden="true">
+    <div className="mb-6 flex flex-col gap-3" aria-hidden="true">
       <Skeleton className="h-9 w-80 max-w-full" />
-      <Skeleton className="h-4 w-96 max-w-full" />
-      <Skeleton className="mt-3 h-10 w-56" />
+      <Skeleton className="h-10 w-56 rounded-chip" />
     </div>
   );
 }
 
+/** Cases naming the record: severity, name, status word, the summary as sent, opened date (W4-1, item 5). */
+function CasesAboutRecord({ d, variant }: { d: Detail; variant: EnrolmentVariant }) {
+  const ids = React.useId();
+  return (
+    <section aria-labelledby={`${ids}-heading`}>
+      <SectionHeader id={`${ids}-heading`} title={t("enrolment.section.flags")} />
+      {d.flags.length === 0 ? (
+        <div className="border-l-2 border-rule-margin bg-paper-raised">
+          <EmptyState title={t("empty.flags_enrolment")} />
+        </div>
+      ) : (
+        <ul className="flex flex-col border-l-2 border-rule-margin bg-paper-raised">
+          {d.flags.map((f) => {
+            const href = caseHref(variant, f.id);
+            const name = tk(`flag.${f.type}.name`);
+            return (
+              <li key={f.id} className="flex flex-col gap-1 border-b border-rule px-4 py-3 last:border-b-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <SeverityBadge severity={f.severity} />
+                  <span className="font-medium">{href ? <Link href={href}>{name}</Link> : name}</span>
+                  <FlagStatusBadge status={f.status} />
+                  <span className="ml-auto text-xs text-ink-muted">{`${t("col.opened")} ${formatDate(f.created_at)}`}</span>
+                </div>
+                <p className="text-sm text-ink-muted [overflow-wrap:anywhere]">{f.summary}</p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /**
- * Everything Countersign holds about one enrolment and which source agreed
- * (page spec W2-5). One component behind four thin routes. The checks are
- * the page's one bold element: the strip leads, the table explains it.
+ * The record card page (page spec W4-1): the student's name with the
+ * record's status at its largest, the deck's card, then the record's
+ * details, cases, notice, attestations and history. One component behind
+ * four thin routes; what each role sees follows the spec's role differences.
  */
 export function EnrolmentDetail({ id, variant }: { id: string; variant: EnrolmentVariant }) {
   const q = useEnrolment(id);
   const d = q.data;
   const officer = variant === "aicte" || variant === "ro";
-  const canRecheck = variant !== "university";
+  const audience: CardAudience = officer ? "officer" : variant === "college" ? "registrar" : "university";
+  const [details, setDetails] = React.useState(false);
 
   if (q.isError && !d) {
     return (
@@ -200,10 +198,12 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
     );
   }
 
-  const pendingOther = Boolean(d?.checks.some((c) => awaitsSource(c) && c.type !== "STUDENT"));
-  const seatCheck = d?.checks.find((c) => c.type === "SEAT");
-  const seatFlagType = seatCheck?.detail.flag_type as FlagType | undefined;
-  const seatFlag = seatFlagType ? d?.flags.find((f) => f.type === seatFlagType) : undefined;
+  const active = d?.status === "ACTIVE";
+  const pendingOther = Boolean(active && d?.checks.some((c) => awaitsSource(c) && c.type !== "STUDENT"));
+  const seatRow = d?.checks.find((c) => c.type === "SEAT");
+  const seatCaseType = seatRow?.detail.flag_type as FlagType | undefined;
+  const seatCase = seatCaseType ? d?.flags.find((f) => f.type === seatCaseType) : undefined;
+  const withdrawnByDecision = d && d.status === "WITHDRAWN" && d.next_step;
 
   return (
     <>
@@ -211,35 +211,70 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
       {!d ? (
         <>
           <HeaderSkeleton />
+          <RecordCardSkeleton />
           <SlowHint />
         </>
       ) : (
         <>
-          <header className="mb-8 flex flex-wrap items-start justify-between gap-x-10 gap-y-5">
+          <header className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-10">
             <div className="min-w-0">
               <h1 className="text-2xl md:text-3xl">{d.student.name}</h1>
               <p className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                 <MaskedApaar apaarMasked={d.student.apaar_masked} provisionalId={d.student.provisional_id} className="text-sm" />
                 <ConsentBadge status={d.student.consent_status} />
               </p>
-              <p className="mt-1.5 text-sm text-ink-muted">
-                {d.programme.name} (<span className="code text-ink">{d.programme.code}</span>),{" "}
-                {officer || variant === "university" ? (
-                  <Link href={`${BASE[variant]}/institutions/${d.institution.id}`}>{d.institution.name}</Link>
-                ) : (
-                  d.institution.name
+            </div>
+            {d.record_status && (
+              <div className="flex flex-col gap-1 max-md:w-full md:items-end">
+                <RecordStatusBadge status={d.record_status} size="lg" priority className="max-md:w-full max-md:justify-center" />
+                {d.record_status_at && (
+                  <span className="text-xs text-ink-muted md:text-right">{t("record.status_since", { date: formatCardDate(d.record_status_at) })}</span>
                 )}
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 border-l-2 border-rule-margin pl-4">
-              <span className="text-xs font-medium text-ink-muted">{t("enrolment.score_label")}</span>
-              <CountersignStrip countersign={d.countersign} checks={d.checks} size="lg" />
-              {canRecheck && <Recheck id={d.id} show={pendingOther} />}
-            </div>
+              </div>
+            )}
           </header>
 
-          <div className="grid grid-cols-1 gap-x-10 gap-y-10 lg:grid-cols-12">
-            <div className="flex min-w-0 flex-col gap-10 lg:col-span-8">
+          {!active && (
+            <p role="note" className="mb-4 flex items-start gap-2 border-l-2 border-check-na bg-check-na-soft px-4 py-3 text-sm text-ink">
+              <CircleSlash className="mt-0.5 size-4 shrink-0 text-check-na-ink" aria-hidden="true" />
+              {withdrawnByDecision
+                ? t("record.withdrawn_banner", { date: formatCardDate(d.status_date) })
+                : t("record.withdrawn_upload_banner", { status_word: tk(`enrol_status.${d.status}`), date: formatCardDate(d.status_date) })}
+            </p>
+          )}
+
+          <RecordCard
+            className="max-w-5xl"
+            header={recordHeader({
+              programmeName: d.programme.name,
+              programmeCode: d.programme.code,
+              cohortYear: d.cohort_year,
+              institutionName: d.institution.name,
+              apaarMasked: d.student.apaar_masked,
+              provisionalId: d.student.provisional_id,
+            })}
+            programmeShort={programmeShort(d.programme.name, d.programme.code)}
+            institutionName={d.institution.name}
+            rows={d.checks}
+            status={d.record_status}
+            statusReason={d.status_reason}
+            nextStep={d.next_step}
+            audience={audience}
+            showDetails={details}
+          />
+
+          <div className="mt-3 mb-10 flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <Button variant="ghost" className="h-11 justify-start px-2 sm:h-9" aria-pressed={details} onClick={() => setDetails((v) => !v)}>
+              {details ? <ListCollapse className="size-4" aria-hidden="true" /> : <ListTree className="size-4" aria-hidden="true" />}
+              {details ? t("record.details_hide") : t("record.details_show")}
+            </Button>
+            {variant !== "university" && active && <Recheck id={d.id} show={pendingOther} />}
+          </div>
+
+          <div className="flex max-w-5xl min-w-0 flex-col gap-10">
+            <div className="contents">
+              <CasesAboutRecord d={d} variant={variant} />
+
               <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
                 <Block title={t("enrolment.section.student")}>
                   <Field label={t("enrolment.field.dob")}>{formatDate(d.student.dob)}</Field>
@@ -252,7 +287,15 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
                   <Field label={t("enrolment.field.nationality")}>{d.student.nationality}</Field>
                 </Block>
                 <Block title={t("enrolment.section.enrolment")}>
-                  <Field label={t("enrolment.field.intake")}>{t("enrolment.intake_value", { cohort_year: d.cohort_year })}</Field>
+                  <Field label={t("enrolment.field.programme")}>
+                    {d.programme.name} (<span className="code">{d.programme.code}</span>)
+                  </Field>
+                  <Field label={t("enrolment.field.institution")}>
+                    {variant === "college" ? d.institution.name : <Link href={`${BASE[variant]}/institutions/${d.institution.id}`}>{d.institution.name}</Link>}
+                  </Field>
+                  <Field label={t("enrolment.field.intake")}>
+                    {d.approval ? t("enrolment.intake_value", { version: d.approval.version, cohort_year: d.approval.academic_year }) : d.cohort_year}
+                  </Field>
                   <Field label={t("enrolment.field.year")}>{d.year_of_study}</Field>
                   <Field label={t("enrolment.field.route")}>
                     {tk(`route.${d.admission_route}`)}
@@ -263,6 +306,7 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
                     )}
                   </Field>
                   <Field label={t("enrolment.field.category")}>{tk(`category.${d.category}`)}</Field>
+                  <Field label={t("enrolment.field.eligibility")}>{eligibilityWords(d.eligibility)}</Field>
                   <Field label={t("enrolment.field.status")}>
                     {t("enrolment.status_value", { status_word: tk(`enrol_status.${d.status}`), status_date: formatDate(d.status_date) })}
                   </Field>
@@ -282,71 +326,28 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
                     {t("enrolment.seat_value", {
                       seat_code: d.seat.seat_code,
                       seat_type_word: tk(`seat_type.${d.seat.seat_type}`),
-                      academic_year: d.seat.academic_year,
+                      version: d.approval?.version ?? 1,
+                      cohort_year: d.seat.academic_year,
                       assigned_date: formatDate(d.seat.assigned_at),
                     })}
                   </p>
                 ) : (
                   <p className="text-sm">
                     {t("enrolment.unseated")}{" "}
-                    {seatFlagType &&
-                      (seatFlag && flagHref(variant, seatFlag.id) ? (
-                        <Link href={flagHref(variant, seatFlag.id)!}>{t("enrolment.unseated_flag", { flag_name: tk(`flag.${seatFlagType}.name`) })}</Link>
+                    {seatCaseType &&
+                      (seatCase && caseHref(variant, seatCase.id) ? (
+                        <Link href={caseHref(variant, seatCase.id)!}>{t("enrolment.unseated_flag", { flag_name: tk(`flag.${seatCaseType}.name`) })}</Link>
                       ) : (
-                        t("enrolment.unseated_flag", { flag_name: tk(`flag.${seatFlagType}.name`) })
+                        t("enrolment.unseated_flag", { flag_name: tk(`flag.${seatCaseType}.name`) })
                       ))}
                   </p>
                 )}
               </section>
 
-              <section aria-labelledby="checks-heading">
-                <SectionHeader id="checks-heading" title={t("enrolment.section.checks")} />
-                <ChecksTable checks={d.checks} />
-              </section>
-
               {variant !== "university" && <NoticeBlock d={d} officer={officer} />}
-              {variant !== "university" && <ProofsBlock d={d} />}
+              {officer && <AttestationsBlock d={d} />}
+              <HistoryBlock enrolmentId={d.id} audience={audience} caseHref={(cid) => caseHref(variant, cid)} />
             </div>
-
-            <aside aria-labelledby="flags-heading" className="min-w-0 lg:col-span-4">
-              <SectionHeader id="flags-heading" title={t("enrolment.section.flags")} />
-              {d.flags.length === 0 ? (
-                <div className="border-l-2 border-rule-margin bg-paper-raised">
-                  <EmptyState title={t("empty.flags_enrolment")} />
-                </div>
-              ) : (
-                <ul className="flex flex-col gap-3">
-                  {d.flags.map((f) => {
-                    const href = flagHref(variant, f.id);
-                    const card = (
-                      <EvidenceCard
-                        type={f.type}
-                        severity={f.severity}
-                        evidence={{ summary: f.summary }}
-                        badges={
-                          <>
-                            <SeverityBadge severity={f.severity} />
-                            <FlagStatusBadge status={f.status} />
-                          </>
-                        }
-                        actions={<span className="text-xs text-ink-muted">{`${t("col.opened")} ${formatDate(f.created_at)}`}</span>}
-                      />
-                    );
-                    return (
-                      <li key={f.id}>
-                        {href ? (
-                          <Link href={href} className="block rounded-md text-ink no-underline hover:[&_h3]:underline">
-                            {card}
-                          </Link>
-                        ) : (
-                          card
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </aside>
           </div>
           <p className="mt-8">
             <ReadLoggedNote />

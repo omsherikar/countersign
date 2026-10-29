@@ -1,9 +1,11 @@
 /**
  * The mock roll: every enrolment of an institution for 2026-27, built
  * deterministically from its programmes, with the seat ledger run over the
- * first-year intake and the five checks evaluated with the exact sentences
- * of API_CONTRACT A2.14. Rolls are built on first use and kept for the
- * session, so a recheck changes what later requests see.
+ * first-year intake and the five evidence rows written with the sentences of
+ * API_CONTRACT A4.2 to A4.4 (copy deck §15). Rolls are built on first use and
+ * kept for the session, so a recheck changes what later requests see. The
+ * record status is computed when a record is read (lib/mock/records.ts),
+ * because it also reads the cases that name the record.
  *
  * Planted scenarios (all at 2026-27):
  * - ABC CSE: 132 admitted against 120 approved, the last 12 rows unseated.
@@ -15,31 +17,40 @@
  * - XYZ "K. Subramanian" (name 68 of 100); "Arjun Iyer" active at XYZ and Kaveri.
  * - Pune ITM CSE: 9 NRI admissions against 6 NRI seats.
  * - GCE Karad MECH-R-031 refilled on 5 Oct, after the 15 Sep cutoff.
+ * - ABC CSE "Sanika Ghorpade": the deck's sample card (joining record not
+ *   found, the student disputes it after DigiLocker sign-in: Disputed).
+ * - Five records the joining record does not hold (Not in joining record).
+ * - The Telangana authority has published no joining record, and the
+ *   Durgapur college's 2026-27 one is not out yet: those rows wait.
+ * - Deccan Institute of Architecture issues its own credits (not independent).
+ * - A few TFW rows without the income certificate (Seat pending).
  */
 import { ACADEMIC_YEAR, BASE_PROGRAMMES, IDS, SEAT_LETTER, SEEDS, STATES, durationOf, earlierYears, lateralEntrants, poolCapacities } from "@/lib/mock/fixtures";
+import { briefOf, makeRow, recordOf, sentenceDate, type RowSpec } from "@/lib/mock/evidence";
 import type {
   AdmissionRoute,
+  ApprovalRef,
   Category,
-  Check,
-  CheckBrief,
-  CheckStatus,
   CheckType,
   ConsentStatus,
-  Countersign,
   EnrolmentDetail,
   EnrolmentRow,
+  EnrolmentVersion,
+  EvidenceRow,
   ProgrammeDetail,
   SeatRow,
   SeatType,
   StudentMe,
 } from "@/lib/types";
 
-export const CHECK_ORDER: CheckType[] = ["IDENTITY", "ADMISSION", "SEAT", "STUDYING", "STUDENT"];
-
 export interface Special {
   identity?: "UNAVAILABLE" | "REVIEW" | "NOT_IN_REGISTRY" | "NAME";
   attempts?: number;
   studying?: "NONE" | "ONE_MISSING";
+  /** Not in the admission authority's joining record (A4.4 NOT_IN_JOINING_RECORD). */
+  joining?: "NOT_FOUND";
+  /** The deck's sample card. */
+  sample?: boolean;
 }
 
 export interface RollEntry {
@@ -59,9 +70,9 @@ export interface RollEntry {
   special: Special;
   /** Set on the planted students so flags.ts finds them, not a generated namesake. */
   planted?: boolean;
-  /** The flag the SEAT and ADMISSION sentences point at when unseated. */
+  /** The case the Seat row points at when unseated. */
   seatFlagName: string;
-  checks: Check[];
+  checks: EvidenceRow[];
 }
 
 /* ---- Batches the roll was uploaded in ---------------------------------- */
@@ -237,7 +248,16 @@ function buildRoll(instIdx: number): RollEntry[] {
           uploaded_at: INITIAL_UPLOADED_AT,
           upload_batch_id: batchId,
           source_row_no: rowNo,
-          countersign: { score: null, checks: [] },
+          eligibility: {
+            tfw_income_certified: route === "TFW" ? (idx % 9 === 4 ? null : true) : null,
+            nri_sponsored: route === "NRI" ? true : null,
+            ciwg: null,
+          },
+          record_status: null,
+          status_reason: null,
+          next_step: null,
+          record_status_at: null,
+          checks: [],
           flags: [],
         };
         const entry: RollEntry = {
@@ -331,6 +351,28 @@ function applyScenarios(aicte: string, entries: RollEntry[]) {
       special: { identity: "NOT_IN_REGISTRY" },
     });
 
+    const sample = find(entries, "CSE", 1, 20);
+    patchStudent(sample, { name: "Sanika Ghorpade", apaar_masked: "XXXX XXXX 6021", consent_status: "LINKED", provisional_id: null }, {
+      gender: "F",
+      apaarLast4: "6021",
+      dob: "2008-02-11",
+      nameScore: 100,
+      special: { joining: "NOT_FOUND", sample: true },
+    });
+    Object.assign(sample.row, { admission_route: "COUNSELLING", counselling_ref: "MHCET-2026-R2-018833", admission_date: "2026-08-06", category: "GENERAL" });
+    laterVersion(sample, "2026-10-28T08:15:46Z", 9, [
+      { field: "admission_date", before: "2026-08-04", after: "2026-08-06" },
+      { field: "category", before: "OBC", after: "GENERAL" },
+    ]);
+    laterVersion(ravi, "2026-10-28T08:15:44Z", 3, [{ field: "counselling_ref", before: "MHCET-2026-R1-004521", after: "MHCET-2026-R1-004512" }]);
+
+    const tejas = find(entries, "MECH", 1, 21);
+    patchStudent(tejas, { name: "Tejas More", apaar_masked: "XXXX XXXX 3348", consent_status: "LINKED", provisional_id: null }, {
+      gender: "M",
+      apaarLast4: "3348",
+      special: { joining: "NOT_FOUND" },
+    });
+
     const ishaan = find(entries, "CIVIL", 3, 2);
     patchStudent(ishaan, { name: "Ishaan Rao", apaar_masked: "XXXX XXXX 1176", consent_status: "LINKED", provisional_id: null }, {
       gender: "M",
@@ -348,6 +390,28 @@ function applyScenarios(aicte: string, entries: RollEntry[]) {
     });
     const arjun = find(entries, "ECE", 1, 5);
     patchStudent(arjun, { name: "Arjun Iyer", apaar_masked: "XXXX XXXX 7731", consent_status: "LINKED", provisional_id: null }, { gender: "M", apaarLast4: "7731", dob: "2008-01-14" });
+    const lakshmi = find(entries, "CSE", 1, 30);
+    patchStudent(lakshmi, { name: "Lakshmi Narayanan", apaar_masked: "XXXX XXXX 5507", consent_status: "LINKED", provisional_id: null }, {
+      gender: "F",
+      apaarLast4: "5507",
+      special: { joining: "NOT_FOUND" },
+    });
+  }
+  if (aicte === "1-9001127734") {
+    const pranav = find(entries, "IT", 1, 12);
+    patchStudent(pranav, { name: "Pranav Salunkhe", apaar_masked: "XXXX XXXX 2716", consent_status: "LINKED", provisional_id: null }, {
+      gender: "M",
+      apaarLast4: "2716",
+      special: { joining: "NOT_FOUND" },
+    });
+  }
+  if (aicte === "1-8437201389") {
+    const sai = find(entries, "ECE", 1, 9);
+    patchStudent(sai, { name: "Sai Varma", apaar_masked: "XXXX XXXX 9184", consent_status: "LINKED", provisional_id: null }, {
+      gender: "M",
+      apaarLast4: "9184",
+      special: { joining: "NOT_FOUND" },
+    });
   }
   if (aicte === "1-7710245519") {
     const arjun = find(entries, "BPHARM", 1, 3);
@@ -374,134 +438,309 @@ function applyScenarios(aicte: string, entries: RollEntry[]) {
         source_row_no: 4,
       });
       if (refill.seat) refill.seat.assigned_at = "2026-10-28T08:15:52Z";
+      laterVersion(refill, "2026-10-28T08:15:52Z", 4, [
+        { field: "admission_route", before: "SPOT", after: "MANAGEMENT" },
+        { field: "counselling_ref", before: "MHCET-2026-SPOT-000311", after: null },
+        { field: "admission_date", before: "2026-09-12", after: "2026-10-05" },
+      ]);
     }
   }
 }
 
-/* ---- Checks (A2.14 sentences) ------------------------------------------- */
+/* ---- Evidence rows (A4.2 to A4.4, copy deck §15) ------------------------- */
 
-function check(type: CheckType, status: CheckStatus, source: Check["source"], summary: string, extra: Record<string, unknown> = {}, attempts = 0, at = CHECKED_AT): Check {
-  return { type, status, source, checked_at: at, attempts, detail: { summary, ...extra } };
+/** Joining records the state admission authorities have published (A4.25 C.9): Telangana none; West Bengal not 2026-27 yet. */
+function joiningPublished(stateCode: string, joiningYear: string): boolean {
+  if (stateCode === "TS") return false;
+  if (stateCode === "WB" && joiningYear === ACADEMIC_YEAR) return false;
+  return true;
+}
+
+/** Colleges that issue their own credits in ABC (D38): a deemed university here. */
+const SELF_ISSUING = new Set(["1-4418830271"]);
+
+/** The reporting deadline of a joining year (rules.yaml `reporting.deadline`). */
+export function deadlineOf(joiningYear: string): string {
+  return `${joiningYear.slice(0, 4)}-09-30`;
+}
+
+/** When ABC last received this cohort's results: 20 Jan and 20 Jul each year. */
+function creditsUploadedAt(yearOfStudy: number): string {
+  return yearOfStudy > 1 ? "2026-07-20T00:00:00Z" : "";
+}
+
+export function joiningYearOf(r: EnrolmentRow): string {
+  return r.admission_route === "LATERAL" ? ACADEMIC_YEAR : r.cohort_year;
+}
+
+export function issuerNameOf(institutionId: string): string {
+  const seed = SEEDS.find((s) => s.id === institutionId)!;
+  return SELF_ISSUING.has(seed.aicte_permanent_id) ? seed.name : (seed.university_name ?? "ABC");
 }
 
 export function evaluate(e: RollEntry) {
   const r = e.row;
   const seed = SEEDS.find((s) => s.id === e.institutionId)!;
   const stateName = STATES.find((s) => s.code === seed.state_code)?.name ?? seed.state_code;
-  const start = Number(r.cohort_year.slice(0, 4));
   const code = r.programme_code;
   const seatWord = SEAT_TYPE_WORD[e.seatType];
   const routeWord = ROUTE_WORD[r.admission_route];
   const linked = r.student.consent_status === "LINKED";
   const international = r.student.consent_status === "INTERNATIONAL";
-  const checks: Check[] = [];
-
-  // IDENTITY (APAAR)
+  const checked = sentenceDate(CHECKED_AT);
   const sp = e.special;
-  if (international) checks.push(check("IDENTITY", "NOT_APPLICABLE", "APAAR", "International student; identity is checked through the passport, not APAAR."));
-  else if (!linked) checks.push(check("IDENTITY", "NOT_APPLICABLE", "APAAR", "APAAR not linked; admission is not blocked."));
+  const rows: EvidenceRow[] = [];
+  const add = (type: CheckType, spec: RowSpec, at = CHECKED_AT) => rows.push(makeRow(type, spec, at));
+
+  // IDENTITY: the APAAR registry, Study in India, or nothing until the student claims the record.
+  const apaar = { supplied_by: "APAAR registry", observed_at: CHECKED_AT, independent: true, source: "APAAR" as const };
+  if (international)
+    add("IDENTITY", { state: "CONFIRMED", basis: "SII_MATCH", source: "SII", supplied_by: "Study in India", observed_at: CHECKED_AT, independent: true, source_line: `Study in India · ${checked}`, summary: "Study in India confirms the passport holder's identity." });
+  else if (!linked)
+    add("IDENTITY", {
+      state: "NOT_APPLICABLE",
+      basis: "NO_APAAR",
+      source: "APAAR",
+      source_line: "APAAR not linked; alternative route not used yet",
+      summary: "APAAR not linked, and the student has not claimed the record through DigiLocker yet. Admission is not blocked.",
+    });
   else if (sp.identity === "UNAVAILABLE")
-    checks.push(check("IDENTITY", "SOURCE_UNAVAILABLE", "APAAR", "APAAR registry did not respond. This check stays pending until a recheck or the next upload.", { source_unavailable: true, source_error: "HTTP 503" }, sp.attempts ?? 1, "2026-10-28T09:12:44Z"));
+    add(
+      "IDENTITY",
+      {
+        state: "SOURCE_UNAVAILABLE",
+        basis: "SOURCE_UNAVAILABLE",
+        source: "APAAR",
+        supplied_by: "APAAR registry",
+        observed_at: "2026-10-28T09:12:44Z",
+        attempts: sp.attempts ?? 1,
+        source_line: `APAAR registry did not respond · ${sentenceDate("2026-10-28T09:12:44Z")}`,
+        summary: "APAAR registry did not respond. This row is asked again at the next recheck or the next upload.",
+        detail: { source_unavailable: true, source_error: "HTTP 503" },
+      },
+      "2026-10-28T09:12:44Z",
+    );
   else if (sp.identity === "REVIEW")
-    checks.push(
-      check("IDENTITY", "PENDING", "APAAR", `Name on upload is close to the APAAR registry but not a clear match (similarity ${e.nameScore} of 100); an officer should review.`, {
-        needs_review: true,
-        name_score: e.nameScore,
-        dob_match: true,
-        apaar_last4: e.apaarLast4,
-      }),
-    );
+    add("IDENTITY", {
+      ...apaar,
+      state: "PENDING",
+      basis: "NAME_REVIEW",
+      finding: "needs review",
+      source_line: `APAAR verification · ${checked}`,
+      summary: `Name on upload is close to the APAAR registry but not a clear match (similarity ${e.nameScore} of 100); an officer should review. Name matching supports a decision; it never makes one.`,
+      detail: { needs_review: true, name_score: e.nameScore, dob_match: true, apaar_last4: e.apaarLast4 ?? undefined, case_type: "NAME_MISMATCH" },
+    });
   else if (sp.identity === "NOT_IN_REGISTRY")
-    checks.push(check("IDENTITY", "CONTRADICTED", "APAAR", `APAAR ending ${e.apaarLast4} is not in the APAAR registry.`, { apaar_last4: e.apaarLast4 }));
+    add("IDENTITY", {
+      ...apaar,
+      state: "CONTRADICTED",
+      basis: "APAAR_UNKNOWN",
+      finding: "APAAR not found",
+      source_line: `APAAR verification · ${checked}`,
+      summary: `APAAR ending ${e.apaarLast4} is not in the APAAR registry.`,
+      detail: { apaar_last4: e.apaarLast4 ?? undefined, case_type: "INVALID_APAAR" },
+    });
   else if (sp.identity === "NAME")
-    checks.push(
-      check("IDENTITY", "CONTRADICTED", "APAAR", `Name on upload differs from the APAAR registry (similarity ${e.nameScore} of 100).`, {
-        name_score: e.nameScore,
-        dob_match: true,
-        apaar_last4: e.apaarLast4,
-      }),
-    );
+    add("IDENTITY", {
+      ...apaar,
+      state: "CONTRADICTED",
+      basis: "NAME_MISMATCH",
+      finding: "name differs",
+      source_line: `APAAR verification · ${checked}`,
+      summary: `Name on upload differs from the APAAR registry (similarity ${e.nameScore} of 100).`,
+      detail: { name_score: e.nameScore, dob_match: true, apaar_last4: e.apaarLast4 ?? undefined, case_type: "NAME_MISMATCH" },
+    });
   else
-    checks.push(
-      check("IDENTITY", "CONFIRMED", "APAAR", `Name and date of birth match the APAAR registry (similarity ${e.nameScore} of 100).`, {
-        name_score: e.nameScore,
-        dob_match: true,
-        apaar_last4: e.apaarLast4,
-      }),
-    );
+    add("IDENTITY", {
+      ...apaar,
+      state: "CONFIRMED",
+      basis: "APAAR_MATCH",
+      source_line: `APAAR verification · ${checked}`,
+      summary: `Name and date of birth match the APAAR registry (similarity ${e.nameScore} of 100).`,
+      detail: { name_score: e.nameScore, dob_match: true, apaar_last4: e.apaarLast4 ?? undefined },
+    });
 
-  // ADMISSION
-  if (r.admission_route === "COUNSELLING" || r.admission_route === "LATERAL")
-    checks.push(
-      check("ADMISSION", "CONFIRMED", "COUNSELLING", `Found in the ${stateName} counselling allotments for ${code} (${start}), round ${e.round}.`, {
-        round: e.round,
-        allotment_ref: r.counselling_ref,
-        ref_mismatch: false,
-      }),
-    );
-  else if (r.admission_route === "INTERNATIONAL")
-    checks.push(check("ADMISSION", "CONFIRMED", "SII", `Study in India confirms this admission to ${code} (${r.cohort_year}).`));
+  // SEAT: derived by the Seat Ledger from the cohort's approval version; never independent evidence.
+  const version = r.cohort_year === ACADEMIC_YEAR ? e.programme.approval.version : 1;
+  const ledger = `AICTE approval v${version}, ${r.cohort_year} (Seat Ledger, derived)`;
+  const seatBase = { source: "SEAT_LEDGER" as const, supplied_by: ledger, observed_at: CHECKED_AT, source_line: ledger };
+  const approvalKeys = { approval_id: e.programme.approval.id, approval_version: version };
+  if (e.seat && e.seat.seat_type === "TFW" && r.eligibility.tfw_income_certified === null)
+    add("SEAT", {
+      ...seatBase,
+      state: "PENDING",
+      basis: "TFW_NOT_REPORTED",
+      finding: "TFW income certificate not reported",
+      summary: "TFW income certificate not reported; the seat is held until the college reports it.",
+      detail: { ...approvalKeys, seat_code: e.seat.seat_code, seat_type: e.seat.seat_type, eligibility_rule: "TFW_INCOME", reported: r.eligibility },
+    });
   else if (e.seat)
-    checks.push(check("ADMISSION", "CONFIRMED", "SEAT_LEDGER", `${routeWord} admission is allowed for ${code} and holds a ${seatWord} seat.`, { seat_type: e.seatType }));
-  else
-    checks.push(check("ADMISSION", "CONTRADICTED", "SEAT_LEDGER", `${routeWord} admission has no ${seatWord} seat in ${code} (${r.cohort_year}).`, { seat_type: e.seatType }));
+    add("SEAT", {
+      ...seatBase,
+      state: "CONFIRMED",
+      basis: "FITS",
+      finding: "fits approved intake",
+      summary: `Holds seat ${e.seat.seat_code} (${SEAT_TYPE_WORD[e.seat.seat_type]}, AICTE approval v${version}, ${r.cohort_year}).`,
+      detail: { ...approvalKeys, seat_code: e.seat.seat_code, seat_type: e.seat.seat_type },
+    });
+  else {
+    const flagType = e.seatFlagName === "Quota breach" ? "QUOTA_BREACH" : "EXCESS_ADMISSION";
+    add("SEAT", {
+      ...seatBase,
+      state: "CONTRADICTED",
+      basis: "NO_SEAT",
+      finding: "beyond approved intake",
+      summary: `No ${seatWord} seat is free in ${code} (${r.cohort_year}); see the ${e.seatFlagName} case.`,
+      detail: { ...approvalKeys, seat_type: e.seatType, flag_type: flagType, case_type: flagType },
+    });
+  }
 
-  // SEAT
-  if (e.seat)
-    checks.push(
-      check("SEAT", "CONFIRMED", "SEAT_LEDGER", `Holds seat ${e.seat.seat_code} (${SEAT_TYPE_WORD[e.seat.seat_type]}, ${e.seat.academic_year} approval).`, {
-        seat_code: e.seat.seat_code,
-        seat_type: e.seat.seat_type,
-      }),
-    );
-  else
-    checks.push(
-      check("SEAT", "CONTRADICTED", "SEAT_LEDGER", `No ${seatWord} seat is free in ${code} (${r.cohort_year}); see the ${e.seatFlagName} flag.`, {
-        flag_type: e.seatFlagName === "Quota breach" ? "QUOTA_BREACH" : "EXCESS_ADMISSION",
-      }),
-    );
+  // ADMISSION: the state admission authority's joining record, or Study in India.
+  const joiningYear = joiningYearOf(r);
+  const deadline = deadlineOf(joiningYear);
+  const authority = { source: "ADMISSION_AUTHORITY" as const, supplied_by: "State admission authority", observed_at: CHECKED_AT };
+  if (international)
+    add("ADMISSION", {
+      state: "CONFIRMED",
+      basis: "SII_ADMITTED",
+      source: "SII",
+      supplied_by: "Study in India",
+      observed_at: CHECKED_AT,
+      independent: true,
+      source_line: `Study in India · ${checked}`,
+      summary: `Study in India confirms this admission to ${code} (${r.cohort_year}).`,
+    });
+  else if (!joiningPublished(seed.state_code, joiningYear))
+    add("ADMISSION", {
+      ...authority,
+      state: "PENDING",
+      basis: "NOT_PUBLISHED_LATE",
+      finding: "not published yet",
+      source_line: `Published by ${sentenceDate(deadline)}`,
+      summary: `The ${stateName} admission authority has not published its joining record for ${joiningYear}; it was due by ${sentenceDate(deadline)}.`,
+      detail: { joining_year: joiningYear, deadline, published: false },
+    });
+  else if (sp.joining === "NOT_FOUND")
+    add("ADMISSION", {
+      ...authority,
+      independent: true,
+      state: "CONTRADICTED",
+      basis: "NOT_IN_JOINING_RECORD",
+      finding: "not found",
+      source_line: `State admission authority · ${checked}`,
+      summary: `Not found in the ${stateName} admission authority's joining record for ${code} (${joiningYear}) after the reporting deadline of ${sentenceDate(deadline)}.`,
+      detail: { joining_year: joiningYear, deadline, published: true, case_type: "NOT_IN_JOINING_RECORD" },
+    });
+  else {
+    const counselled = r.admission_route === "COUNSELLING" || r.admission_route === "LATERAL";
+    const roundWords = counselled ? `round ${e.round}` : `${routeWord} admission approved by the state`;
+    add("ADMISSION", {
+      ...authority,
+      independent: true,
+      state: "CONFIRMED",
+      basis: "JOINED",
+      finding: `joined ${sentenceDate(r.admission_date)}`,
+      source_line: `State admission authority · ${checked}`,
+      summary: `The ${stateName} admission authority records that the student joined ${code} at this college on ${sentenceDate(r.admission_date)} (${roundWords}).`,
+      detail: { joining_year: joiningYear, joined_on: r.admission_date, round: counselled ? e.round : null, route: r.admission_route, deadline, published: true },
+    });
+  }
 
-  // STUDYING (ABC)
+  // STUDYING: ABC credits, with the body that issued them.
   const expected = (r.year_of_study - 1) * 2;
-  if (r.year_of_study === 1) checks.push(check("STUDYING", "NOT_YET_DUE", "ABC", "First year, no result yet."));
-  else if (!linked) checks.push(check("STUDYING", "NOT_APPLICABLE", "ABC", "APAAR not linked; ABC credits cannot be checked."));
+  const selfIssued = SELF_ISSUING.has(seed.aicte_permanent_id);
+  const issuerName = issuerNameOf(e.institutionId);
+  const abcAt = creditsUploadedAt(r.year_of_study);
+  const abcLine = selfIssued ? `ABC, issued by ${seed.name} itself · ${sentenceDate(abcAt)}` : `ABC, issued by ${issuerName} · ${sentenceDate(abcAt)}`;
+  const abc = { source: "ABC" as const, supplied_by: selfIssued ? `ABC, issued by ${seed.name} (the college itself)` : `ABC, issued by ${issuerName}`, observed_at: abcAt || null };
+  const lateral = r.admission_route === "LATERAL";
+  if (r.year_of_study === 1 || (lateral && r.year_of_study === 2))
+    add("STUDYING", {
+      state: "NOT_YET_DUE",
+      basis: lateral ? "LATERAL_FIRST_YEAR" : "FIRST_YEAR",
+      source: "ABC",
+      source_line: lateral ? "Lateral entry; first semester here not complete" : "First semester not complete",
+      summary: lateral ? "Lateral entry into year 2; no semester result here is due yet." : "First year; no semester result is due yet.",
+    });
+  else if (!linked)
+    add("STUDYING", { state: "NOT_APPLICABLE", basis: "NO_APAAR", source: "ABC", source_line: "APAAR not linked; ABC cannot be checked", summary: "APAAR not linked; ABC credits cannot be checked." });
   else if (sp.studying === "NONE")
-    checks.push(
-      check("STUDYING", "CONTRADICTED", "ABC", `No credits recorded in ABC for ${expected} of ${expected} semesters since admission.`, {
+    add("STUDYING", {
+      ...abc,
+      independent: !selfIssued,
+      state: "CONTRADICTED",
+      basis: "NO_ACADEMIC_ACTIVITY",
+      finding: `no credits for ${expected} semesters`,
+      source_line: abcLine,
+      summary: `No credits recorded in ABC for ${expected} of ${expected} semesters since admission.`,
+      detail: {
         expected,
         missing: expected,
+        issuer_name: issuerName,
+        case_type: "NO_ACADEMIC_ACTIVITY",
         semesters: [
-          { academic_year: "2025-26", sem: 1, credits: 0 },
-          { academic_year: "2025-26", sem: 2, credits: 0 },
+          { academic_year: "2025-26", sem: 1, credits: 0, issuer: "MSTU" },
+          { academic_year: "2025-26", sem: 2, credits: 0, issuer: "MSTU" },
         ],
-      }),
-    );
+      },
+    });
   else if (sp.studying === "ONE_MISSING")
-    checks.push(
-      check("STUDYING", "PENDING", "ABC", `No credits recorded in ABC for semester ${expected} (2025-26); waiting for the next upload.`, {
-        expected,
-        missing: 1,
-        awaiting_semester: expected,
-      }),
-    );
-  else checks.push(check("STUDYING", "CONFIRMED", "ABC", `Credits recorded in ABC for all ${expected} semesters since admission.`, { expected, missing: 0 }));
+    add("STUDYING", {
+      ...abc,
+      state: "PENDING",
+      basis: "ONE_SEMESTER_MISSING",
+      finding: `waiting for semester ${expected}`,
+      source_line: abcLine,
+      summary: `No credits recorded in ABC for semester ${expected} (2025-26); waiting for the next results.`,
+      detail: { expected, missing: 1, awaiting_semester: expected, issuer_name: issuerName },
+    });
+  else
+    add("STUDYING", {
+      ...abc,
+      independent: !selfIssued,
+      state: "CONFIRMED",
+      basis: selfIssued ? "CREDITS_SELF_ISSUED" : "CREDITS",
+      finding: `credits for ${expected} semesters`,
+      source_line: abcLine,
+      summary: selfIssued
+        ? `Credits recorded in ABC for all ${expected} semesters, issued by the college itself. They do not count as evidence independent of the college.`
+        : `Credits recorded in ABC for all ${expected} semesters since admission, issued by ${issuerName}.`,
+      detail: { expected, missing: 0, issuer_name: issuerName, self_issued: selfIssued },
+    });
 
-  // STUDENT
-  checks.push(check("STUDENT", "PENDING", "STUDENT_NOTICE", "Notice not sent yet."));
+  // STUDENT: the notice loop (lib/mock/cases.ts) replaces this row with the student's answer.
+  add("STUDENT", {
+    state: "PENDING",
+    basis: "NOT_SENT",
+    source: "STUDENT_NOTICE",
+    finding: "notice not sent yet",
+    source_line: "No notice sent yet",
+    summary: "Notice not sent yet.",
+    detail: { notice_state: "NOT_SENT" },
+  });
 
-  e.checks = checks;
-  r.countersign = compact(checks);
+  setRows(e, rows);
 }
 
-export function compact(checks: Check[]): Countersign {
-  if (checks.length === 0) return { score: null, checks: [] };
-  const brief: CheckBrief[] = CHECK_ORDER.map((t) => {
-    const c = checks.find((x) => x.type === t)!;
-    return { type: t, status: c.status };
-  });
-  const applicable = brief.filter((c) => c.status !== "NOT_APPLICABLE" && c.status !== "NOT_YET_DUE").length;
-  const passes = brief.filter((c) => c.status === "CONFIRMED").length;
-  return { score: { passes, applicable }, checks: brief };
+/** Stores the rows, the brief rows lists carry, and the status the rows alone give (cases are added on read). */
+export function setRows(e: RollEntry, rows: EvidenceRow[]) {
+  e.checks = rows;
+  e.row.checks = briefOf(rows);
+  if (e.row.status !== "ACTIVE") return;
+  const record = recordOf(rows, [], recordContext(e));
+  Object.assign(e.row, record, { record_status_at: e.row.record_status_at ?? CHECKED_AT });
+}
+
+/** What the next step reads besides the rows (A4.3). */
+export function recordContext(e: RollEntry) {
+  const student = e.checks.find((c) => c.type === "STUDENT");
+  const sentAt = student?.detail.notice_state === "SENT" ? String(student.detail.sent_at ?? "") || null : null;
+  return {
+    noticeSentAt: sentAt,
+    issuerName: issuerNameOf(e.institutionId),
+    deadline: deadlineOf(joiningYearOf(e.row)),
+    nextSemester: (e.row.year_of_study - 1) * 2 + 1,
+  };
 }
 
 /* ---- Access ------------------------------------------------------------- */
@@ -611,25 +850,109 @@ export function enrolmentDetail(e: RollEntry): Omit<EnrolmentDetail, "flags"> {
     uploaded_at: r.uploaded_at,
     upload: e.upload,
     seat: e.seat,
-    countersign: r.countersign,
+    eligibility: r.eligibility,
+    approval: approvalRef(e),
+    claim: r.student.consent_status === "REFUSED" || r.student.consent_status === "PENDING" ? { claimed: false, claimed_at: null } : null,
+    record_status: r.record_status,
+    status_reason: r.status_reason,
+    next_step: r.next_step,
+    record_status_at: r.record_status_at,
     checks: e.checks,
+    versions: versionsOf(e).slice(0, 20),
+    history_count: versionsOf(e).length,
   };
 }
 
-/** POST /enrolments/{id}/recheck: re-runs PENDING and SOURCE_UNAVAILABLE checks except STUDENT; a source that answers now passes. */
+/** The cohort approval the Seat row was checked against, at its current version (A4.6). */
+export function approvalRef(e: RollEntry): ApprovalRef {
+  const a = e.programme.approval;
+  if (e.row.cohort_year === a.academic_year) {
+    return { id: a.id, academic_year: a.academic_year, version: a.version, approved_intake: a.approved_intake, effective_from: a.effective_from, source: a.source };
+  }
+  const start = e.row.cohort_year.slice(0, 4);
+  return {
+    id: `${a.id.slice(0, 24)}${start}0000dddd`,
+    academic_year: e.row.cohort_year,
+    version: 1,
+    approved_intake: a.approved_intake,
+    effective_from: `${start}-03-15`,
+    source: `AICTE EoA ${e.row.cohort_year}`,
+  };
+}
+
+const VERSIONED: (keyof EnrolmentRow["student"] | keyof EnrolmentRow | "dob" | "tfw_income_certified" | "nri_sponsored" | "ciwg")[] = [
+  "name", "dob", "apaar_masked", "consent_status", "year_of_study", "admission_route", "counselling_ref", "category",
+  "admission_date", "status", "status_date", "tfw_income_certified", "nri_sponsored", "ciwg",
+];
+
+/** The record's versions, newest first (A4.7): the upload that created it, then any later change. */
+export function versionsOf(e: RollEntry): EnrolmentVersion[] {
+  const r = e.row;
+  const value = (field: string): unknown => {
+    if (field === "name" || field === "apaar_masked" || field === "consent_status") return r.student[field];
+    if (field === "dob") return e.dob;
+    if (field === "tfw_income_certified" || field === "nri_sponsored" || field === "ciwg") return r.eligibility[field];
+    return (r as unknown as Record<string, unknown>)[field];
+  };
+  const batch = { id: initialBatchId(e.institutionId), filename: initialFilename(SEEDS.find((s) => s.id === e.institutionId)!.aicte_permanent_id), row_no: e.upload?.row_no ?? r.source_row_no };
+  const fromFile = e.institutionId === IDS.abc;
+  const registrar = { id: "6f1c0a8e-0004-4c9a-9e51-1c2f1a0b7d33", name: "Registrar, ABC College of Engineering", role: "INSTITUTION" as const };
+  const later = LATER_VERSIONS.get(r.id) ?? [];
+  // Version 1 holds the values as first uploaded: later changes are rolled back from today's values.
+  const first = new Map<string, unknown>(VERSIONED.map((field) => [field, value(field)]));
+  for (const v of [...later].reverse()) for (const c of v.changes) first.set(c.field, c.before);
+  const created: EnrolmentVersion = {
+    version: 1,
+    at: INITIAL_UPLOADED_AT,
+    source: fromFile ? "UPLOAD" : "SEED",
+    actor: fromFile ? registrar : null,
+    batch,
+    case: null,
+    changes: VERSIONED.map((field) => ({ field, before: null, after: first.get(field) })),
+  };
+  return [...later].reverse().concat(created);
+}
+
+/** Changes after the first upload, oldest first; decisions add theirs here too. */
+export const LATER_VERSIONS = new Map<string, EnrolmentVersion[]>();
+
+/** A change the college's update file made to a record (A4.7 UPLOAD version). */
+function laterVersion(e: RollEntry, at: string, rowNo: number, changes: EnrolmentVersion["changes"]) {
+  const seed = SEEDS.find((s) => s.id === e.institutionId)!;
+  const list = LATER_VERSIONS.get(e.row.id) ?? [];
+  list.push({
+    version: list.length + 2,
+    at,
+    source: "UPLOAD",
+    actor: { id: e.institutionId === IDS.abc ? "6f1c0a8e-0004-4c9a-9e51-1c2f1a0b7d33" : `6f1c0a8e-${e.institutionId.slice(-4)}-4c9a-9e51-1c2f1a0b7d33`, name: `Registrar, ${seed.name}`, role: "INSTITUTION" },
+    batch: { id: updateBatchId(e.institutionId), filename: updateFilename(seed.aicte_permanent_id), row_no: rowNo },
+    case: null,
+    changes,
+  });
+  LATER_VERSIONS.set(e.row.id, list);
+}
+
+const RECHECKED: EvidenceRow["state"][] = ["PENDING", "NOT_YET_DUE", "SOURCE_UNAVAILABLE"];
+
+/**
+ * POST /enrolments/{id}/recheck (A4.6): re-runs every IDENTITY, SEAT, ADMISSION
+ * and STUDYING row that is Pending, Not yet due or Source unavailable; a source
+ * that answers now gives its fact. The Student row and decided rows are kept.
+ */
 export function recheck(e: RollEntry) {
-  const before = e.checks.map((c) => ({ type: c.type, status: c.status }));
+  const before = e.checks;
   if (e.special.identity === "UNAVAILABLE") e.special = { ...e.special, identity: undefined };
   evaluate(e);
   const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
-  const results = before
-    .filter((b) => (b.status === "PENDING" || b.status === "SOURCE_UNAVAILABLE") && b.type !== "STUDENT")
-    .map((b) => {
-      const after = e.checks.find((c) => c.type === b.type)!;
-      after.checked_at = now;
-      return { type: b.type, before: b.status, after: after.status };
-    });
-  return results;
+  const rows = e.checks.map((fresh) => {
+    const old = before.find((b) => b.type === fresh.type);
+    if (!old || fresh.type === "STUDENT" || !RECHECKED.includes(old.state)) return old ?? fresh;
+    return fresh.state === old.state ? { ...old, checked_at: now } : { ...fresh, checked_at: now, observed_at: fresh.observed_at ? now : null };
+  });
+  setRows(e, rows);
+  return before
+    .filter((b) => b.type !== "STUDENT" && RECHECKED.includes(b.state))
+    .map((b) => ({ type: b.type, before: b.state, after: e.checks.find((c) => c.type === b.type)!.state }));
 }
 
 export function studentMe(): StudentMe {
@@ -643,6 +966,7 @@ export function studentMe(): StudentMe {
     dob: "2007-03-21",
     email: "ravi.sharma@example.demo",
     mobile_masked: "XXXXXX4521",
+    signed_in_with: "DIGILOCKER",
     enrolments: [
       {
         id: ravi.row.id,
@@ -653,7 +977,14 @@ export function studentMe(): StudentMe {
         academic_year: ACADEMIC_YEAR,
         year_of_study: 1,
         status: "ACTIVE",
-        countersign: ravi.row.countersign,
+        record_status: ravi.row.record_status,
+        status_reason: ravi.row.status_reason,
+        next_step: ravi.row.next_step,
+        checks: ravi.row.checks,
+        response: null,
+        can_respond: true,
+        claimed: false,
+        decision: null,
       },
     ],
     notices: [],

@@ -5,7 +5,8 @@ import { MaskedApaar } from "@/components/brand/MaskedApaar";
 import { SeatCodePill } from "@/components/brand/SeatCodePill";
 import { t, tk } from "@/lib/copy";
 import type { RelatedEnrolmentRow } from "@/lib/types";
-import { CountersignStrip, UnseatedChip } from "@/components/common/ledger-bits";
+import { UnseatedChip } from "@/components/common/ledger-bits";
+import { RecordStatusBadge } from "@/components/records/record-status-badge";
 import { FlagChips } from "@/components/flags/flag-chip";
 
 /** Enrolment rows with an Institution column, for flag detail (W2-8). */
@@ -41,7 +42,7 @@ export function RelatedEnrolmentsTable({
             <th scope="col" className="code">
               {t("col.seat")}
             </th>
-            <th scope="col">{t("col.countersign")}</th>
+            <th scope="col">{t("col.record_status")}</th>
             <th scope="col">{t("col.flags")}</th>
           </tr>
         </thead>
@@ -62,7 +63,13 @@ export function RelatedEnrolmentsTable({
               <td>{tk(`route.${e.admission_route}`)}</td>
               <td className="code">{e.seat_code ? <SeatCodePill seatCode={e.seat_code} status="ASSIGNED" /> : <UnseatedChip />}</td>
               <td>
-                <CountersignStrip countersign={e.countersign} />
+                {e.status === "ACTIVE" ? (
+                  <RecordStatusBadge status={e.record_status} tip={e.status_reason} />
+                ) : (
+                  <span className="inline-flex h-5 items-center rounded-chip border border-dashed border-check-na/50 bg-check-na-soft px-1.5 text-xs font-medium whitespace-nowrap text-check-na-ink">
+                    {tk(`enrol_status.${e.status}`)}
+                  </span>
+                )}
               </td>
               <td>
                 <FlagChips flags={e.flags} hrefFor={flagHref} />

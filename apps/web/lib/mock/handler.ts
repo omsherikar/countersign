@@ -1,25 +1,28 @@
 /**
  * In-browser stand-in for the api when NEXT_PUBLIC_MOCK_API=1.
  * Routes, scoping, redaction and error envelopes follow docs/API_CONTRACT.md
- * sections A and B and Addendum 2 (A2.4 to A2.22).
+ * sections A and B and Addenda 2 to 4 (record statuses, A4.5, A4.6, A4.20).
  */
 import { ApiError, type Query } from "@/lib/api";
 import { casesDownload, casesUpload, withCases } from "@/lib/mock/cases";
 import { ACADEMIC_YEAR, HEALTH, INSTITUTIONS, MOCK_PASSWORD, REGIONS, SEEDS, STATES, USERS, adapterPing, auditVerify, institutionBase, regionName, zeroChaos } from "@/lib/mock/fixtures";
-import { SEVERITY_RANK, UNRESOLVED, allFlags, openFlagCount, type StoredFlag } from "@/lib/mock/flags";
+import { COVERS, SEVERITY_RANK, UNRESOLVED, allFlags, openFlagCount, type StoredFlag } from "@/lib/mock/flags";
+import { NOT_MINE, ZERO_COUNTS, completenessCsv, completenessOf, countsFor, pct, recordsRequest, withRecord } from "@/lib/mock/records";
 import { enrolmentDetail, entryById, programmesFor, recheck, rollFor, seatsFor, studentMe, type RollEntry } from "@/lib/mock/roll";
 import { readBrowserToken, tokenFor, userFromToken, writeBrowserToken } from "@/lib/mock/session";
 import { allBatches, createUpload, errorsCsv, errorsOf, templateCsv } from "@/lib/mock/uploads";
 import { UNHANDLED, studentLoopDownload, studentLoopRequest } from "@/lib/mock/student-loop";
+import { reportFile } from "@/lib/mock/reports";
 import type {
+  CaseAgeBucket,
   ChaosRequest,
   ChaosState,
-  CheckStatus,
-  CheckType,
   DashboardSummary,
   EnrolmentDetail,
+  EnrolmentPage,
   EnrolmentRecheck,
   EnrolmentRow,
+  EvidenceState,
   FlagDetail,
   FlagPage,
   FlagRef,
@@ -31,6 +34,7 @@ import type {
   InstitutionRef,
   InstitutionRow,
   Page,
+  RecordStatus,
   RelatedEnrolmentRow,
   Role,
   SourceKey,
@@ -44,7 +48,9 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const FLAG_TYPES: FlagType[] = [
   "EXCESS_ADMISSION", "QUOTA_BREACH", "LATE_REFILL", "INVALID_APAAR", "NAME_MISMATCH", "DUPLICATE_CROSS_INSTITUTION",
   "DUPLICATE_WITHIN_UPLOAD", "DUAL_ENROLMENT_ALLOWED", "NO_ACADEMIC_ACTIVITY", "STUDENT_DENIED", "GHOST_RING", "ANOMALY",
+  "NOT_IN_JOINING_RECORD", "ELIGIBILITY_BREACH", "MISSING_FROM_UPLOAD",
 ];
+const ATTENTION: RecordStatus[] = ["DISPUTED", "UNDER_REVIEW", "AWAITING_EVIDENCE", "COUNTERSIGNED"];
 const OFFICERS: Role[] = ["AICTE_ADMIN", "RO_OFFICER"];
 
 function unauthenticated(): ApiError {
@@ -78,8 +84,20 @@ const no = (v: unknown) => String(v) === "false";
 
 /* ---- Scope -------------------------------------------------------------- */
 
+/** flags_open, the record counts and completeness, filled from the roll, the cases and the joinings list. */
 function withCounts(row: InstitutionRow): InstitutionRow {
-  return { ...row, flags_open: openFlagCount(row.id) };
+  const records = countsFor(row.id);
+  const active = Object.values(records).reduce((a, n) => a + n, 0);
+  const c = completenessOf(row.id);
+  return {
+    ...row,
+    flags_open: openFlagCount(row.id),
+    records,
+    countersigned_pct: pct(records.COUNTERSIGNED, active),
+    completeness_pct: c.completeness_pct,
+    missing_from_upload: c.missing,
+    deadline_state: c.deadline_state,
+  };
 }
 
 function scopedInstitutions(user: User): InstitutionRow[] {
@@ -137,25 +155,11 @@ function flagRefs(user: User, enrolmentId: string): FlagRef[] {
 }
 
 function listRow(user: User, e: RollEntry): EnrolmentRow {
+  withRecord(e);
   return { ...e.row, flags: flagRefs(user, e.row.id) };
 }
 
 /* ---- Dashboard ---------------------------------------------------------- */
-
-const STATS = new Map<string, { checked: number; countersigned: number; clear: number }>();
-function rollStats(id: string) {
-  const hit = STATS.get(id);
-  if (hit) return hit;
-  const rows = rollFor(id).filter((e) => e.row.status === "ACTIVE" && e.checks.length > 0);
-  const s = {
-    checked: rows.length,
-    countersigned: rows.filter((e) => e.checks.every((c) => c.status === "CONFIRMED" || c.status === "NOT_APPLICABLE" || c.status === "NOT_YET_DUE")).length,
-    clear: rows.filter((e) => e.checks.every((c) => c.status !== "CONTRADICTED")).length,
-  };
-  STATS.set(id, s);
-  return s;
-}
-const pct = (n: number, d: number) => (d === 0 ? null : Math.round((n / d) * 1000) / 10);
 
 function summary(user: User, academicYear?: string): DashboardSummary {
   const rows = scopedInstitutions(user);
@@ -168,29 +172,67 @@ function summary(user: User, academicYear?: string): DashboardSummary {
           ? (user.scope.institution_name ?? "")
           : (user.scope.university_name ?? "");
   const kind = user.role === "AICTE_ADMIN" ? "NATIONAL" : user.role === "RO_OFFICER" ? "REGION" : user.role === "INSTITUTION" ? "INSTITUTION" : "UNIVERSITY";
-  const byState = new Map<string, DashboardSummary["by_state"][number]>();
-  const byRegion = new Map<string, DashboardSummary["by_region"][number]>();
+  const officer = isOfficer(user);
+  const add = (into: DashboardSummary["kpis"]["records"], from: DashboardSummary["kpis"]["records"]) => {
+    for (const k of Object.keys(into) as RecordStatus[]) into[k] += from[k];
+  };
+  const totalOf = (r: DashboardSummary["kpis"]["records"]) => Object.values(r).reduce((a, n) => a + n, 0);
+  type Recon = { joined: number; matched: number; missing: number };
+  const recon = new Map(rows.map((r) => {
+    const c = completenessOf(r.id);
+    return [r.id, { joined: c.joined, matched: c.uploaded_and_joined, missing: c.missing } as Recon];
+  }));
+  const byState = new Map<string, DashboardSummary["by_state"][number] & Recon>();
+  const byRegion = new Map<string, DashboardSummary["by_region"][number] & Recon>();
+  const records = ZERO_COUNTS();
   for (const r of rows) {
-    const s = byState.get(r.state_code) ?? { state_code: r.state_code, state_name: r.state_name, region: r.region, institutions: 0, programmes: 0, approved_seats: 0, admitted: 0, enrolments: 0, flags_open: 0 };
+    const c = recon.get(r.id)!;
+    add(records, r.records);
+    const s = byState.get(r.state_code) ?? {
+      state_code: r.state_code, state_name: r.state_name, region: r.region, institutions: 0, programmes: 0, approved_seats: 0, admitted: 0,
+      enrolments: 0, flags_open: 0, records: ZERO_COUNTS(), countersigned_pct: null, completeness_pct: null, missing_from_upload: 0, joined: 0, matched: 0, missing: 0,
+    };
     s.institutions += 1;
     s.programmes += r.programmes;
     s.approved_seats += r.approved_seats;
     s.admitted += r.admitted;
     s.enrolments += r.enrolments;
     s.flags_open += r.flags_open;
+    add(s.records, r.records);
+    s.joined += c.joined;
+    s.matched += c.matched;
+    s.missing += c.missing;
     byState.set(r.state_code, s);
-    const g = byRegion.get(r.region) ?? { region: r.region, region_name: regionName(r.region), institutions: 0, approved_seats: 0, admitted: 0, enrolments: 0, flags_open: 0 };
+    const g = byRegion.get(r.region) ?? {
+      region: r.region, region_name: regionName(r.region), institutions: 0, approved_seats: 0, admitted: 0, enrolments: 0, flags_open: 0,
+      records: ZERO_COUNTS(), countersigned_pct: null, completeness_pct: null, missing_from_upload: 0, joined: 0, matched: 0, missing: 0,
+    };
     g.institutions += 1;
     g.approved_seats += r.approved_seats;
     g.admitted += r.admitted;
     g.enrolments += r.enrolments;
     g.flags_open += r.flags_open;
+    add(g.records, r.records);
+    g.joined += c.joined;
+    g.matched += c.matched;
+    g.missing += c.missing;
     byRegion.set(r.region, g);
   }
+  const finish = <T extends Recon & { records: DashboardSummary["kpis"]["records"] }>(x: T) => {
+    const { joined, matched, missing, ...rest } = x;
+    return { ...rest, countersigned_pct: pct(x.records.COUNTERSIGNED, totalOf(x.records)), completeness_pct: pct(matched, joined), missing_from_upload: missing };
+  };
   const ids = new Set(rows.map((r) => r.id));
   const open = allFlags().filter((f) => ids.has(f.institutionId) && UNRESOLVED.includes(f.status));
-  const stats = rows.map((r) => rollStats(r.id));
-  const checked = stats.reduce((a, s) => a + s.checked, 0);
+  const active = totalOf(records);
+  const joined = [...recon.values()].reduce((a, c) => a + c.joined, 0);
+  const matched = [...recon.values()].reduce((a, c) => a + c.matched, 0);
+  const now = Date.now();
+  const age = (f: StoredFlag): CaseAgeBucket => {
+    const days = (now - new Date(f.created_at).getTime()) / 86_400_000;
+    return days < 7 ? "UNDER_7_DAYS" : days <= 30 ? "DAYS_7_TO_30" : "OVER_30_DAYS";
+  };
+  const own = user.role === "INSTITUTION" && user.scope.institution_id ? completenessOf(user.scope.institution_id) : null;
   return {
     academic_year: academicYear || ACADEMIC_YEAR,
     scope: { kind, label },
@@ -201,12 +243,31 @@ function summary(user: User, academicYear?: string): DashboardSummary {
       admitted: rows.reduce((a, r) => a + r.admitted, 0),
       enrolments: rows.reduce((a, r) => a + r.enrolments, 0),
       flags_open: open.length,
-      countersigned_pct: pct(stats.reduce((a, s) => a + s.countersigned, 0), checked),
-      clear_pct: pct(stats.reduce((a, s) => a + s.clear, 0), checked),
+      countersigned_pct: pct(records.COUNTERSIGNED, active),
+      records,
+      joined,
+      missing_from_upload: [...recon.values()].reduce((a, c) => a + c.missing, 0),
+      completeness_pct: pct(matched, joined),
+      colleges_late: rows.filter((r) => r.deadline_state === "LATE").length,
+      colleges_overdue: rows.filter((r) => r.deadline_state === "OVERDUE").length,
+      signals_new: officer ? 0 : null,
     },
+    records_by_status: (["COUNTERSIGNED", "AWAITING_EVIDENCE", "UNDER_REVIEW", "DISPUTED"] as RecordStatus[]).map((status) => ({
+      status,
+      count: records[status],
+      pct: pct(records[status], active),
+    })),
     flags_by_type: FLAG_TYPES.map((type) => ({ type, open: open.filter((f) => f.type === type).length })),
-    by_state: [...byState.values()].sort((a, b) => a.state_name.localeCompare(b.state_name)),
-    by_region: [...byRegion.values()].sort((a, b) => a.region_name.localeCompare(b.region_name)),
+    cases_by_age: (["UNDER_7_DAYS", "DAYS_7_TO_30", "OVER_30_DAYS"] as CaseAgeBucket[]).map((bucket) => ({ bucket, open: open.filter((f) => age(f) === bucket).length })),
+    top_institutions: officer
+      ? [...rows]
+          .sort((a, b) => b.flags_open - a.flags_open || a.name.localeCompare(b.name))
+          .slice(0, 10)
+          .map((r) => ({ institution: institutionRef(r.id), flags_open: r.flags_open, disputed: r.records.DISPUTED, under_review: r.records.UNDER_REVIEW }))
+      : [],
+    completeness: own,
+    by_state: [...byState.values()].map(finish).sort((a, b) => a.state_name.localeCompare(b.state_name)),
+    by_region: [...byRegion.values()].map(finish).sort((a, b) => a.region_name.localeCompare(b.region_name)),
   };
 }
 
@@ -219,9 +280,15 @@ function listInstitutions(user: User, q?: Query): Page<InstitutionRow> {
   if (q?.state) rows = rows.filter((r) => r.state_code === q.state);
   if (q?.region && user.role === "AICTE_ADMIN") rows = rows.filter((r) => r.region === q.region);
   if (q?.type) rows = rows.filter((r) => r.type === q.type);
+  if (q?.deadline_state) rows = rows.filter((r) => r.deadline_state === q.deadline_state);
   const sort = String(q?.sort ?? "flags_open_desc");
+  const nullsLast = (v: number | null) => (v === null ? Number.POSITIVE_INFINITY : v);
   if (sort === "flags_open_desc") {
-    rows.sort((a, b) => b.flags_open - a.flags_open || b.enrolments - a.enrolments || a.name.localeCompare(b.name));
+    rows.sort((a, b) => b.flags_open - a.flags_open || b.records.DISPUTED - a.records.DISPUTED || b.records.UNDER_REVIEW - a.records.UNDER_REVIEW || b.enrolments - a.enrolments || a.name.localeCompare(b.name));
+  } else if (sort === "completeness_asc") {
+    rows.sort((a, b) => nullsLast(a.completeness_pct) - nullsLast(b.completeness_pct) || a.name.localeCompare(b.name));
+  } else if (sort === "countersigned_asc") {
+    rows.sort((a, b) => nullsLast(a.countersigned_pct) - nullsLast(b.countersigned_pct) || a.name.localeCompare(b.name));
   } else if (sort === "name" || sort === "name_asc") {
     const dir = String(q?.order ?? "asc") === "desc" ? -1 : 1;
     rows.sort((a, b) => dir * a.name.localeCompare(b.name));
@@ -236,26 +303,29 @@ function listInstitutions(user: User, q?: Query): Page<InstitutionRow> {
 function institutionDetail(row: InstitutionRow): InstitutionDetail {
   const base = institutionBase(row.id)!;
   const last = allBatches().find((b) => b.institution_id === row.id && b.academic_year === ACADEMIC_YEAR);
+  const { missing_students: _missing, ...completeness } = completenessOf(row.id);
+  void _missing;
   return {
     ...base,
     flags_open: row.flags_open,
+    records: row.records,
+    countersigned_pct: row.countersigned_pct,
+    completeness_pct: row.completeness_pct,
+    missing_from_upload: row.missing_from_upload,
+    deadline_state: row.deadline_state,
+    completeness,
     last_upload: last ? { batch_id: last.id, uploaded_at: last.uploaded_at, rows: last.counts.rows, errors: last.counts.errors, status: last.status } : null,
     programmes: programmesFor(row.id),
   };
 }
 
-function listEnrolments(user: User, row: InstitutionRow, q?: Query): Page<EnrolmentRow> {
+function listEnrolments(user: User, row: InstitutionRow, q?: Query): EnrolmentPage {
   let rows = rollFor(row.id);
   if (q?.programme_id) rows = rows.filter((e) => e.row.programme_id === q.programme_id);
   if (q?.status) rows = rows.filter((e) => e.row.status === q.status);
   if (q?.academic_year) rows = rows.filter((e) => e.row.academic_year === q.academic_year);
   if (q?.admission_route) rows = rows.filter((e) => e.row.admission_route === q.admission_route);
   if (q?.year_of_study) rows = rows.filter((e) => e.row.year_of_study === Number(q.year_of_study));
-  if (q?.check_status) {
-    const status = q.check_status as CheckStatus;
-    const type = q.check_type as CheckType | undefined;
-    rows = rows.filter((e) => e.row.countersign.checks.some((c) => c.status === status && (!type || c.type === type)));
-  }
   if (q?.seated !== undefined && q?.seated !== null && q?.seated !== "") {
     if (yes(q.seated)) rows = rows.filter((e) => e.seat);
     if (no(q.seated)) rows = rows.filter((e) => !e.seat);
@@ -269,13 +339,29 @@ function listEnrolments(user: User, row: InstitutionRow, q?: Query): Page<Enrolm
     if (yes(q.flagged)) list = list.filter((r) => r.flags.length > 0);
     if (no(q.flagged)) list = list.filter((r) => r.flags.length === 0);
   }
+  // A4.5: status_counts cover ACTIVE records matching every filter except record_status and status.
+  const counted = q?.status && q.status !== "ACTIVE" ? [] : list.filter((r) => r.status === "ACTIVE");
+  const status_counts = ZERO_COUNTS();
+  for (const r of counted) if (r.record_status) status_counts[r.record_status] += 1;
+  if (q?.record_status) {
+    const wanted = String(q.record_status).split(",");
+    list = list.filter((r) => r.record_status && wanted.includes(r.record_status));
+  }
+  // The pending row and evidence-state filters of page spec W4-2 (not yet on the wire).
+  if (q?.row_state) {
+    const state = q.row_state as EvidenceState;
+    const type = q.row ? String(q.row) : null;
+    list = list.filter((r) => r.checks.some((c) => c.state === state && (!type || c.type === type)));
+  }
   const sort = String(q?.sort ?? "name_asc");
+  const rank = (r: EnrolmentRow) => (r.record_status ? ATTENTION.indexOf(r.record_status) : ATTENTION.length);
   list.sort((a, b) => {
+    if (sort === "status_priority") return rank(a) - rank(b) || (a.record_status_at ?? "").localeCompare(b.record_status_at ?? "") || a.student.name.localeCompare(b.student.name);
     if (sort === "year_desc") return b.year_of_study - a.year_of_study || a.student.name.localeCompare(b.student.name);
     if (sort === "route_asc") return a.admission_route.localeCompare(b.admission_route) || a.student.name.localeCompare(b.student.name);
     return a.student.name.localeCompare(b.student.name);
   });
-  return paginate(list, q);
+  return { ...paginate(list, q), status_counts };
 }
 
 /* ---- Enrolments --------------------------------------------------------- */
@@ -295,6 +381,7 @@ function redactedSummary(user: User, f: StoredFlag): string {
 
 function getEnrolment(user: User, id: string): EnrolmentDetail {
   const entry = enrolmentInScope(user, id, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION", "UNIVERSITY"]);
+  withRecord(entry);
   const visible = user.role === "UNIVERSITY" ? allFlags().filter((f) => f.institutionId === entry.institutionId) : flagScope(user);
   const flags: FlagSummary[] = visible
     .filter((f) => f.enrolmentId === id || f.related.includes(id))
@@ -306,8 +393,8 @@ function getEnrolment(user: User, id: string): EnrolmentDetail {
 function recheckEnrolment(user: User, id: string): EnrolmentRecheck {
   const entry = enrolmentInScope(user, id, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION"]);
   const results = recheck(entry);
-  STATS.delete(entry.institutionId);
-  return { enrolment_id: id, rechecked: results.length, results, flags_raised: 0, countersign: entry.row.countersign };
+  const record = withRecord(entry);
+  return { enrolment_id: id, rechecked: results.length, results, flags_raised: 0, record_status: record.record_status, checks: entry.row.checks };
 }
 
 function recheckInstitution(user: User, row: InstitutionRow, academicYear: string): InstitutionRecheck {
@@ -315,22 +402,19 @@ function recheckInstitution(user: User, row: InstitutionRow, academicYear: strin
   const started = Date.now();
   const active = rollFor(row.id).filter((e) => e.row.status === "ACTIVE" && e.row.academic_year === academicYear);
   let rechecked = 0;
-  const after: Record<CheckStatus, number> = { CONFIRMED: 0, CONTRADICTED: 0, PENDING: 0, NOT_YET_DUE: 0, NOT_APPLICABLE: 0, SOURCE_UNAVAILABLE: 0 };
+  const outcomes: Record<EvidenceState, number> = { CONFIRMED: 0, CONTRADICTED: 0, PENDING: 0, NOT_YET_DUE: 0, NOT_APPLICABLE: 0, SOURCE_UNAVAILABLE: 0 };
   for (const e of active) {
-    if (!e.checks.some((c) => (c.status === "PENDING" || c.status === "SOURCE_UNAVAILABLE") && c.type !== "STUDENT")) continue;
+    const results = recheck(e);
+    if (results.length === 0) continue;
     rechecked += 1;
-    for (const r of recheck(e)) after[r.after] += 1;
+    for (const r of results) outcomes[r.after] += 1;
   }
-  STATS.delete(row.id);
   return {
     institution_id: row.id,
     academic_year: academicYear,
     enrolments: active.length,
     rechecked,
-    now_pass: after.CONFIRMED,
-    now_fail: after.CONTRADICTED,
-    now_na: after.NOT_APPLICABLE + after.NOT_YET_DUE,
-    still_pending: after.PENDING + after.SOURCE_UNAVAILABLE,
+    outcomes,
     flags_raised: 0,
     duration_ms: Date.now() - started + 240,
   };
@@ -365,6 +449,10 @@ function flagRow(user: User, f: StoredFlag): FlagRow {
     response_received: false,
     docs_due_on: null,
     last_action_at: null,
+    covers: COVERS[f.type] ?? null,
+    scope: f.type === "MISSING_FROM_UPLOAD" ? "INSTITUTION" : f.enrolmentId && f.related.every((id) => id === f.enrolmentId || entryById(id)?.institutionId !== f.institutionId) ? "RECORD" : "MULTI_RECORD",
+    decision: null,
+    signal_id: null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   };
@@ -418,10 +506,21 @@ function getFlag(user: User, id: string): FlagDetail {
     enrolment: f.enrolmentId ? relatedRow(user, f.enrolmentId) : null,
     related_enrolments: related.map((rid) => relatedRow(user, rid)).filter((r): r is RelatedEnrolmentRow => r !== null),
     related_hidden: f.related.length - related.length,
+    outstanding_enrolment_ids: f.enrolmentId ? [] : related.filter((rid) => entryById(rid)?.row.status === "ACTIVE"),
+    approval: approvalOf(f),
+    missing_students: f.type === "MISSING_FROM_UPLOAD" ? completenessOf(f.institutionId).missing_students ?? [] : [],
     history: [],
     allowed_actions: [],
     can_respond: false,
   };
+}
+
+/** EXCESS_ADMISSION and QUOTA_BREACH: the approval and whether its current version covers the admissions (A4.11). */
+function approvalOf(f: StoredFlag): FlagDetail["approval"] {
+  if ((f.type !== "EXCESS_ADMISSION" && f.type !== "QUOTA_BREACH") || !f.programmeId) return null;
+  const p = programmesFor(f.institutionId).find((x) => x.id === f.programmeId);
+  if (!p) return null;
+  return { id: p.approval.id, current_version: p.approval.version, approved_intake: p.approval.approved_intake, covers: p.unseated === 0 };
 }
 
 /* ---- Uploads (A2.4 to A2.9) --------------------------------------------- */
@@ -471,6 +570,19 @@ async function baseRequest(method: string, path: string, query?: Query, body?: u
   if (loop !== UNHANDLED) return loop;
 
   const user = currentUser();
+
+  const records = recordsRequest({
+    user,
+    method,
+    parts,
+    query,
+    body,
+    inScope: (id) => inScope(user, id),
+    scoped: () => scopedInstitutions(user),
+    enrolmentInScope: (id, roles) => enrolmentInScope(user, id, roles),
+    paginate,
+  });
+  if (records !== NOT_MINE) return records;
 
   if (pathname === "/me") return { user };
   if (pathname === "/meta/regions") return { items: REGIONS };
@@ -590,10 +702,16 @@ export async function mockDownload(path: string): Promise<{ blob: Blob; filename
   if (file) return file;
   if (path.startsWith("/flags/")) return casesDownload(path, mockRequest);
   const user = currentUser();
+  if (path.startsWith("/reports/")) return reportFile(user, path);
   if (path === "/uploads/template.csv" || path === "/uploads/template.xlsx") {
     requireRole(user, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION"]);
     // No XLSX writer in the browser mock; both buttons save the CSV header row.
     return templateCsv();
+  }
+  const missing = /^\/institutions\/([^/]+)\/completeness\.csv$/.exec(path);
+  if (missing) {
+    requireRole(user, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION"]);
+    return completenessCsv(inScope(user, missing[1]).id);
   }
   const m = /^\/uploads\/([^/]+)\/errors\.csv$/.exec(path);
   if (m) return errorsCsv(uploadInScope(user, m[1]));

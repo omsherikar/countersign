@@ -44,7 +44,7 @@ async def _credential(session: SessionDep, user: User, credential_id: uuid.UUID)
     if credential is None or (
         user.role is UserRole.STUDENT and credential.student_id != user.student_id
     ):
-        raise ApiError(404, "NOT_FOUND", "Credential not found.")
+        raise ApiError(404, "NOT_FOUND", "Attestation not found.")
     return credential
 
 

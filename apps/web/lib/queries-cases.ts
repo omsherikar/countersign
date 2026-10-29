@@ -13,10 +13,12 @@ import type {
   AuditListQuery,
   AuditRow,
   CaseActionRequest,
+  CaseActionResult,
   CaseAttachment,
   DataRequestAdminRow,
   DataRequestListQuery,
   DataRequestResolve,
+  DryRunResult,
   FlagDetail,
   NoticeResendResult,
   OfficerRow,
@@ -46,13 +48,45 @@ function refetchOnStale(qc: QueryClient, flagId: string, err: unknown) {
   }
 }
 
-/** POST /flags/{id}/actions (A3.10); the response is the flag after the action. */
+/**
+ * POST /flags/{id}/actions (A4.9): the case after the action and its
+ * `effects`. A decision changes records, seats and attestations, so every
+ * record, list and count that might show them is refetched.
+ */
 export function useCaseAction(flagId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CaseActionRequest) => api.post<FlagDetail>(`/flags/${flagId}/actions`, body),
-    onSuccess: (flag) => afterCaseChange(qc, flag),
-    onError: (err) => refetchOnStale(qc, flagId, err),
+    mutationFn: (body: CaseActionRequest) => api.post<CaseActionResult>(`/flags/${flagId}/actions`, { ...body, dry_run: undefined }),
+    onSuccess: (result) => {
+      const { effects: _effects, ...flag } = result;
+      void _effects;
+      afterCaseChange(qc, flag);
+      void qc.invalidateQueries({ queryKey: ["students", "me"] });
+      void qc.invalidateQueries({ queryKey: ["signals"] });
+      void qc.invalidateQueries({ queryKey: ["university"] });
+    },
+    onError: (err) => {
+      refetchOnStale(qc, flagId, err);
+      // The records a case names changed under the officer: show the case as it is now.
+      if (err instanceof ApiError && err.code === "WITHDRAW_NOT_NAMED") void qc.invalidateQueries({ queryKey: keys.flag(flagId) });
+    },
+  });
+}
+
+/**
+ * The consequences of a decision before it is made (A4.9 `dry_run`): the
+ * same checks and effects as the real action, rolled back. The sheet sends
+ * the body it would submit; nothing is stored, audited or emailed.
+ */
+export function useDecisionPreview(flagId: string, body: CaseActionRequest | null) {
+  return useQuery({
+    queryKey: ["flags", flagId, "preview", body] as const,
+    queryFn: ({ signal }) => api.post<DryRunResult>(`/flags/${flagId}/actions`, { ...body, dry_run: true }, { signal }),
+    enabled: body !== null,
+    retry: false,
+    staleTime: 0,
+    gcTime: 30_000,
+    select: (d) => d.effects,
   });
 }
 

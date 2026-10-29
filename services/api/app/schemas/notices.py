@@ -13,10 +13,21 @@ NoticeStateWire = Literal["QUEUED", "AWAITING", "ANSWERED", "EXPIRED", "FAILED"]
 ResendBlock = Literal[
     "LIVE", "ANSWERED", "LIMIT", "CONSENT_WITHDRAWN", "NO_CHANNEL", "NOT_ACTIVE", "ROLE"
 ]
+NoticeMatchWire = Literal["MATCH", "SOMEONE_ELSE", "CLAIM_NEEDED"]
+
+
+class NoticeViewer(BaseModel):
+    """Who is looking (§A4.13): `name` is what DigiLocker returned for them, never the
+    record's name."""
+
+    signed_in: bool
+    name: str | None
+    match: NoticeMatchWire | None
 
 
 class NoticePublic(BaseModel):
-    """GET /notices/{token}: the claim and the answer, no name, birth date or full id."""
+    """GET /notices/{token}: the claim and the answer, no name, birth date or full id; Yes
+    and No only for the record's own student signed in through DigiLocker (§A4.13)."""
 
     channel: NoticeChannelWire
     institution_name: str
@@ -36,6 +47,10 @@ class NoticePublic(BaseModel):
     can_change_until: str | None
     consent_text: str
     notice_version: str
+    viewer: NoticeViewer
+    can_answer: bool
+    sign_in_url: str
+    claim_url: str | None
 
 
 class NoticeRespondRequest(BaseModel):

@@ -163,7 +163,7 @@ function ProofCard({ card, now }: { card: CredentialCard; now: number }) {
         </>
       )}
       <p className="mt-2 text-ink-muted">
-        {degree ? t("wallet.issued_by_degree", { university_name: card.university_name ?? "" }) : t("wallet.issued_by", { institution_name: card.institution_name })}
+        {degree ? t("wallet.issued_by_completion", { university_name: card.university_name ?? "" }) : t("wallet.issued_by", { institution_name: card.institution_name })}
       </p>
       <p className="text-ink-muted">{t("wallet.issued_on", { issued_date: formatDate(card.issued_at) })}</p>
       {card.expires_at && card.status !== "REVOKED" && <p className="text-ink-muted">{t("wallet.valid_until", { expires_date: formatDate(card.expires_at) })}</p>}
@@ -190,15 +190,18 @@ function ProofCard({ card, now }: { card: CredentialCard; now: number }) {
   );
 }
 
-/** No proof yet for an active enrolment: one line by the Student check, never naming a flag or a failed check. */
+/**
+ * No attestation yet for an active enrolment: one line by the record's
+ * status (A4.14: issued only to a Countersigned record), never naming a
+ * case or a contradicted row.
+ */
 function NotIssued({ e }: { e: StudentEnrolment }) {
-  const student = e.countersign.checks.find((c) => c.type === "STUDENT")?.status ?? "PENDING";
   const line =
-    student === "CONFIRMED"
-      ? t("wallet.not_issued.checks")
-      : student === "CONTRADICTED"
-        ? t("wallet.not_issued.denied", { institution_name: e.institution_name })
-        : t("wallet.not_issued.reply");
+    e.record_status === "DISPUTED"
+      ? t("wallet.not_issued.DISPUTED", { institution_name: e.institution_name })
+      : e.record_status === "UNDER_REVIEW"
+        ? t("wallet.not_issued.UNDER_REVIEW")
+        : t("wallet.not_issued.AWAITING_EVIDENCE");
   return (
     <section className="border-l-2 border-line bg-paper-raised px-4 py-4 md:px-5">
       <h2 className="font-display text-xl font-semibold">{t("wallet.not_issued_heading")}</h2>
@@ -210,14 +213,15 @@ function NotIssued({ e }: { e: StudentEnrolment }) {
   );
 }
 
-/** W3-2 My proofs: the student's proofs, sharing chosen fields as a QR and code, and who checked them when. */
+/** W3-2 My attestations: the student's attestations, sharing chosen fields as a QR and code, and who checked them when. */
 export function WalletPage() {
   const list = useCredentials();
   const me = useStudentMe();
   const now = useNow(true);
   const cards = list.data?.items ?? [];
+  // A Countersigned record without its attestation yet is about to get one; it needs no explanation.
   const missing = (me.data?.enrolments ?? []).filter(
-    (e) => e.status === "ACTIVE" && !cards.some((c) => c.kind === "ENROLMENT" && c.enrolment_id === e.id && c.status === "ACTIVE"),
+    (e) => e.status === "ACTIVE" && e.record_status !== "COUNTERSIGNED" && !cards.some((c) => c.kind === "ENROLMENT" && c.enrolment_id === e.id && c.status === "ACTIVE"),
   );
   const loading = list.isLoading || me.isLoading;
 

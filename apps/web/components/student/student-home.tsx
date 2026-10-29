@@ -3,43 +3,78 @@
 import * as React from "react";
 import Link from "next/link";
 import { Bell, Check, Link2, Minus, Wallet, X } from "lucide-react";
-import { CHECK_ORDER } from "@/components/brand/CountersignScore";
 import { ConsentBadge } from "@/components/brand/ConsentBadge";
 import { EmptyState } from "@/components/brand/EmptyState";
 import { MaskedApaar } from "@/components/brand/MaskedApaar";
-import { t, tk } from "@/lib/copy";
+import { copy, t, tk } from "@/lib/copy";
 import { formatDate } from "@/lib/format";
 import { useStudentMe } from "@/lib/queries";
-import type { StudentCredentialBrief, StudentEnrolment } from "@/lib/types";
+import type { StudentCredentialBrief, StudentEnrolment, StudentMe } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
-import { CountersignStrip } from "@/components/common/ledger-bits";
+import { RecordStatusBadge } from "@/components/records/record-status-badge";
+import { RecordCard, programmeShort, recordHeader } from "@/components/records/record-card";
 import { StatusWord, useNow } from "@/components/student/bits";
 import { groupNotices, homeLine, type NoticeGroup } from "@/components/student/notice-groups";
 import { ReplyWord } from "@/components/student/notices-page";
 
-function EnrolmentCard({ e, group }: { e: StudentEnrolment; group: NoticeGroup | undefined }) {
+/** A word the deck has, else nothing (reason words arrive with the decision sheets' strings). */
+const maybe = (id: string) => (id in copy ? tk(id) : "");
+
+/** The officer's decision on the student's dispute, in the student's words (copy deck §23). */
+function decisionLine(e: StudentEnrolment): string | null {
+  const d = e.decision;
+  if (!d) return null;
+  const reasonWord = d.reason_code ? maybe(`reason.UPHOLD.${d.reason_code}`) : "";
+  return tk(`student.decision.${d.outcome}`, { institution_name: e.institution_name, reason_word: reasonWord });
+}
+
+/**
+ * The student's own record card (page spec W4-1, student variant): the same
+ * card with the rows and the status, the student line under the footer and
+ * then the notice or decision line. No case, officer, note or signal.
+ */
+function EnrolmentCard({ e, me, group }: { e: StudentEnrolment; me: StudentMe; group: NoticeGroup | undefined }) {
   const line = homeLine(group, formatDate);
   const headingId = `enrolment-${e.id}`;
+  const cohortStart = Number(e.academic_year.slice(0, 4)) - (e.year_of_study - 1);
+  const decision = decisionLine(e);
   return (
-    <section aria-labelledby={headingId} className="border-l-2 border-rule-margin bg-paper-raised px-5 py-5 shadow-hairline">
-      <h2 id={headingId} className="font-display text-xl leading-snug font-semibold">
-        {t("student.card_lead", { institution_name: e.institution_name, programme_name: e.programme_name })}
-      </h2>
-      <p className="mt-2 text-md text-ink-muted">
-        {t("notice.meta", { academic_year: e.academic_year, year_of_study: e.year_of_study })} · {tk(`enrol_status.${e.status}`)}
-      </p>
-      <div className="mt-5 flex flex-col gap-2 border-t border-rule pt-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium">{t("col.countersign")}</span>
-          <CountersignStrip countersign={e.countersign} size="md" />
-          {e.countersign.score && (
-            <span className="text-md text-ink-muted">{t("student.strip_caption", { passes: e.countersign.score.passes, applicable: e.countersign.score.applicable })}</span>
-          )}
+    <section aria-labelledby={headingId} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 id={headingId} className="font-display text-xl leading-snug font-semibold">
+            {t("student.card_lead", { institution_name: e.institution_name, programme_name: e.programme_name })}
+          </h2>
+          <p className="mt-1 text-md text-ink-muted">
+            {t("notice.meta", { academic_year: e.academic_year, year_of_study: e.year_of_study })} · {tk(`enrol_status.${e.status}`)}
+          </p>
         </div>
-        {line && e.status === "ACTIVE" && <p className="max-w-[60ch] text-md text-ink-muted">{line}</p>}
-        <p className="text-md text-ink-muted">{CHECK_ORDER.map((c) => tk(`check.${c}`)).join(" · ")}</p>
+        <RecordStatusBadge status={e.record_status} size="lg" priority tip={null} className="max-sm:w-full max-sm:justify-center" />
       </div>
+      <RecordCard
+        header={recordHeader({
+          programmeName: e.programme_name,
+          programmeCode: e.programme_code,
+          cohortYear: String(cohortStart),
+          institutionName: e.institution_name,
+          apaarMasked: me.apaar_masked,
+          provisionalId: me.provisional_id,
+        })}
+        programmeShort={programmeShort(e.programme_name, e.programme_code)}
+        institutionName={e.institution_name}
+        rows={e.checks}
+        status={e.record_status}
+        statusReason={null}
+        // The next step can name a case; a student reads only the student line (W4-1, student variant).
+        nextStep={null}
+        audience="student"
+      />
+      {decision ? (
+        <p className="max-w-[65ch] text-md text-ink">{decision}</p>
+      ) : (
+        line && e.status === "ACTIVE" && <p className="max-w-[65ch] text-md text-ink-muted">{line}</p>
+      )}
     </section>
   );
 }
@@ -142,7 +177,7 @@ export function StudentHome() {
             {s.enrolments.length === 0 ? (
               <EmptyState title={t("empty.enrolments_student")} />
             ) : (
-              s.enrolments.map((e) => <EnrolmentCard key={e.id} e={e} group={groups.find((g) => g.enrolmentId === e.id)} />)
+              s.enrolments.map((e) => <EnrolmentCard key={e.id} e={e} me={s} group={groups.find((g) => g.enrolmentId === e.id)} />)
             )}
           </div>
 

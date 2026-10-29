@@ -260,7 +260,7 @@ async def test_cross_flag_detail_officer_and_college(ids, as_role) -> None:
 
     assert (await (await as_role("registrar@xyz.edu.demo")).get(f"/flags/{flag.id}")).json()[
         "error"
-    ]["message"] == "Flag not found."
+    ]["message"] == "Case not found."
     assert (
         await (await as_role("ro.south@aicte.demo")).get(f"/flags/{flag.id}")
     ).status_code == 404
@@ -435,7 +435,7 @@ async def test_dashboard_kpis(ids, as_role) -> None:
     kpis = body["kpis"]
     assert (kpis["flags_open"], kpis["admitted"], kpis["enrolments"]) == (4, 22, 22)
     assert kpis["countersigned_pct"] == 0.0  # STUDENT is pending for everyone
-    assert kpis["clear_pct"] is not None and 0 <= kpis["clear_pct"] < 100
+    assert "clear_pct" not in kpis and sum(kpis["records"].values()) == kpis["enrolments"]
     by_type = {f["type"]: f["open"] for f in body["flags_by_type"]}
     assert list(by_type)[:3] == ["EXCESS_ADMISSION", "QUOTA_BREACH", "LATE_REFILL"]
     assert by_type["DUPLICATE_CROSS_INSTITUTION"] == 2 and by_type["EXCESS_ADMISSION"] == 1
@@ -453,8 +453,15 @@ async def test_dashboard_kpis(ids, as_role) -> None:
 async def test_student_sees_real_countersign(ids, as_role) -> None:
     body = (await (await as_role("student@demo")).get("/students/me")).json()
     [enrolment] = body["enrolments"]
-    assert enrolment["countersign"]["score"] == {"passes": 2, "applicable": 4}
-    assert len(enrolment["countersign"]["checks"]) == 5
+    # the record and its five brief rows, no score (API_CONTRACT §A4.5)
+    assert "countersign" not in enrolment
+    assert enrolment["record_status"] in (
+        "AWAITING_EVIDENCE",
+        "COUNTERSIGNED",
+        "UNDER_REVIEW",
+        "DISPUTED",
+    )
+    assert len(enrolment["checks"]) == 5
 
 
 # ---------------------------------------------------------------------- rechecks

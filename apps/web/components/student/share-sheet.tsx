@@ -38,7 +38,7 @@ function verifyPlace(url: string): string {
  * W3-2 share sheet: choose fields (institution and programme locked on),
  * agree to the share text, create a QR and code that work for 10 minutes.
  * A modal from 768 px, a bottom sheet below; focus starts on Name, stays
- * inside, and returns to Share proof on close.
+ * inside, and returns to Share attestation on close.
  */
 export function ShareSheet({ card, open, onOpenChange }: { card: CredentialCard; open: boolean; onOpenChange: (open: boolean) => void }) {
   const detail = useCredential(card.id, open);

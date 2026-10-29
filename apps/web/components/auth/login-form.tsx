@@ -2,8 +2,10 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { t } from "@/lib/copy";
+import { signInUrl } from "@/lib/digilocker";
 import { useLogin } from "@/lib/queries";
 import { ROLE_PREFIXES, landingFor } from "@/lib/roles";
 import type { Role } from "@/lib/types";
@@ -112,6 +114,30 @@ export function LoginForm({ next, notice }: { next: string | null; notice: strin
           {DEMO_ROLES.map((d) => {
             const [role, scope] = t(d.card).split(" / ");
             const on = selected === d.key;
+            if (d.digilocker) {
+              // A student never types a password: the card starts DigiLocker sign-in (W4-8).
+              return (
+                <li key={d.key}>
+                  <a
+                    href={signInUrl("/student")}
+                    aria-describedby="login-digilocker-hint"
+                    className="relative flex h-full w-full flex-col gap-1 rounded-md border border-line bg-paper-raised px-3.5 pt-3 pb-3 text-left text-ink no-underline shadow-hairline hover:border-rule-strong"
+                  >
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className="font-display text-md font-semibold text-ink">{role}</span>
+                      <span className="shrink-0 rounded-chip border border-line px-1 text-2xs text-ink-muted">Demo</span>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-sm leading-snug font-medium text-ink-blue">
+                      <ShieldCheck className="size-4 shrink-0" aria-hidden="true" />
+                      {scope}
+                    </span>
+                    <span id="login-digilocker-hint" className="mt-1 text-xs leading-snug text-ink-muted">
+                      {t("login.digilocker_hint")}
+                    </span>
+                  </a>
+                </li>
+              );
+            }
             return (
               <li key={d.key}>
                 <button

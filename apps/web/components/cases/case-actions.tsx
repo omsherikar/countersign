@@ -1,28 +1,31 @@
 "use client";
 
 import * as React from "react";
-import { ChevronsUp, CircleCheck, FileQuestion, Info, MessageSquarePlus, RotateCcw, Stamp, UserRoundPlus, type LucideIcon } from "lucide-react";
+import { ChevronsUp, CircleCheck, CircleSlash, FileQuestion, Info, MessageSquarePlus, PencilLine, RotateCcw, UserRoundPlus, type LucideIcon } from "lucide-react";
 import { t } from "@/lib/copy";
 import { formatDate } from "@/lib/format";
-import type { FlagDetail, OfficerAction, Role } from "@/lib/types";
+import type { CaseActionResult, FlagDetail, OfficerAction, Role } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { CaseSheet } from "@/components/cases/case-sheet";
-import { ACTION_WORD, lastOf } from "@/components/cases/case-words";
+import { CaseSheet, type RecordAction } from "@/components/cases/case-sheet";
+import { ACTION_WORD, isDecision, lastOf, type Decision } from "@/components/cases/case-words";
+import { DecisionSheet } from "@/components/cases/decision-sheet";
 import { ResponseBadge } from "@/components/cases/response-badge";
 
 const ICON: Record<OfficerAction, LucideIcon> = {
   UPHOLD: CircleCheck,
+  CORRECT: PencilLine,
+  WITHDRAW: CircleSlash,
   REQUEST_DOCS: FileQuestion,
   ESCALATE: ChevronsUp,
-  WITHDRAW: Stamp,
   NOTE: MessageSquarePlus,
   ASSIGN: UserRoundPlus,
   REOPEN: RotateCcw,
 };
 
-/** Decisions sit on the left, record-keeping on the right (W3-8). */
-const DECIDE: OfficerAction[] = ["UPHOLD", "REQUEST_DOCS", "ESCALATE", "WITHDRAW", "REOPEN"];
+/** The three decisions under "Decide", then asking and escalating, then record-keeping (W4-5). */
+const DECIDE: OfficerAction[] = ["UPHOLD", "CORRECT", "WITHDRAW"];
+const ASK: OfficerAction[] = ["REQUEST_DOCS", "ESCALATE", "REOPEN"];
 const RECORD: OfficerAction[] = ["NOTE", "ASSIGN"];
 
 /** Today in IST as YYYY-MM-DD. */
@@ -63,9 +66,11 @@ export function CaseStatusLine({ flag, showAssignee }: { flag: FlagDetail; showA
 }
 
 /**
- * The officer action bar: exactly the actions `allowed_actions` names, in
- * the contract's order, each opening its sheet. A refused action is not
- * shown at all. The line under it says why the bar is short, when it is.
+ * The officer action bar: exactly the actions `allowed_actions` names, the
+ * three decisions grouped under Decide in the deck's order and of one
+ * weight, then Request documents, Escalate or Reopen, then Add note and
+ * Assign. A refused action is not shown at all; the line under the bar says
+ * why it is short, when it is.
  */
 export function CaseActionBar({
   flag,
@@ -77,12 +82,14 @@ export function CaseActionBar({
   role: Role;
   /** Receives focus when the action removed the button that opened the sheet. */
   fallbackFocus: React.RefObject<HTMLElement | null>;
-  onActed: (flag: FlagDetail) => void;
+  onActed: (flag: CaseActionResult) => void;
 }) {
   const [open, setOpen] = React.useState<OfficerAction | null>(null);
   const opener = React.useRef<HTMLButtonElement | null>(null);
+  const decideId = React.useId();
   const allowed = flag.allowed_actions;
   const decide = DECIDE.filter((a) => allowed.includes(a));
+  const ask = ASK.filter((a) => allowed.includes(a));
   const record = RECORD.filter((a) => allowed.includes(a));
   const closed = flag.status === "UPHELD" || flag.status === "WITHDRAWN" || flag.status === "CORRECTED";
   const line =
@@ -103,6 +110,7 @@ export function CaseActionBar({
         variant="outline"
         className="h-11 md:h-9"
         data-action={a}
+        aria-haspopup="dialog"
         onClick={(e) => {
           opener.current = e.currentTarget;
           setOpen(a);
@@ -120,13 +128,30 @@ export function CaseActionBar({
     else fallbackFocus.current?.focus();
   }
 
+  const done = (updated: CaseActionResult) => {
+    setOpen(null);
+    onActed(updated);
+  };
+
   if (allowed.length === 0 && !line) return null;
   return (
     <div className="mt-5">
       {allowed.length > 0 && (
-        <div role="group" aria-label={t("section.actions")} className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-y border-rule py-3">
-          <div className="flex flex-wrap gap-2">{decide.map(button)}</div>
-          {record.length > 0 && <div className="flex flex-wrap gap-2">{record.map(button)}</div>}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-y border-rule py-3">
+          {decide.length > 0 && (
+            <div role="group" aria-labelledby={decideId} className="flex flex-wrap items-center gap-2">
+              <span id={decideId} className="mr-1 text-sm font-semibold">
+                {t("case.decide_heading")}
+              </span>
+              {decide.map(button)}
+            </div>
+          )}
+          {ask.length > 0 && (
+            <div role="group" aria-label={t("section.actions")} className="flex flex-wrap gap-2">
+              {ask.map(button)}
+            </div>
+          )}
+          {record.length > 0 && <div className="flex flex-wrap gap-2 md:ml-auto">{record.map(button)}</div>}
         </div>
       )}
       {line && (
@@ -135,16 +160,8 @@ export function CaseActionBar({
           {line}
         </p>
       )}
-      <CaseSheet
-        flag={flag}
-        action={open}
-        onClose={() => setOpen(null)}
-        onDone={(updated) => {
-          setOpen(null);
-          onActed(updated);
-        }}
-        returnFocus={returnFocus}
-      />
+      <DecisionSheet flag={flag} action={open && isDecision(open) ? (open as Decision) : null} onClose={() => setOpen(null)} onDone={done} returnFocus={returnFocus} />
+      <CaseSheet flag={flag} action={open && !isDecision(open) ? (open as RecordAction) : null} onClose={() => setOpen(null)} onDone={done} returnFocus={returnFocus} />
     </div>
   );
 }

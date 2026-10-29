@@ -7,11 +7,13 @@
  */
 import { ApiError } from "@/lib/api";
 import { ACADEMIC_YEAR, IDS, SEEDS, USERS } from "@/lib/mock/fixtures";
-import { INITIAL_UPLOADED_AT, UPDATE_UPLOADED_AT, initialBatchId, initialFilename, rollFor, updateBatchId, updateFilename } from "@/lib/mock/roll";
+import { normaliseHeader, resolveHeaders } from "@/lib/mock/records";
+import { INITIAL_UPLOADED_AT, UPDATE_UPLOADED_AT, initialBatchId, initialFilename, rollFor, updateBatchId, updateFilename, type RollEntry } from "@/lib/mock/roll";
 import {
   UPLOAD_COLUMNS,
   type RowErrorLevel,
   type UploadBatch,
+  type UploadColumn,
   type UploadCounts,
   type UploadRowError,
   type UploadStage,
@@ -90,6 +92,7 @@ interface SessionUpload {
   sameAs: { batch_id: string; uploaded_at: string } | null;
   uploadedBy: { id: string; name: string };
   kind: "INITIAL" | "UPDATE";
+  columnMapping?: { header: string; column: UploadColumn }[];
 }
 
 const STORE = "cs-mock-uploads";
@@ -118,8 +121,16 @@ function registrarOf(institutionId: string): { id: string; name: string } {
 
 const ZERO: UploadCounts = {
   rows: 0, accepted: 0, errors: 0, warnings: 0, created: 0, updated: 0, unchanged: 0, withdrawn: 0, transferred: 0,
-  seated: 0, released: 0, unseated: 0, flags_raised: 0, flags_updated: 0,
+  seated: 0, released: 0, unseated: 0, flags_raised: 0, flags_updated: 0, versions: 0,
+  records: { AWAITING_EVIDENCE: 0, COUNTERSIGNED: 0, UNDER_REVIEW: 0, DISPUTED: 0 },
 };
+
+/** The record statuses of a batch's active records when it finished (A4.16 `counts.records`). */
+function recordsOf(entries: RollEntry[]): UploadCounts["records"] {
+  const out = { ...ZERO.records };
+  for (const e of entries) if (e.row.status === "ACTIVE" && e.row.record_status) out[e.row.record_status] += 1;
+  return out;
+}
 
 function staticBatches(): UploadBatch[] {
   const out: UploadBatch[] = [];
@@ -149,16 +160,19 @@ function staticBatches(): UploadBatch[] {
         seated: roll.filter((e) => e.seat && e.row.cohort_year === ACADEMIC_YEAR).length,
         unseated: intakeUnseated,
         flags_raised: abc ? 6 : 1,
+        versions: roll.length,
+        records: recordsOf(roll),
       },
       sources: [
         { source: "APAAR", calls: roll.filter((e) => e.row.student.consent_status === "LINKED").length, unavailable: abc ? 1 : 0 },
-        { source: "COUNSELLING", calls: roll.filter((e) => e.row.counselling_ref).length, unavailable: 0 },
+        { source: "ADMISSION_AUTHORITY", calls: roll.filter((e) => e.row.admission_route !== "INTERNATIONAL").length, unavailable: 0 },
         { source: "ABC", calls: roll.filter((e) => e.row.year_of_study > 1).length, unavailable: 0 },
         { source: "SII", calls: roll.filter((e) => e.row.admission_route === "INTERNATIONAL").length, unavailable: 0 },
       ],
       timings_ms: { PARSE: 40, VALIDATE: 120, FILE_DUPLICATES: 8, UPSERT: 900, LEDGER: 700, CHECKS: 6100, DUPLICATES: 300, FLAGS: 60 },
       error: null,
       ignored_columns: [],
+      column_mapping: [],
       same_file_as: null,
       uploaded_by: registrarOf(seed.id),
       uploaded_at: INITIAL_UPLOADED_AT,
@@ -200,15 +214,18 @@ function staticBatches(): UploadBatch[] {
         released: 4,
         flags_raised: id === KARAD ? 1 : 0,
         flags_updated: 0,
+        versions: 11,
+        records: { AWAITING_EVIDENCE: 2, COUNTERSIGNED: accepted - 4, UNDER_REVIEW: 2, DISPUTED: 0 },
       },
       sources: [
         { source: "APAAR", calls: 11, unavailable: 0 },
-        { source: "COUNSELLING", calls: 6, unavailable: 0 },
+        { source: "ADMISSION_AUTHORITY", calls: 6, unavailable: 0 },
         { source: "ABC", calls: 7, unavailable: 0 },
       ],
       timings_ms: { PARSE: 12, VALIDATE: 30, FILE_DUPLICATES: 3, UPSERT: 80, LEDGER: 60, CHECKS: 410, DUPLICATES: 40, FLAGS: 20 },
       error: null,
       ignored_columns: id === IDS.abc ? ["remarks"] : [],
+      column_mapping: [],
       same_file_as: null,
       uploaded_by: registrarOf(id),
       uploaded_at: UPDATE_UPLOADED_AT,
@@ -256,6 +273,8 @@ function finalCounts(u: SessionUpload): UploadCounts {
     unseated: Math.min(2, created),
     flags_raised: created > 2 ? 2 : 0,
     flags_updated: created > 2 ? 1 : 0,
+    versions: created + updated,
+    records: { AWAITING_EVIDENCE: Math.round(accepted * 0.3), COUNTERSIGNED: accepted - Math.round(accepted * 0.3) - Math.min(3, accepted) - (accepted > 20 ? 1 : 0), UNDER_REVIEW: Math.min(3, accepted), DISPUTED: accepted > 20 ? 1 : 0 },
   };
 }
 
@@ -293,6 +312,7 @@ function sessionBatch(u: SessionUpload, now = Date.now()): UploadBatch {
     timings_ms: {},
     error: null,
     ignored_columns: [],
+    column_mapping: u.columnMapping ?? [],
     same_file_as: u.sameAs,
     uploaded_by: u.uploadedBy,
     uploaded_at: iso(u.createdMs),
@@ -325,7 +345,7 @@ function sessionBatch(u: SessionUpload, now = Date.now()): UploadBatch {
         const calls = base.processed_rows;
         base.sources = [
           { source: "APAAR", calls: Math.round(calls * 0.9), unavailable: 0 },
-          { source: "COUNSELLING", calls: Math.round(calls * 0.6), unavailable: 0 },
+          { source: "ADMISSION_AUTHORITY", calls: Math.round(calls * 0.9), unavailable: 0 },
           { source: "ABC", calls: Math.round(calls * 0.5), unavailable: Math.min(3, Math.round(calls * 0.5)) },
         ];
       }
@@ -356,7 +376,7 @@ function sessionBatch(u: SessionUpload, now = Date.now()): UploadBatch {
     counts: final,
     sources: [
       { source: "APAAR", calls: Math.round(checks * 0.9), unavailable: 0 },
-      { source: "COUNSELLING", calls: Math.round(checks * 0.6), unavailable: 0 },
+      { source: "ADMISSION_AUTHORITY", calls: Math.round(checks * 0.9), unavailable: 0 },
       { source: "ABC", calls: Math.round(checks * 0.5), unavailable: Math.min(3, Math.round(checks * 0.5)) },
     ],
     finished_at: iso(u.createdMs + QUEUED_MS + STAGES.reduce((a, s) => a + s.ms, 0)),
@@ -402,10 +422,6 @@ export function templateCsv(): { blob: Blob; filename: string } {
 const REQUIRED = ["name", "dob", "programme_code", "year_of_study", "admission_route", "category"];
 const MAX_BYTES = 20 * 1024 * 1024;
 
-function normaliseHeader(h: string): string {
-  return h.trim().replace(/^﻿/, "").toLowerCase().replace(/[\s-]+/g, "_");
-}
-
 function validation(field: string, message: string): ApiError {
   return new ApiError(422, "VALIDATION_ERROR", message, { fields: [{ field, message }] });
 }
@@ -437,11 +453,23 @@ export async function createUpload(user: User, form: FormData): Promise<{ batch:
   if (running) throw new ApiError(409, "UPLOAD_IN_PROGRESS", "An upload for this college and year is still being processed.", { batch_id: running.id });
 
   let rows = 605;
+  let mapped: { header: string; column: UploadColumn }[] = [];
   const unreadable = /unreadable|corrupt/i.test(file.name);
   if (ext === "csv" && !unreadable) {
     const text = await file.text();
     const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
-    const header = (lines[0] ?? "").split(",").map(normaliseHeader);
+    const raw = (lines[0] ?? "").split(",").map((h) => h.trim().replace(/^\uFEFF/, ""));
+    // A4.16: a saved mapping reads the college's own headers; unknown headers with a required column missing ask for one.
+    const read = resolveHeaders(institutionId, raw);
+    if (read.missing.length && read.unknown.length) {
+      throw new ApiError(422, "UPLOAD_HEADER_UNMAPPED", "The file has columns Countersign does not recognise. Map them to the template once, then upload again.", {
+        unknown_headers: read.unknown,
+        missing_columns: read.missing,
+        suggestions: read.suggestions,
+      });
+    }
+    mapped = read.mapped;
+    const header = raw.map((h) => read.mapped.find((x) => x.header === h)?.column ?? normaliseHeader(h));
     const missing = REQUIRED.filter((c) => !header.includes(c));
     const duplicate = header.filter((h, i) => h && header.indexOf(h) !== i);
     if (missing.length || duplicate.length) {
@@ -466,6 +494,7 @@ export async function createUpload(user: User, form: FormData): Promise<{ batch:
     sameAs: same ? { batch_id: same.id, uploaded_at: same.uploaded_at } : null,
     uploadedBy: { id: user.id, name: user.name },
     kind: earlier.length ? "UPDATE" : "INITIAL",
+    columnMapping: mapped,
   };
   writeSession([record, ...session]);
   return { batch: sessionBatch(record) };

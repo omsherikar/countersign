@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.models.enums import UserRole
 from app.models.user import User
+from app.schemas.students import StudentEnrolment
 
 
 class LoginRequest(BaseModel):
@@ -70,3 +71,26 @@ class UserOut(BaseModel):
 
 class UserEnvelope(BaseModel):
     user: UserOut
+
+
+class PendingClaimOut(BaseModel):
+    """GET /auth/digilocker/claim: the DigiLocker identity waiting to claim a record."""
+
+    name: str
+    birthdate: str
+    next: str
+
+
+class ClaimRequest(BaseModel):
+    provisional_id: str = Field(max_length=64)
+
+
+class ClaimedRecords(BaseModel):
+    student_id: str
+    enrolments: list[StudentEnrolment]
+
+
+class ClaimResult(BaseModel):
+    user: UserOut
+    next: str
+    claimed: ClaimedRecords

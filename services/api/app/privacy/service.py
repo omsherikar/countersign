@@ -24,6 +24,7 @@ from app.core.audit import AuditEntry
 from app.core.crypto import mask_apaar, mask_mobile
 from app.core.errors import ApiError
 from app.credentials import holder
+from app.engine.contracts import CHECK_ORDER
 from app.engine.evidence import fmt_date
 from app.models.audit import AuditLog
 from app.models.credential import Consent, Credential, CredentialPresentation, DataRequest
@@ -34,12 +35,14 @@ from app.models.enums import (
     ConsentStatus,
     DataRequestKind,
     DataRequestStatus,
+    EnrolmentStatus,
 )
 from app.models.institution import Institution, Programme
 from app.models.seat import Seat
-from app.models.student import Enrolment, Student
+from app.models.student import Enrolment, EnrolmentVersion, Student
+from app.models.upload import UploadBatch
 from app.models.user import User
-from app.models.verification import Check, Notification
+from app.models.verification import CaseAction, Check, Flag, Notification
 from app.privacy.notice import NOTICE_VERSION, UNLINK_APAAR, WITHDRAW_TEXTS, consent_text
 from app.schemas.common import PageParams
 
@@ -50,7 +53,19 @@ PORTAL = "PORTAL"
 ACCESS_READY = "Your data is ready to download."
 EXPORT_PATH = "/students/me/export.json"
 # readers with no account: how a public page reached the record
-VERIFIER_VIAS = frozenset({"verifier", "verifier-paste", "degree-qr", "degree-lookup"})
+# (`degree-*` entries were written before D44 and stay readable)
+VERIFIER_VIAS = frozenset(
+    {
+        "verifier",
+        "verifier-paste",
+        "completion-qr",
+        "completion-lookup",
+        "degree-qr",
+        "degree-lookup",
+    }
+)
+# a university reading the record for its certificate (`degree-print` before D44)
+CERTIFICATE_VIAS = frozenset({"certificate-print", "degree-print"})
 NOTICE_LINK_VIA = "notice-link"
 CLAIM_LABELS = {
     "name": "Name",
@@ -62,13 +77,14 @@ CLAIM_LABELS = {
     "year_of_study": "Year of study",
     "countersigned": "Countersigned by",
     "university": "University",
-    "year_of_award": "Year of award",
+    "year_of_award": "Year of completion",
 }
+# the rows' labels (copy deck check.*)
 CHECK_WORDS = {
     "IDENTITY": "Identity",
-    "ADMISSION": "Admission",
     "SEAT": "Seat",
-    "STUDYING": "Studying",
+    "ADMISSION": "Joining record",
+    "STUDYING": "Credits",
     "STUDENT": "Student",
 }
 
@@ -402,7 +418,10 @@ def _access_stmt(student_id: uuid.UUID, own_user_id: uuid.UUID | None):
 
 def _access_row(at: datetime, entity_type: str, via: str | None, role: Any) -> dict[str, Any]:
     if entity_type == "student":
-        what = {"export": "EXPORT", "degree-print": "DEGREE"}.get(via or "", "RECORD")
+        if via in CERTIFICATE_VIAS:
+            what = "COMPLETION"
+        else:
+            what = {"export": "EXPORT"}.get(via or "", "RECORD")
     else:
         what = {"notification": "NOTICE", "credential": "CREDENTIAL"}.get(entity_type, "PROOF")
     if role is not None:
@@ -669,6 +688,64 @@ def _credential_status(credential: Credential, now: datetime) -> str:
     return "ACTIVE"
 
 
+async def _histories(
+    session: AsyncSession, enrolment_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, Any]]]:
+    """Each enrolment's versions, newest first, as §A4.7 gives them without `actor`."""
+    out: dict[uuid.UUID, list[dict[str, Any]]] = {}
+    if not enrolment_ids:
+        return out
+    rows = (
+        await session.execute(
+            select(
+                EnrolmentVersion,
+                UploadBatch.filename,
+                Enrolment.source_row_no,
+                CaseAction.action,
+                CaseAction.reason_code,
+                Flag.id,
+                Flag.type,
+            )
+            .join(Enrolment, Enrolment.id == EnrolmentVersion.enrolment_id)
+            .outerjoin(UploadBatch, UploadBatch.id == EnrolmentVersion.batch_id)
+            .outerjoin(CaseAction, CaseAction.seq == EnrolmentVersion.case_action_seq)
+            .outerjoin(Flag, Flag.id == CaseAction.flag_id)
+            .where(EnrolmentVersion.enrolment_id.in_(enrolment_ids))
+            .order_by(EnrolmentVersion.enrolment_id, EnrolmentVersion.version.desc())
+        )
+    ).all()
+    for version, filename, row_no, action, reason_code, flag_id, flag_type in rows:
+        out.setdefault(version.enrolment_id, []).append(
+            {
+                "version": version.version,
+                "at": _iso(version.at),
+                "source": version.source,
+                "batch": (
+                    {"id": str(version.batch_id), "filename": filename, "row_no": row_no}
+                    if version.batch_id is not None
+                    else None
+                ),
+                "case": (
+                    {
+                        "id": str(flag_id),
+                        "type": flag_type.value,
+                        "action": action.value,
+                        "case_action_seq": version.case_action_seq,
+                        "reason_code": reason_code,
+                    }
+                    if version.case_action_seq is not None and flag_id is not None
+                    else None
+                ),
+                "changes": [
+                    {"field": name, "before": pair[0], "after": pair[1]}
+                    for name, pair in (version.changes or {}).items()
+                    if isinstance(pair, list | tuple) and len(pair) == 2
+                ],
+            }
+        )
+    return out
+
+
 async def export(session: AsyncSession, student_id: uuid.UUID, user: User) -> dict[str, Any]:
     """Everything held about the student, APAAR masked, never another person's data. The
     export itself is a READ in the audit log."""
@@ -691,19 +768,25 @@ async def export(session: AsyncSession, student_id: uuid.UUID, user: User) -> di
     ids = [enrolment.id for enrolment, *_ in enrolment_rows]
     checks: dict[uuid.UUID, list[dict[str, Any]]] = {i: [] for i in ids}
     if ids:
-        for check in (
-            await session.execute(
-                select(Check).where(Check.enrolment_id.in_(ids)).order_by(Check.type)
-            )
-        ).scalars():
+        rows = list(
+            (await session.execute(select(Check).where(Check.enrolment_id.in_(ids)))).scalars()
+        )
+        rows.sort(key=lambda c: CHECK_ORDER.index(c.type))
+        for check in rows:
+            detail = check.detail or {}
             checks[check.enrolment_id].append(
                 {
                     "type": check.type.value,
-                    "status": check.status.value,
-                    "summary": (check.detail or {}).get("summary", ""),
+                    "state": check.status.value,
+                    "finding": detail.get("finding"),
+                    "source_line": detail.get("source_line") or "",
+                    "summary": detail.get("summary", ""),
+                    "supplied_by": check.supplied_by,
+                    "observed_at": _iso(check.observed_at),
                     "checked_at": _iso(check.checked_at),
                 }
             )
+    history = await _histories(session, ids)
     flags = await flags_for(
         session,
         {enrolment.id: enrolment.institution_id for enrolment, *_ in enrolment_rows},
@@ -723,6 +806,14 @@ async def export(session: AsyncSession, student_id: uuid.UUID, user: User) -> di
             "status_date": _iso(enrolment.status_date),
             "admission_date": _iso(enrolment.admission_date),
             "seat_code": seat_code,
+            "record_status": (
+                enrolment.record_status.value
+                if enrolment.status is EnrolmentStatus.ACTIVE
+                else None
+            ),
+            "status_reason": (
+                enrolment.status_reason if enrolment.status is EnrolmentStatus.ACTIVE else None
+            ),
             "checks": checks[enrolment.id],
             "flags": [
                 {
@@ -733,6 +824,7 @@ async def export(session: AsyncSession, student_id: uuid.UUID, user: User) -> di
                 }
                 for flag in flags.get(enrolment.id, [])
             ],
+            "history": history.get(enrolment.id, []),
         }
         for enrolment, institution_name, programme_name, seat_code in enrolment_rows
     ]

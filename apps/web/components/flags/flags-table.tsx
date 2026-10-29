@@ -49,7 +49,7 @@ export type FlagsTableVariant = "cases" | "tab" | "college";
 
 /**
  * The shared flags list (page spec W2-7): the officers' case queue, an
- * institution's Flags tab and the registrar's /college/flags. The case queue
+ * institution's Cases tab and the registrar's /college/cases. The case queue
  * adds the Assignee column and the Assignee and Response filters (W3-8).
  * Filters live in the URL with the `f_` prefix; rows link to flag detail and
  * `j` / `k` move between them.

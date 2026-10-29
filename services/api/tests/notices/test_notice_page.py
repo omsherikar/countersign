@@ -1,4 +1,4 @@
-"""The public notice page: GET /notices/{token} (API_CONTRACT §A3.3, §A3.1, D32)."""
+"""The public notice page: GET /notices/{token} (API_CONTRACT §A3.3, §A3.1, §A4.13, D32)."""
 
 from __future__ import annotations
 
@@ -53,6 +53,11 @@ async def test_the_page_shows_the_claim_and_masks_the_id(world, mailer, public):
             "only AICTE officers see it."
         ),
         "notice_version": "v1",
+        # nobody signed in: the claim shows, the answer needs DigiLocker sign-in (D37)
+        "viewer": {"signed_in": False, "name": None, "match": None},
+        "can_answer": False,
+        "sign_in_url": f"/api/auth/digilocker/start?next=/student/notices/{tokens[EMAIL]}",
+        "claim_url": None,
     }
     assert body["id_masked"].startswith("XXXX XXXX ") and len(body["id_masked"]) == 14
     assert "Ravi" not in response.text and "@" not in response.text
@@ -73,8 +78,10 @@ async def test_each_view_is_audited_and_the_first_sets_opened_at(world, mailer, 
     [notice] = await notices_of(enrolment.id)
     first_open = notice.opened_at
     assert first_open is not None
-    # a cookie is ignored: a signed-in officer opening the link is still an anonymous read
-    await clients["admin"].get(f"/notices/{tokens[EMAIL]}")
+    # a signed-in officer opening the link is still an anonymous read; the cookie only says
+    # that the person looking is not the record's student
+    officer = (await clients["admin"].get(f"/notices/{tokens[EMAIL]}")).json()
+    assert officer["viewer"] == {"signed_in": True, "name": None, "match": "SOMEONE_ELSE"}
     [notice] = await notices_of(enrolment.id)
     assert notice.opened_at == first_open
     async with session_factory()() as s:
@@ -90,8 +97,9 @@ async def test_each_view_is_audited_and_the_first_sets_opened_at(world, mailer, 
             .all()
         )
     assert [(r.entity_id, r.actor_id, r.after) for r in reads] == [
-        (notice.id, None, {"via": "notice-link"})
-    ] * 2
+        (notice.id, None, {"via": "notice-link", "match": None}),
+        (notice.id, None, {"via": "notice-link", "match": "SOMEONE_ELSE"}),
+    ]
 
 
 async def test_an_unanswered_notice_past_its_expiry_is_gone(world, mailer, public):

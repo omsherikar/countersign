@@ -13,6 +13,31 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
 import { Crumbs } from "@/components/common/page-header";
 import { RowErrors } from "@/components/uploads/row-errors";
+import { useColumnMapping, useCompleteness } from "@/lib/queries-records";
+
+/** "Columns read with your saved mapping, last changed 17 Sep by Registrar, ..." with a link to the mapping (W4-10). */
+function MappingLine({ batch }: { batch: UploadBatch }) {
+  const q = useColumnMapping(batch.column_mapping.length > 0 ? batch.institution_id : null);
+  if (batch.column_mapping.length === 0 || !q.data?.updated_at) return null;
+  return (
+    <p className="text-sm text-ink-muted">
+      {t("mapping.batch_line", { date: formatDate(q.data.updated_at), name: q.data.updated_by?.name ?? "" })}{" "}
+      <Link href="/college/column-mapping">{t("mapping.view")}</Link>
+    </p>
+  );
+}
+
+/** "Completeness now 98.5%: 8 joined students still missing from your uploads." once the reconciliation has run. */
+function CompletenessNow({ batch }: { batch: UploadBatch }) {
+  const q = useCompleteness(batch.institution_id, batch.academic_year);
+  const c = q.data;
+  if (!c || c.completeness_pct === null || c.missing === 0) return null;
+  return (
+    <p className="mt-1 text-sm">
+      <Link href="/college/completeness">{t("upload.done_completeness", { pct: String(c.completeness_pct).replace(/\.0$/, ""), missing: formatCount(c.missing) })}</Link>
+    </p>
+  );
+}
 
 const STAGES: UploadStage[] = ["PARSE", "VALIDATE", "FILE_DUPLICATES", "UPSERT", "LEDGER", "CHECKS", "DUPLICATES", "FLAGS"];
 const VALIDATING: UploadStage[] = ["PARSE", "VALIDATE", "FILE_DUPLICATES"];
@@ -166,6 +191,15 @@ function DoneCard({ batch }: { batch: UploadBatch }) {
           released: formatCount(c.released),
         })}
       </p>
+      <p className="mt-1 text-sm">
+        {t("upload.done_status", {
+          countersigned: formatCount(c.records.COUNTERSIGNED),
+          awaiting: formatCount(c.records.AWAITING_EVIDENCE),
+          under_review: formatCount(c.records.UNDER_REVIEW),
+          disputed: formatCount(c.records.DISPUTED),
+        })}
+      </p>
+      <CompletenessNow batch={batch} />
       <p className="mt-3 max-w-[68ch] text-sm">{t("upload.done_note")}</p>
       <div className="mt-4 flex flex-wrap gap-2">
         <Button asChild variant="outline" size="sm">
@@ -262,6 +296,7 @@ export function BatchPage({ id }: { id: string }) {
         )}
         {b.same_file_as && <p className="text-sm text-ink-muted">{t("upload.same_file", { uploaded_date: formatDate(b.same_file_as.uploaded_at) })}</p>}
         {b.ignored_columns.length > 0 && <p className="text-sm text-ink-muted">{t("upload.ignored_columns", { columns: b.ignored_columns.join(", ") })}</p>}
+        <MappingLine batch={b} />
       </section>
 
       <div className="mb-10 grid grid-cols-1 gap-6 lg:grid-cols-12">

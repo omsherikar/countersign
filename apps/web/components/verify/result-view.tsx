@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SlowHint } from "@/components/common/query-state";
 import { StatusWord, primaryButton, useNow } from "@/components/student/bits";
 
-/** Where the result came from: a share code, pasted proof text, a printed degree QR, or a degree proof id. */
+/** Where the result came from: a share code, pasted attestation text, a certificate QR, or an attestation id typed from a certificate. */
 export type VerifySource = "code" | "paste" | "degree" | "lookup";
 
 const TIME = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
@@ -77,13 +77,13 @@ export function ResultView({ result, source }: { result: VerifyResult; source: V
   let heading: string;
   let sub: string;
   if (result.result === "VALID") {
-    heading = degree ? t("verify.degree_valid") : t("verify.valid");
+    heading = degree ? t("verify.completion_valid") : t("verify.valid");
     sub = degree
-      ? t("verify.degree_sub", { university_name: result.university_name ?? "" })
+      ? t("verify.completion_sub", { university_name: result.university_name ?? "" })
       : t("verify.valid_sub", { institution_name: result.institution_name ?? "", issued_date: formatDate(result.issued_at) });
   } else if (result.result === "REVOKED") {
     heading = t("verify.revoked");
-    sub = degree ? t("verify.degree_revoked_sub") : t("verify.revoked_sub");
+    sub = degree ? t("verify.completion_revoked_sub") : t("verify.revoked_sub");
   } else if (result.result === "EXPIRED") {
     heading = t("verify.expired");
     sub = t("verify.expired_sub");
@@ -118,12 +118,12 @@ export function ResultView({ result, source }: { result: VerifyResult; source: V
               </li>
             )}
           </ul>
-          <h2 className="mt-6 font-sans text-lg font-semibold">{degree ? t("verify.degree_heading") : t("verify.shared_heading")}</h2>
+          <h2 className="mt-6 font-sans text-lg font-semibold">{degree ? t("verify.completion_heading") : t("verify.shared_heading")}</h2>
           <Fields result={result} />
           {degree ? (
             <>
-              <p className="mt-3">{t("verify.degree_printed")}</p>
-              {source !== "lookup" && <p className="mt-2 text-ink-muted">{t("verify.degree_wallet")}</p>}
+              <p className="mt-3">{t("verify.completion_printed")}</p>
+              {source !== "lookup" && <p className="mt-2 text-ink-muted">{t("verify.completion_wallet")}</p>}
             </>
           ) : (
             <p className="mt-3 text-ink-muted">{t("verify.not_shared")}</p>
@@ -135,7 +135,7 @@ export function ResultView({ result, source }: { result: VerifyResult; source: V
   );
 }
 
-/** Every result ends the same way: check another proof, and what Countersign is. */
+/** Every result ends the same way: check another attestation, and what Countersign is. */
 export function ResultFooter({ onAnother }: { onAnother?: () => void }) {
   return (
     <div className="mt-6 flex flex-col gap-3">

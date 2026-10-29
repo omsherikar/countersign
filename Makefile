@@ -19,16 +19,18 @@ logs: ## follow logs
 datagen: ## generate synthetic data (small by default; SIZE=full for 500 colleges)
 	$(COMPOSE) --profile tools run --rm datagen generate --size $${SIZE:-small} --seed $${SEED:-42} --out /data/generated
 
-seed: ## load generated data: mockgov registries, every upload through the api engine and its notices, then the simulated replies
+seed: ## load generated data: mockgov registries, every upload through the api engine and its notices, the simulated replies, then completeness and signals
 	$(COMPOSE) run --rm mockgov python -m app.seed --from /data/generated/mockgov
 	$(COMPOSE) run --rm api python -m app.seed.cli --from /data/generated
 	$(COMPOSE) run --rm api python -m app.seed.replies --from /data/generated
+	$(COMPOSE) run --rm api python -m app.seed.derived --from /data/generated
 
-demo-reset: ## wipe both databases and Mailpit, then reseed: mockgov, uploads and notices, replies
+demo-reset: ## wipe both databases and Mailpit, then reseed: mockgov, uploads and notices, replies, completeness and signals
 	-curl -fsS -X DELETE http://localhost:8025/api/v1/messages > /dev/null
 	$(COMPOSE) run --rm mockgov python -m app.seed --reset --from /data/generated/mockgov
 	$(COMPOSE) run --rm api python -m app.seed.cli --reset --from /data/generated
 	$(COMPOSE) run --rm api python -m app.seed.replies --from /data/generated
+	$(COMPOSE) run --rm api python -m app.seed.derived --from /data/generated
 
 audit-tamper: ## change one audit entry to show the chain break (DEMO_MODE only): make audit-tamper SEQ=n
 	@test -n "$(SEQ)" || { echo "usage: make audit-tamper SEQ=n"; exit 2; }

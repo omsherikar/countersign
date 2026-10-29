@@ -17,6 +17,9 @@ import { ErrorBlock, SkeletonRows, SlowHint, TableMessage } from "@/components/c
 import { FilterSelect, SearchInput } from "@/components/common/filter-select";
 import { NotComputed, TypeChip } from "@/components/common/ledger-bits";
 import { Pager } from "@/components/common/pager";
+import { statusWord } from "@/lib/checks";
+import { DeadlineWord } from "@/components/records/deadline-word";
+import { pctWord } from "@/components/records/status-panel";
 
 const PAGE_SIZE = 25;
 const TYPES: InstitutionType[] = ["GOVERNMENT", "GOVERNMENT_AIDED", "PRIVATE_SELF_FINANCED", "UNIVERSITY_DEPARTMENT", "DEEMED"];
@@ -39,9 +42,9 @@ function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmi
     { key: "permanent_id", label: t("col.permanent_id") },
     { key: "state", label: t("col.state") },
   ];
-  if (variant === "aicte") cols.push({ key: "region", label: t("col.region") });
+  if (variant === "aicte") cols.push({ key: "region", label: t("col.region"), cls: "hidden 2xl:table-cell" });
   cols.push(
-    { key: "type", label: t("col.type") },
+    { key: "type", label: t("col.type"), cls: "hidden 2xl:table-cell" },
     { key: "programmes", label: t("col.programmes"), num: true, cls: "hidden 2xl:table-cell" },
     { key: "approved_seats", label: t("col.approved_seats"), num: true, sort: "approved_seats", tip: t("app.hint.intake", { academic_year: academicYear }) },
   );
@@ -50,8 +53,14 @@ function columnsFor(variant: InstitutionsVariant, academicYear: string, withAdmi
   if (variant !== "university") {
     cols.push(
       { key: "flags_open", label: t("col.flags_open"), num: true, sort: "flags_open_desc", tip: t("table.sort_tip") },
-      { key: "integrity", label: t("col.integrity"), num: true },
+      { key: "countersigned", label: statusWord("COUNTERSIGNED"), num: true, sort: "countersigned_asc", tip: t("kpi.countersigned_tip") },
+      { key: "under_review", label: statusWord("UNDER_REVIEW"), num: true, tip: tk("record_status.meaning.UNDER_REVIEW") },
+      { key: "disputed", label: statusWord("DISPUTED"), num: true, tip: tk("record_status.meaning.DISPUTED") },
+      { key: "completeness", label: t("completeness.col"), num: true, sort: "completeness_asc", tip: t("completeness.tip", { academic_year: academicYear }) },
+      { key: "deadline", label: t("deadline.col") },
     );
+  } else {
+    cols.push({ key: "countersigned", label: statusWord("COUNTERSIGNED"), num: true, tip: t("kpi.countersigned_tip") });
   }
   return cols;
 }
@@ -88,7 +97,7 @@ export function InstitutionsTable({
   const defaultSort: InstitutionListSort = variant === "university" ? "enrolments" : "flags_open_desc";
   const sort = (params.get("sort") as InstitutionListSort | null) ?? defaultSort;
   // flags_open_desc carries its own direction; the A.6 keys take `order`.
-  const oneWay = sort === "flags_open_desc" || sort === "enrolments_desc" || sort === "name_asc";
+  const oneWay = sort === "flags_open_desc" || sort === "enrolments_desc" || sort === "name_asc" || sort === "countersigned_asc" || sort === "completeness_asc";
   const order = oneWay ? "desc" : ((params.get("order") as "asc" | "desc" | null) ?? (sort === "name" ? "asc" : "desc"));
   const page = Math.max(1, Number(params.get("page") ?? 1) || 1);
 
@@ -119,7 +128,7 @@ export function InstitutionsTable({
   const onSearch = React.useCallback((value: string) => set({ q: value, page: null }), [set]);
 
   function toggleSort(key: InstitutionListSort) {
-    if (key === "flags_open_desc") {
+    if (key === "flags_open_desc" || key === "countersigned_asc" || key === "completeness_asc") {
       set({ sort: key === defaultSort ? null : key, order: null, page: null });
       return;
     }
@@ -167,7 +176,8 @@ export function InstitutionsTable({
             <tr>
               {cols.map((c) => {
                 const active = c.sort && sort === c.sort;
-                const ariaSort = active ? (order === "asc" ? "ascending" : "descending") : c.sort ? "none" : undefined;
+                const ascending = c.sort === "countersigned_asc" || c.sort === "completeness_asc" || (!oneWay && order === "asc");
+                const ariaSort = active ? (ascending ? "ascending" : "descending") : c.sort ? "none" : undefined;
                 return (
                   <th key={c.key} scope="col" className={cn(c.num && "num", c.cls)} aria-sort={ariaSort} title={c.tip}>
                     {c.sort ? (
@@ -178,7 +188,7 @@ export function InstitutionsTable({
                       >
                         {c.label}
                         {active ? (
-                          order === "asc" ? (
+                          ascending ? (
                             <ArrowUp className="size-3" aria-hidden="true" />
                           ) : (
                             <ArrowDown className="size-3" aria-hidden="true" />
@@ -233,11 +243,11 @@ export function InstitutionsTable({
                   </abbr>
                 </td>
                 {variant === "aicte" && (
-                  <td className="text-ink-muted" title={r.region_name}>
+                  <td className="hidden text-ink-muted 2xl:table-cell" title={r.region_name}>
                     {REGION_NAME[r.region]}
                   </td>
                 )}
-                <td>
+                <td className="hidden 2xl:table-cell">
                   <TypeChip type={r.type} />
                 </td>
                 <td className="num hidden 2xl:table-cell">{formatCount(r.programmes)}</td>
@@ -249,9 +259,16 @@ export function InstitutionsTable({
                     <td className={cn("num", r.flags_open > 0 ? "font-semibold text-ink" : "text-ink-muted")}>
                       {formatCount(r.flags_open)}
                     </td>
-                    <td className="num">{r.integrity_index === null ? <NotComputed /> : Math.round(r.integrity_index)}</td>
+                    <td className="num">{r.countersigned_pct === null ? <NotComputed /> : pctWord(r.countersigned_pct)}</td>
+                    <td className={cn("num", r.records.UNDER_REVIEW > 0 ? "text-ink" : "text-ink-muted")}>{formatCount(r.records.UNDER_REVIEW)}</td>
+                    <td className={cn("num", r.records.DISPUTED > 0 ? "font-semibold text-ink" : "text-ink-muted")}>{formatCount(r.records.DISPUTED)}</td>
+                    <td className="num">{r.completeness_pct === null ? <NotComputed /> : pctWord(r.completeness_pct)}</td>
+                    <td>
+                      <DeadlineWord state={r.deadline_state} deadline={`${academicYear.slice(0, 4)}-09-30`} />
+                    </td>
                   </>
                 )}
+                {variant === "university" && <td className="num">{r.countersigned_pct === null ? <NotComputed /> : pctWord(r.countersigned_pct)}</td>}
               </tr>
             ))}
           </tbody>
