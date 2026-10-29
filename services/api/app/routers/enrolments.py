@@ -4,7 +4,7 @@ POST /enrolments/{id}/recheck (API_CONTRACT A2.11, A2.12, §A3.7, §A4.6, §A4.7
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
@@ -17,7 +17,7 @@ from app.core.deps import Adapters, RequestId, SessionDep, require_roles, scope_
 from app.core.errors import not_found
 from app.core.ratelimit import limiter
 from app.credentials import holder
-from app.engine import status
+from app.engine import status, versions
 from app.engine.checks import RECHECKABLE, recheck_pending
 from app.engine.contracts import RECHECK_ROW_STATES
 from app.models.enums import (
@@ -30,10 +30,10 @@ from app.models.enums import (
 from app.models.geo import Region, State
 from app.models.institution import Approval, ApprovalVersion, Institution, Programme
 from app.models.seat import Seat, SeatEvent, SeatPool
-from app.models.student import Enrolment, EnrolmentVersion, Student
+from app.models.student import Enrolment, Student
 from app.models.upload import UploadBatch
 from app.models.user import User
-from app.models.verification import CaseAction, Check, Flag
+from app.models.verification import Check
 from app.notices.service import notices_for_enrolment, resend_state
 from app.routers._enrolment_rows import (
     brief,
@@ -54,14 +54,10 @@ from app.schemas.enrolments import (
     EnrolmentDetail,
     EnrolmentHistory,
     EnrolmentRecheck,
-    FieldChange,
     ProgrammeDetailRef,
     SeatRef,
     StudentDetail,
     UploadRef,
-)
-from app.schemas.enrolments import (
-    EnrolmentVersion as EnrolmentVersionOut,
 )
 
 router = APIRouter(prefix="/enrolments", tags=["enrolments"])
@@ -81,24 +77,6 @@ RecheckUser = Annotated[
 Paging = Annotated[PageParams, Depends(page_params)]
 ENROLMENT_RECHECK_LIMIT = "30/minute"
 CARD_VERSIONS = 20
-# the versioned fields, in the order the history lists them (API_CONTRACT §A4.7)
-VERSIONED_FIELDS = (
-    "name",
-    "dob",
-    "apaar_masked",
-    "consent_status",
-    "year_of_study",
-    "admission_route",
-    "counselling_ref",
-    "category",
-    "admission_date",
-    "status",
-    "status_date",
-    "tfw_income_certified",
-    "nri_sponsored",
-    "ciwg",
-)
-_FIELD_ORDER = {name: n for n, name in enumerate(VERSIONED_FIELDS)}
 
 
 async def _scoped(session, user: User, enrolment_id: uuid.UUID):
@@ -212,78 +190,6 @@ async def _claim(session, student: Student, checks: list[Check]) -> ClaimRef | N
     return ClaimRef(claimed=True, claimed_at=iso(claimed_at))
 
 
-def _changes(stored: dict[str, Any]) -> list[FieldChange]:
-    """`{field: [before, after]}` as the history lists it, in the versioned-field order."""
-    out = []
-    for name in sorted(stored, key=lambda k: (_FIELD_ORDER.get(k, len(_FIELD_ORDER)), k)):
-        value = stored[name]
-        before, after = (value[0], value[1]) if isinstance(value, list | tuple) else (None, value)
-        out.append(FieldChange(field=name, before=before, after=after))
-    return out
-
-
-async def _versions(
-    session, enrolment: Enrolment, *, offset: int = 0, limit: int = CARD_VERSIONS
-) -> tuple[list[EnrolmentVersionOut], int]:
-    """The record's versions, newest first, and how many there are (API_CONTRACT §A4.7).
-    A version keeps no row number, so a batch shows the file's row only for the batch that
-    last wrote the record."""
-    enrolment_id = enrolment.id
-    total = (
-        await session.execute(
-            select(func.count())
-            .select_from(EnrolmentVersion)
-            .where(EnrolmentVersion.enrolment_id == enrolment_id)
-        )
-    ).scalar_one()
-    rows = (
-        await session.execute(
-            select(EnrolmentVersion, User, UploadBatch, CaseAction, Flag)
-            .outerjoin(User, User.id == EnrolmentVersion.actor_id)
-            .outerjoin(UploadBatch, UploadBatch.id == EnrolmentVersion.batch_id)
-            .outerjoin(CaseAction, CaseAction.seq == EnrolmentVersion.case_action_seq)
-            .outerjoin(Flag, Flag.id == CaseAction.flag_id)
-            .where(EnrolmentVersion.enrolment_id == enrolment_id)
-            .order_by(EnrolmentVersion.version.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-    ).all()
-    items = []
-    for version, actor, batch, action, flag in rows:
-        changes = version.changes or {}
-        items.append(
-            EnrolmentVersionOut(
-                version=version.version,
-                at=iso(version.at) or "",
-                source=version.source,
-                actor=None
-                if actor is None or version.source == "SEED"
-                else {"id": str(actor.id), "name": actor.name, "role": actor.role.value},
-                batch=None
-                if batch is None
-                else {
-                    "id": str(batch.id),
-                    "filename": batch.filename,
-                    "row_no": enrolment.source_row_no
-                    if batch.id == enrolment.upload_batch_id
-                    else None,
-                },
-                case=None
-                if action is None or flag is None
-                else {
-                    "id": str(flag.id),
-                    "type": flag.type.value,
-                    "action": action.action.value,
-                    "case_action_seq": action.seq,
-                    "reason_code": action.reason_code,
-                },
-                changes=_changes(changes),
-            )
-        )
-    return items, total
-
-
 @router.get("/{enrolment_id}", response_model=EnrolmentDetail)
 async def enrolment_detail(
     enrolment_id: uuid.UUID, session: SessionDep, user: ReadUser, request_id: RequestId
@@ -305,7 +211,8 @@ async def enrolment_detail(
     notices = await notices_for_enrolment(session, enrolment.id)
     resend = await resend_state(session, enrolment, user)
     attestations = await holder.credential_refs(session, enrolment.id)
-    versions, history_count = await _versions(session, enrolment)
+    card_versions = await versions.latest(session, enrolment.id, CARD_VERSIONS)
+    history_count = await versions.count(session, enrolment.id)
     await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
     return EnrolmentDetail(
         id=str(enrolment.id),
@@ -366,7 +273,7 @@ async def enrolment_detail(
         notices=notices,
         resend=resend,
         credentials=attestations,
-        versions=versions,
+        versions=card_versions,
         history_count=history_count,
         **record_fields(enrolment),
     )
@@ -382,9 +289,9 @@ async def enrolment_history(
 ) -> EnrolmentHistory:
     """Every version of the record, newest first (API_CONTRACT §A4.7)."""
     enrolment, student, *_ = await _scoped(session, user, enrolment_id)
-    items, total = await _versions(session, enrolment, offset=paging.offset, limit=paging.page_size)
+    page = await versions.history(session, enrolment.id, page=paging, user=user)
     await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
-    return EnrolmentHistory(items=items, total=total, page=paging.page, page_size=paging.page_size)
+    return EnrolmentHistory.model_validate(page)
 
 
 @router.post("/{enrolment_id}/recheck", response_model=EnrolmentRecheck)
