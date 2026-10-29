@@ -299,6 +299,9 @@ async def test_three_failed_tries_fail_the_email(world, monkeypatch):
     detail = (await student_check(enrolment.id)).detail
     assert detail == {
         "summary": "Notice not sent yet.",
+        "finding": "notice not sent yet",
+        "source_line": "No notice sent yet",
+        "basis": "NOT_SENT",
         "notice_state": "NOT_SENT",
         "delivery_failed": True,
     }

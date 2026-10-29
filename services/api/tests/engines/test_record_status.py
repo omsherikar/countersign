@@ -14,7 +14,7 @@ from app.core.security import hash_password
 from app.engine import status_text as text
 from app.engine.checks import refresh_student, run_checks
 from app.engine.ledger import assign_seats
-from app.engine.status import refresh
+from app.engine.status import refresh, settle
 from app.models.audit import AuditLog
 from app.models.credential import Credential
 from app.models.enums import (
@@ -60,6 +60,7 @@ async def _checked(world, session, gov) -> Enrolment:
     _, _, enrolment = await _ravi(world, gov)
     await assign_seats(session, [enrolment.id], actor_id=None)
     await run_checks(session, [enrolment.id], gov)
+    await settle(session, issue=False)
     return enrolment
 
 
@@ -107,9 +108,10 @@ async def test_the_checks_write_the_record_status(world, session, gov) -> None:
 async def test_an_unseated_record_is_under_review(world, session, gov) -> None:
     _, _, enrolment = await _ravi(world, gov)
     await run_checks(session, [enrolment.id], gov)
+    await settle(session, issue=False)
     record = await _record(session, enrolment.id)
     assert record.record_status is RecordStatus.UNDER_REVIEW
-    assert record.status_reason == "Seat is contradicted."
+    assert record.status_reason == "Seat is contradicted: beyond approved intake."
     assert record.next_step == "Waiting for an officer to review the contradiction."
 
 
@@ -118,9 +120,13 @@ async def test_a_source_outage_waits_and_never_contradicts(world, session, gov) 
     await assign_seats(session, [enrolment.id], actor_id=None)
     gov.apaar.down = True
     await run_checks(session, [enrolment.id], gov)
+    await settle(session, issue=False)
     record = await _record(session, enrolment.id)
     assert record.record_status is RecordStatus.AWAITING_EVIDENCE
-    assert record.status_reason == "Identity is not confirmed yet."
+    assert record.status_reason == (
+        "Identity is not confirmed yet: APAAR registry did not respond · "
+        f"{text.day(datetime.now(UTC), _today())}."
+    )
     assert record.next_step == (
         "Waiting for APAAR registry, which did not respond; it is asked again at the next recheck."
     )

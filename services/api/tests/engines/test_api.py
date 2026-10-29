@@ -314,13 +314,14 @@ async def test_enrolment_detail(ids, as_role) -> None:
     assert body["seat"]["assigned_at"].endswith("Z")
     assert [c["type"] for c in body["checks"]] == [
         "IDENTITY",
-        "ADMISSION",
         "SEAT",
+        "ADMISSION",
         "STUDYING",
         "STUDENT",
     ]
     identity = body["checks"][0]
-    assert identity["status"] == "CONFIRMED" and identity["source"] == "APAAR"
+    assert identity["state"] == "CONFIRMED" and identity["source"] == "APAAR"
+    assert identity["source_line"].startswith("APAAR verification · ")
     assert identity["attempts"] == 0 and identity["checked_at"].endswith("Z")
     assert (identity["supplied_by"], identity["independent"], identity["resolved"]) == (
         "APAAR registry",
@@ -329,21 +330,34 @@ async def test_enrolment_detail(ids, as_role) -> None:
     )
     assert identity["observed_at"].endswith("Z")
     studying = body["checks"][3]
-    assert (studying["status"], studying["supplied_by"], studying["observed_at"]) == (
+    assert (studying["state"], studying["supplied_by"], studying["observed_at"]) == (
         "NOT_YET_DUE",
         "",
         None,
     )
-    # one contradiction outranks the confirmations (D35)
+    assert studying["source_line"] == "First semester not complete"
+    # the authority has published nothing, and the deadline has passed: waiting, not contradicted
+    assert (body["checks"][2]["state"], body["checks"][2]["finding"]) == (
+        "PENDING",
+        "not published yet",
+    )
+    # an open case outranks the confirmations (D35)
     assert body["record_status"] == "UNDER_REVIEW"
-    assert body["status_reason"] == "Joining record is contradicted."
-    # no case covers the joining record yet, so the record's open case gives the next step
+    assert body["status_reason"] == "An open Duplicate within institution case names this record."
     assert body["next_step"] == (
         "Waiting for an officer to review the Duplicate within institution case."
     )
     assert body["record_status_at"].endswith("Z")
     assert "123456784417" not in str(body)
-    assert body["countersign"]["score"] == {"passes": 2, "applicable": 4}  # counselling not found
+    assert "countersign" not in body
+    assert body["eligibility"] == {
+        "tfw_income_certified": None,
+        "nri_sponsored": None,
+        "ciwg": None,
+    }
+    assert body["approval"]["version"] == 1 and body["approval"]["approved_intake"] == 20
+    assert body["claim"] is None  # a linked APAAR needs no claim
+    assert (body["versions"], body["history_count"]) == ([], 0)
     assert [f["type"] for f in body["flags"]] == ["DUPLICATE_WITHIN_UPLOAD"]
     assert body["flags"][0]["summary"] == (
         "Rows 2 and 40 of 1-ABC-0001_2026-27.csv describe the same student."
@@ -384,24 +398,39 @@ async def test_enrolment_list_rows_and_filters(ids, as_role) -> None:
     ravi = rows[str(ids.ravi)]
     assert ravi["seat_code"] == "CSE-R-002"
     assert ravi["cohort_year"] == "2026-27" and ravi["status_date"] == "2026-08-01"
-    assert [c["type"] for c in ravi["countersign"]["checks"]][0] == "IDENTITY"
-    assert set(ravi["countersign"]["checks"][0]) == {"type", "status"}
+    assert [c["type"] for c in ravi["checks"]] == [
+        "IDENTITY",
+        "SEAT",
+        "ADMISSION",
+        "STUDYING",
+        "STUDENT",
+    ]
+    assert set(ravi["checks"][0]) == {"type", "state", "finding", "independent", "resolved"}
+    assert ravi["record_status"] == "UNDER_REVIEW" and "countersign" not in ravi
+    assert body["status_counts"] == {
+        "AWAITING_EVIDENCE": 17,
+        "COUNTERSIGNED": 0,
+        "UNDER_REVIEW": 4,
+        "DISPUTED": 0,
+    }
     assert [f["type"] for f in ravi["flags"]] == ["DUPLICATE_WITHIN_UPLOAD"]
     rk = rows[str(ids.rk)]
     assert [f["type"] for f in rk["flags"]] == ["EXCESS_ADMISSION", "DUPLICATE_WITHIN_UPLOAD"]
 
     unseated = (await admin.get(url, params={"seated": "false"})).json()
     assert {r["id"] for r in unseated["items"]} == {str(i) for i in ids.unseated}
-    seat_fail = (
-        await admin.get(url, params={"check_status": "CONTRADICTED", "check_type": "SEAT"})
-    ).json()
-    assert seat_fail["total"] == len(ids.unseated)
-    assert {r["record_status"] for r in seat_fail["items"]} == {"UNDER_REVIEW"}
-    assert (await admin.get(url, params={"check_type": "SEAT"})).json()["total"] == 21
-    pending = await admin.get(
-        url, params={"check_status": "SOURCE_UNAVAILABLE", "check_type": "IDENTITY"}
-    )
-    assert [r["id"] for r in pending.json()["items"]] == [str(ids.asha)]
+    review = (await admin.get(url, params={"record_status": "UNDER_REVIEW"})).json()
+    assert review["total"] == 4
+    assert {r["record_status"] for r in review["items"]} == {"UNDER_REVIEW"}
+    # the status counts ignore the status filter, so every tab keeps its count
+    assert review["status_counts"]["AWAITING_EVIDENCE"] == 17
+    both = await admin.get(url, params={"record_status": "under_review,DISPUTED"})
+    assert both.json()["total"] == 4
+    assert (await admin.get(url, params={"record_status": "SCORE"})).status_code == 422
+    # the Week 2 check filters are ignored
+    assert (await admin.get(url, params={"check_status": "CONTRADICTED"})).json()["total"] == 21
+    first = (await admin.get(url, params={"sort": "status_priority", "page_size": 50})).json()
+    assert [r["record_status"] for r in first["items"]][:4] == ["UNDER_REVIEW"] * 4
     flagged = (await admin.get(url, params={"flagged": "true", "page_size": 50})).json()
     assert flagged["total"] == 4  # the 2 unseated (one is R. K.), Ravi and the twin
     assert (await admin.get(url, params={"flagged": "false"})).json()["total"] == 17
@@ -453,8 +482,8 @@ async def test_dashboard_kpis(ids, as_role) -> None:
 async def test_student_sees_real_countersign(ids, as_role) -> None:
     body = (await (await as_role("student@demo")).get("/students/me")).json()
     [enrolment] = body["enrolments"]
-    assert enrolment["countersign"]["score"] == {"passes": 2, "applicable": 4}
-    assert len(enrolment["countersign"]["checks"]) == 5
+    assert [c["type"] for c in enrolment["checks"]][0] == "IDENTITY"
+    assert len(enrolment["checks"]) == 5
 
 
 # ---------------------------------------------------------------------- rechecks
@@ -475,24 +504,36 @@ async def test_enrolment_recheck_after_the_source_is_back(ids, as_role) -> None:
         registrar = await as_role("registrar@abc.edu.demo")
         gov.apaar.down = True
         still = (await registrar.post(f"/enrolments/{ids.asha}/recheck", json={})).json()
+        # the outage, the joining record that waits and the credits not due yet run again
         assert still["results"] == [
-            {"type": "IDENTITY", "before": "SOURCE_UNAVAILABLE", "after": "SOURCE_UNAVAILABLE"}
+            {"type": "IDENTITY", "before": "SOURCE_UNAVAILABLE", "after": "SOURCE_UNAVAILABLE"},
+            {"type": "ADMISSION", "before": "PENDING", "after": "PENDING"},
+            {"type": "STUDYING", "before": "NOT_YET_DUE", "after": "NOT_YET_DUE"},
         ]
 
         gov.apaar.down = False
         body = (await registrar.post(f"/enrolments/{ids.asha}/recheck", json={})).json()
         assert body["enrolment_id"] == str(ids.asha)
-        assert body["rechecked"] == 1
-        assert body["results"] == [
-            {"type": "IDENTITY", "before": "SOURCE_UNAVAILABLE", "after": "CONFIRMED"}
-        ]
+        assert body["rechecked"] == 3
+        assert body["results"][0] == {
+            "type": "IDENTITY",
+            "before": "SOURCE_UNAVAILABLE",
+            "after": "CONFIRMED",
+        }
         assert body["flags_raised"] == 0
-        assert body["countersign"]["checks"][0] == {"type": "IDENTITY", "status": "CONFIRMED"}
+        assert body["checks"][0] == {
+            "type": "IDENTITY",
+            "state": "CONFIRMED",
+            "finding": None,
+            "independent": True,
+            "resolved": False,
+        }
+        assert body["record_status"] == "AWAITING_EVIDENCE"
         detail = (await registrar.get(f"/enrolments/{ids.asha}")).json()
         assert detail["checks"][0]["attempts"] == 2
 
-        nothing = (await registrar.post(f"/enrolments/{ids.asha}/recheck", json={})).json()
-        assert (nothing["rechecked"], nothing["results"]) == (0, [])
+        waiting = (await registrar.post(f"/enrolments/{ids.asha}/recheck", json={})).json()
+        assert [r["type"] for r in waiting["results"]] == ["ADMISSION", "STUDYING"]
     finally:
         app.state.adapters = previous
 
@@ -511,8 +552,17 @@ async def test_institution_recheck(ids, as_role) -> None:
         west = await as_role("ro.west@aicte.demo")
         body = (await west.post(url, json={"academic_year": "2026-27"})).json()
         assert body["institution_id"] == str(ids.abc) and body["academic_year"] == "2026-27"
-        assert body["enrolments"] == body["rechecked"] == body["still_pending"]
-        assert body["now_pass"] == body["now_fail"] == body["now_na"] == 0
+        outcomes = body["outcomes"]
+        assert set(outcomes) == {
+            "CONFIRMED",
+            "CONTRADICTED",
+            "PENDING",
+            "NOT_YET_DUE",
+            "NOT_APPLICABLE",
+            "SOURCE_UNAVAILABLE",
+        }
+        assert sum(outcomes.values()) == body["rechecked"] > body["enrolments"] > 0
+        assert outcomes["CONFIRMED"] == outcomes["CONTRADICTED"] == 0
         assert body["flags_raised"] == 0 and body["duration_ms"] >= 0
         assert (await west.post(url)).status_code == 200  # the body is optional
     finally:

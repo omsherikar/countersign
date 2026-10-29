@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 
 from app import credentials
 from app.db.session import session_factory
+from app.engine import status_text
 from app.engine.checks import run_checks
 from app.models.audit import AuditLog
 from app.models.credential import Consent, Credential
@@ -28,6 +29,12 @@ from app.models.enums import (
 from app.models.verification import CaseAction, Check, Flag, Notification
 from app.notices.student_check import fmt_day
 from tests.notices.conftest import delivered, notices_of
+
+
+def short_day(at: datetime) -> str:
+    """A row sentence's date: `30 Oct` in the current year (API_CONTRACT §A4.1)."""
+    return status_text.day(at, status_text.ist_date(datetime.now(UTC)))
+
 
 EMAIL, DIGILOCKER = NoticeChannel.EMAIL, NoticeChannel.DIGILOCKER
 
@@ -82,7 +89,9 @@ async def test_a_yes_countersigns_records_consent_and_asks_for_the_proof(
     )
     check = await check_of(enrolment.id)
     assert check.status is CheckStatus.CONFIRMED
-    assert check.detail["summary"] == f"Confirmed by the student on {fmt_day(responded)} (email)."
+    assert check.detail["summary"] == (
+        f"The student signed in with DigiLocker on {short_day(responded)} and said they joined."
+    )
     assert check.detail["notice_state"] == "CONFIRMED"
     email, _ = await notices_of(enrolment.id)
     assert email.comment is None
@@ -132,7 +141,7 @@ async def test_a_no_fails_the_check_and_raises_the_flag_with_the_comment_for_off
     assert response.status_code == 200 and response.json()["response"] == "NO"
     check = await check_of(enrolment.id)
     assert check.status is CheckStatus.CONTRADICTED and check.detail["notice_state"] == "DENIED"
-    assert check.detail["summary"].endswith("(DigiLocker).")
+    assert check.detail["summary"].endswith("and said they never joined.")
     flag = await denied_flag(enrolment.id)
     assert (flag.type, flag.severity, flag.status) == (
         FlagType.STUDENT_DENIED,
@@ -199,10 +208,10 @@ async def test_no_then_yes_passes_keeps_the_flag_and_notes_it_once(
     assert flag.status is FlagStatus.DOCS_REQUESTED  # only officers resolve flags
     changed_at = datetime.fromisoformat(body["changed_at"].replace("Z", "+00:00"))
     assert flag.evidence["summary"].endswith(
-        f"then changed the reply to Yes on {fmt_day(changed_at)}."
+        f"then changed the answer to Yes on {fmt_day(changed_at)}."
     )
     facts = {f["label"]: f["value"] for f in flag.evidence["facts"]}
-    assert facts["Reply changed"] == f"Yes on {fmt_day(changed_at)}"
+    assert facts["Answer changed"] == f"Yes on {fmt_day(changed_at)}"
     assert facts["Comment from the student"] == "Not me"
     async with session_factory()() as s:
         notes = (
@@ -224,8 +233,8 @@ async def test_no_then_yes_passes_keeps_the_flag_and_notes_it_once(
         )
     assert [(n.note, n.actor_id) for n in notes] == [
         (
-            f"The student changed the reply from No to Yes on {fmt_day(changed_at)}. "
-            "The flag keeps its status until an officer decides.",
+            f"The student changed the answer from No to Yes on {fmt_day(changed_at)}. "
+            "The case keeps its status until an officer decides.",
             None,
         )
     ]

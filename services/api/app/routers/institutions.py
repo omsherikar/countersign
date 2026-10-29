@@ -10,21 +10,23 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from slowapi.util import get_remote_address
-from sqlalchemy import Select, String, cast, func, or_, select
+from sqlalchemy import Select, String, case, cast, func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.core import audit
 from app.core.config import get_settings
 from app.core.deps import Adapters, RequestId, SessionDep, require_roles, scoped_institution
+from app.core.errors import ApiError
 from app.core.ratelimit import limiter
 from app.engine.checks import recheck_pending
 from app.engine.seatpools import INTERNATIONAL_RESERVED_LABEL
+from app.engine.status import settle
 from app.models.enums import (
     AdmissionRoute,
     CheckStatus,
-    CheckType,
     EnrolmentStatus,
     InstitutionType,
+    RecordStatus,
     SeatEventKind,
     SeatStatus,
     SeatType,
@@ -39,7 +41,6 @@ from app.models.user import User
 from app.notices.dispatch import issue_due_proofs
 from app.routers._enrolment_rows import (
     build_rows,
-    check_filter,
     iso,
     plain_row,
     row_stmt,
@@ -47,9 +48,9 @@ from app.routers._enrolment_rows import (
 )
 from app.routers._stats import institution_stats_stmt, region_label
 from app.schemas.common import Page, PageParams, page_params
+from app.schemas.enrolments import EnrolmentPage
 from app.schemas.institutions import (
     ApprovalOut,
-    EnrolmentRow,
     InstitutionDetail,
     InstitutionRecheck,
     InstitutionRecheckBody,
@@ -80,7 +81,14 @@ ListSort = Literal[
     "enrolments",
     "approved_seats",
 ]
-EnrolmentSort = Literal["name_asc", "year_desc", "route_asc"]
+EnrolmentSort = Literal["name_asc", "year_desc", "route_asc", "status_priority"]
+# copy deck `record_status.sort.attention`
+ATTENTION_ORDER = (
+    RecordStatus.DISPUTED,
+    RecordStatus.UNDER_REVIEW,
+    RecordStatus.AWAITING_EVIDENCE,
+    RecordStatus.COUNTERSIGNED,
+)
 INSTITUTION_RECHECK_LIMIT = "6/minute"
 
 
@@ -427,7 +435,7 @@ async def institution_seats(
 # ---------------------------------------------------------------------- enrolments
 
 
-@router.get("/{institution_id}/enrolments", response_model=Page[EnrolmentRow])
+@router.get("/{institution_id}/enrolments", response_model=EnrolmentPage)
 async def institution_enrolments(
     institution_id: uuid.UUID,
     session: SessionDep,
@@ -440,38 +448,50 @@ async def institution_enrolments(
     q: Annotated[str | None, Query(max_length=120)] = None,
     admission_route: AdmissionRoute | None = None,
     year_of_study: Annotated[int | None, Query(ge=1, le=6)] = None,
-    check_status: CheckStatus | None = None,
-    check_type: CheckType | None = None,
+    record_status: Annotated[str | None, Query(max_length=120)] = None,
     flagged: bool | None = None,
     seated: bool | None = None,
     sort: EnrolmentSort = "name_asc",
-) -> Page[EnrolmentRow]:
+) -> EnrolmentPage:
+    """The college's records with their status and brief rows (API_CONTRACT §A4.5).
+    `record_status` takes one value or a comma-separated list; `status_counts` counts the
+    ACTIVE records that match every other filter but `status`."""
+    statuses = _record_statuses(record_status)
     institution = await scoped_institution(session, user, institution_id)
-    stmt = row_stmt().where(Enrolment.institution_id == institution.id)
+    filters = [Enrolment.institution_id == institution.id]
     if programme_id:
-        stmt = stmt.where(Enrolment.programme_id == programme_id)
-    if status:
-        stmt = stmt.where(Enrolment.status == status)
+        filters.append(Enrolment.programme_id == programme_id)
     if academic_year:
-        stmt = stmt.where(Enrolment.academic_year == academic_year)
+        filters.append(Enrolment.academic_year == academic_year)
     if admission_route:
-        stmt = stmt.where(Enrolment.admission_route == admission_route)
+        filters.append(Enrolment.admission_route == admission_route)
     if year_of_study:
-        stmt = stmt.where(Enrolment.year_of_study == year_of_study)
-    if check_status is not None:  # check_type alone is ignored (A2.10)
-        stmt = stmt.where(check_filter(check_status, check_type))
+        filters.append(Enrolment.year_of_study == year_of_study)
     if flagged is not None:
-        stmt = stmt.where(unresolved_flag_exists() if flagged else ~unresolved_flag_exists())
+        filters.append(unresolved_flag_exists() if flagged else ~unresolved_flag_exists())
     if seated is not None:
-        stmt = stmt.where(Enrolment.seat_id.is_not(None) if seated else Enrolment.seat_id.is_(None))
+        filters.append(Enrolment.seat_id.is_not(None) if seated else Enrolment.seat_id.is_(None))
     if q:
         needle = q.strip()
-        stmt = stmt.where(or_(Student.name.ilike(f"%{needle}%"), Student.apaar_last4 == needle))
+        filters.append(or_(Student.name.ilike(f"%{needle}%"), Student.apaar_last4 == needle))
+    counts = await _status_counts(session, filters)
+
+    stmt = row_stmt().where(*filters)
+    if status:
+        stmt = stmt.where(Enrolment.status == status)
+    if statuses:
+        stmt = stmt.where(
+            Enrolment.record_status.in_(statuses), Enrolment.status == EnrolmentStatus.ACTIVE
+        )
     if sort == "year_desc":
         stmt = stmt.order_by(Enrolment.year_of_study.desc(), Student.name.asc(), Enrolment.id)
     elif sort == "route_asc":
         stmt = stmt.order_by(
             cast(Enrolment.admission_route, String).asc(), Student.name.asc(), Enrolment.id
+        )
+    elif sort == "status_priority":
+        stmt = stmt.order_by(
+            _attention_order(), Enrolment.record_status_at.asc().nulls_last(), Enrolment.id
         )
     else:
         stmt = stmt.order_by(Student.name.asc(), Enrolment.id)
@@ -482,7 +502,59 @@ async def institution_enrolments(
     await audit.record_read(
         session, user.id, "student", [r[1].id for r in rows], request_id=request_id
     )
-    return Page(items=items, total=total, page=paging.page, page_size=paging.page_size)
+    return EnrolmentPage(
+        items=items,
+        total=total,
+        page=paging.page,
+        page_size=paging.page_size,
+        status_counts=counts,
+    )
+
+
+def _record_statuses(raw: str | None) -> list[RecordStatus]:
+    """`DISPUTED` or `UNDER_REVIEW,DISPUTED`; anything else is a 422."""
+    if not raw:
+        return []
+    out: list[RecordStatus] = []
+    for part in raw.split(","):
+        value = part.strip().upper()
+        if not value:
+            continue
+        try:
+            out.append(RecordStatus(value))
+        except ValueError:
+            raise ApiError(
+                422,
+                "VALIDATION_ERROR",
+                f"record_status: {part.strip()} is not a record status.",
+                {"fields": [{"field": "record_status", "message": "Not a record status."}]},
+            ) from None
+    return out
+
+
+def _attention_order():
+    """Disputed, Under review, Awaiting evidence, then Countersigned (copy deck
+    `record_status.sort.attention`); records that are not ACTIVE last."""
+    return case(
+        (Enrolment.status != EnrolmentStatus.ACTIVE, len(ATTENTION_ORDER)),
+        *((Enrolment.record_status == value, n) for n, value in enumerate(ATTENTION_ORDER)),
+        else_=len(ATTENTION_ORDER),
+    )
+
+
+async def _status_counts(session, filters: list) -> dict[str, int]:
+    """ACTIVE records matching the filters, by record status, every status present."""
+    counts = dict.fromkeys((s.value for s in RecordStatus), 0)
+    rows = await session.execute(
+        select(Enrolment.record_status, func.count())
+        .select_from(Enrolment)
+        .join(Student, Student.id == Enrolment.student_id)
+        .where(*filters, Enrolment.status == EnrolmentStatus.ACTIVE)
+        .group_by(Enrolment.record_status)
+    )
+    for value, n in rows.all():
+        counts[value.value] = n
+    return counts
 
 
 # ------------------------------------------------------------------------- recheck
@@ -525,16 +597,15 @@ async def institution_recheck(
         concurrency=get_settings().checks_concurrency,
         actor_id=user.id,
     )
+    # the statuses follow the rows, then the attestations are asked for (API_CONTRACT §A4.6)
+    await settle(session, issue=False)
     await issue_due_proofs(session, ids)
     return InstitutionRecheck(
         institution_id=str(institution.id),
         academic_year=year,
         enrolments=result.enrolments,
         rechecked=result.rechecked,
-        now_pass=result.now_pass,
-        now_fail=result.now_fail,
-        now_na=result.now_na,
-        still_pending=result.still_pending,
+        outcomes=result.outcomes or dict.fromkeys((s.value for s in CheckStatus), 0),
         flags_raised=result.flags.created,
         duration_ms=int((time.perf_counter() - started) * 1000),
     )

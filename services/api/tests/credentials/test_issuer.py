@@ -105,8 +105,9 @@ async def test_an_enrolment_proof_waits_for_the_students_yes(world, session):
         "programme": {"name": "B.Tech Computer Science and Engineering", "level": "UG"},
         "academic_year": "2026-27",
         "year_of_study": 1,
+        # in row order; the mini data has no joining record, so it is not among them
         "countersigned": {
-            "checks": ["IDENTITY", "ADMISSION", "SEAT", "STUDENT"],
+            "checks": ["IDENTITY", "SEAT", "STUDENT"],
             "on": today.isoformat(),
         },
     }
@@ -119,7 +120,7 @@ async def test_an_enrolment_proof_waits_for_the_students_yes(world, session):
     assert claims["year_of_study"] == ("Year of study", "1", True)
     assert claims["countersigned"] == (
         "Countersigned by",
-        f"Identity, Admission, Seat and Student, as of {issuer.display_date(today)}",
+        f"Identity, Seat and Student, as of {issuer.display_date(today)}",
         True,
     )
     assert claims["expires"] == ("Valid until", "31 Aug 2027", False)
@@ -183,7 +184,7 @@ async def test_pending_studying_cleared_and_lesser_flags_do_not_block(world, ses
     assert await issuer.eligibility(session, enrolment.id) is True
     credential = await issuer.issue_if_eligible(session, enrolment.id)
     payload_checks = issuer.disclosures(credential.sd_jwt)["countersigned"]["checks"]
-    assert payload_checks == ["IDENTITY", "ADMISSION", "SEAT", "STUDENT"]
+    assert payload_checks == ["IDENTITY", "SEAT", "STUDENT"]
     await session.rollback()
 
 

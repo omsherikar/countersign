@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.schemas.common import Countersign
+from app.schemas.enrolments import EvidenceRowBrief
 from app.schemas.notices import StudentNotice
 
 
@@ -19,7 +19,8 @@ class StudentEnrolment(BaseModel):
     academic_year: str
     year_of_study: int
     status: str
-    countersign: Countersign = Field(default_factory=Countersign)
+    # the five evidence rows, brief, in row order (API_CONTRACT §A4.5)
+    checks: list[EvidenceRowBrief] = Field(default_factory=list)
 
 
 class StudentMe(BaseModel):

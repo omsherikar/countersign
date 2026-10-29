@@ -17,7 +17,7 @@ from app.models.institution import Institution, Programme
 from app.models.student import Enrolment, Student
 from app.models.user import User
 from app.notices.service import notices_for_student
-from app.routers._enrolment_rows import countersigns
+from app.routers._enrolment_rows import brief_rows
 from app.schemas.students import StudentEnrolment, StudentMe
 
 router = APIRouter(prefix="/students", tags=["students"])
@@ -41,7 +41,7 @@ async def students_me(
             .order_by(Enrolment.academic_year.desc(), Institution.name)
         )
     ).all()
-    signs = await countersigns(session, [enrolment.id for enrolment, _, _ in rows])
+    checks = await brief_rows(session, [enrolment.id for enrolment, _, _ in rows])
     notices = await notices_for_student(session, student.id)
     wallet = await holder.wallet_summary(session, student.id)
     await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
@@ -64,7 +64,7 @@ async def students_me(
                 academic_year=enrolment.academic_year,
                 year_of_study=enrolment.year_of_study,
                 status=enrolment.status.value,
-                countersign=signs[enrolment.id],
+                checks=checks[enrolment.id],
             )
             for enrolment, institution, programme in rows
         ],

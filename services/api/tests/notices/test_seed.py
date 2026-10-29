@@ -124,8 +124,13 @@ async def test_the_seed_sends_notices_then_applies_the_replies(db, monkeypatch):
             )
         ).scalar_one()
     assert flag.type is FlagType.STUDENT_DENIED
-    assert {"label": "Comment from the student", "value": "I never applied to this college.",
-            "source": "Student reply", "audience": "OFFICER"} in flag.evidence["facts"]  # fmt: skip
+    comment = {
+        "label": "Comment from the student",
+        "value": "I never applied to this college.",
+        "source": "Student sign-in via DigiLocker",
+        "audience": "OFFICER",
+    }
+    assert comment in flag.evidence["facts"]
     assert len(seeded) == 5 and all(a.actor_id is None for a in seeded)
     assert denied_flags == 2
 

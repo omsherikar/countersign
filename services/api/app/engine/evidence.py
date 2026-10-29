@@ -1,10 +1,10 @@
-"""Check details and flag evidence, with the sentences of API_CONTRACT A2.14 and A2.17.
+"""Evidence row texts and case evidence: copy deck §15 and §5, API_CONTRACT §A4.2, §A4.4.
 
-Officers and the web read these sentences verbatim and never rebuild them, so every
-template lives here and nowhere else. A check `detail` always has a `summary`; flag
-evidence is `{summary, summary_for_institution?, facts, related_enrolment_ids,
-rule_source, data?}` (DATA_MODEL "Migration 0002"). No summary ever holds a student
-name or a full id; facts may hold the name as uploaded.
+Officers, colleges and the web read these sentences verbatim and never rebuild them, so
+every template lives here and nowhere else. A row `detail` always has `summary`, `finding`,
+`source_line` and `basis`; case evidence is `{summary, summary_for_institution?, facts,
+related_enrolment_ids, rule_source, data?}` (DATA_MODEL "Migration 0002"). No summary ever
+holds a student name or a full id; facts may hold the name as uploaded.
 """
 
 from __future__ import annotations
@@ -19,13 +19,16 @@ from app.models.enums import AdmissionRoute, FlagType, ProgrammeMode, SeatType
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
+# copy deck §3 `source.*`: the words for each source code
 SOURCE_NAMES = {
     "APAAR": "APAAR registry",
-    "COUNSELLING": "Counselling list",
-    "SEAT_LEDGER": "Seat ledger",
+    "ADMISSION_AUTHORITY": "State admission authority",
+    "COUNSELLING": "State admission authority",
+    "SEAT_LEDGER": "Seat Ledger",
     "ABC": "ABC credits",
     "SII": "Study in India",
-    "STUDENT_NOTICE": "Student reply",
+    "STUDENT_NOTICE": "Student sign-in via DigiLocker",
+    "DIGILOCKER": "DigiLocker",
 }
 ROUTE_WORDS = {
     AdmissionRoute.COUNSELLING: "Counselling",
@@ -53,7 +56,7 @@ FLAG_NAMES = {
     FlagType.DUPLICATE_WITHIN_UPLOAD: "Duplicate within institution",
     FlagType.DUAL_ENROLMENT_ALLOWED: "Dual enrolment (allowed)",
     FlagType.NO_ACADEMIC_ACTIVITY: "No academic activity",
-    FlagType.STUDENT_DENIED: "Student denied",
+    FlagType.STUDENT_DENIED: "Student dispute",
     FlagType.GHOST_RING: "Shared contact ring",
     FlagType.ANOMALY: "Unusual pattern",
     FlagType.NOT_IN_JOINING_RECORD: "Not in joining record",
@@ -123,19 +126,45 @@ def _evidence(
     return out
 
 
-# =================================================================== check details
+# ====================================================================== row texts
+#
+# Copy deck §15. Every row detail carries `summary` (the detail sentence), `finding` (the
+# short phrase after the state word, or None), `source_line` (the "Source and date" cell)
+# and `basis` (API_CONTRACT §A4.4). `{date}` in a source line or a summary is the row's
+# observed_at; the row writer fills it once it knows that time. Every other placeholder is
+# filled here.
+
+DATE = "{date}"
+
+
+def short_date(value: date, today: date) -> str:
+    """`12 Aug` in the current calendar year, `12 Aug 2025` otherwise (API_CONTRACT §A4.1)."""
+    words = f"{value.day} {MONTHS[value.month - 1]}"
+    return words if value.year == today.year else f"{words} {value.year}"
+
+
+def _row(
+    basis: str, summary: str, source_line: str, finding: str | None = None, **extra: Any
+) -> dict[str, Any]:
+    return {
+        "summary": summary,
+        "finding": finding,
+        "source_line": source_line,
+        "basis": basis,
+        **extra,
+    }
 
 
 def source_unavailable(
     source: str, error: str | None = None, *, disabled: bool = False
 ) -> dict[str, Any]:
-    detail: dict[str, Any] = {
-        "summary": (
-            f"{SOURCE_NAMES[source]} did not respond. "
-            "This check stays pending until a recheck or the next upload."
-        ),
-        "source_unavailable": True,
-    }
+    name = SOURCE_NAMES[source]
+    detail = _row(
+        "SOURCE_UNAVAILABLE",
+        f"{name} did not respond. This row is asked again at the next recheck or the next upload.",
+        f"{name} did not respond · {DATE}",
+        source_unavailable=True,
+    )
     if disabled:
         detail["source_disabled"] = True
     if error:
@@ -145,175 +174,151 @@ def source_unavailable(
 
 # ---------------------------------------------------------------------- IDENTITY
 
-
-def identity_no_apaar() -> dict[str, Any]:
-    return {"summary": "APAAR not linked; admission is not blocked."}
-
-
-def identity_international() -> dict[str, Any]:
-    return {
-        "summary": "International student; identity is checked through the passport, not APAAR."
-    }
+APAAR_LINE = f"APAAR verification · {DATE}"
+DIGILOCKER_LINE = f"Student sign-in via DigiLocker · {DATE}"
+SII_LINE = f"Study in India · {DATE}"
 
 
-def identity_malformed(problem: str) -> dict[str, Any]:
-    return {"summary": f"APAAR as uploaded {problem}; the enrolment was kept without it."}
+def identity_confirmed(name_score: int, apaar_last4: str | None) -> dict[str, Any]:
+    return _row(
+        "APAAR_MATCH",
+        f"Name and date of birth match the APAAR registry (similarity {name_score} of 100).",
+        APAAR_LINE,
+        name_score=name_score,
+        dob_match=True,
+        apaar_last4=apaar_last4,
+    )
+
+
+def identity_review(name_score: int, apaar_last4: str | None) -> dict[str, Any]:
+    return _row(
+        "NAME_REVIEW",
+        "Name on upload is close to the APAAR registry but not a clear match "
+        f"(similarity {name_score} of 100); an officer should review. Name matching supports "
+        "a decision; it never makes one.",
+        APAAR_LINE,
+        "needs review",
+        name_score=name_score,
+        dob_match=True,
+        needs_review=True,
+        apaar_last4=apaar_last4,
+        case_type=FlagType.NAME_MISMATCH.value,
+    )
 
 
 def identity_not_found(apaar_last4: str | None) -> dict[str, Any]:
     """The registry has no such id, so it returned no name score and no date check."""
-    return {
-        "summary": f"APAAR ending {apaar_last4} is not in the APAAR registry.",
-        "apaar_last4": apaar_last4,
-    }
+    return _row(
+        "APAAR_UNKNOWN",
+        f"APAAR ending {apaar_last4} is not in the APAAR registry.",
+        APAAR_LINE,
+        "APAAR not found",
+        apaar_last4=apaar_last4,
+        case_type=FlagType.INVALID_APAAR.value,
+    )
 
 
-def identity_dob_mismatch(name_score: int, apaar_last4: str | None) -> dict[str, Any]:
-    return {
-        "summary": "Date of birth on upload does not match the APAAR registry.",
-        "name_score": name_score,
-        "dob_match": False,
-        "apaar_last4": apaar_last4,
-    }
+def identity_malformed(problem: str) -> dict[str, Any]:
+    return _row(
+        "APAAR_MALFORMED",
+        f"APAAR as uploaded {problem}; the record was kept without it.",
+        f"College upload · {DATE}",
+        "APAAR not valid",
+        case_type=FlagType.INVALID_APAAR.value,
+    )
 
 
 def identity_name_differs(name_score: int, apaar_last4: str | None) -> dict[str, Any]:
-    return {
-        "summary": (
-            f"Name on upload differs from the APAAR registry (similarity {name_score} of 100)."
-        ),
-        "name_score": name_score,
-        "dob_match": True,
-        "apaar_last4": apaar_last4,
-    }
-
-
-def identity_review(name_score: int, apaar_last4: str | None) -> dict[str, Any]:
-    return {
-        "summary": (
-            "Name on upload is close to the APAAR registry but not a clear match "
-            f"(similarity {name_score} of 100); an officer should review."
-        ),
-        "name_score": name_score,
-        "dob_match": True,
-        "needs_review": True,
-        "apaar_last4": apaar_last4,
-    }
-
-
-def identity_pass(name_score: int, apaar_last4: str | None) -> dict[str, Any]:
-    return {
-        "summary": (
-            f"Name and date of birth match the APAAR registry (similarity {name_score} of 100)."
-        ),
-        "name_score": name_score,
-        "dob_match": True,
-        "apaar_last4": apaar_last4,
-    }
-
-
-# --------------------------------------------------------------------- ADMISSION
-
-
-def admission_counselling_found(
-    *,
-    state_name: str,
-    programme_code: str,
-    cohort_start: int,
-    round_no: int | None,
-    allotment_ref: str | None,
-    counselling_ref: str | None,
-) -> dict[str, Any]:
-    mismatch = bool(counselling_ref) and bool(allotment_ref) and allotment_ref != counselling_ref
-    head = (
-        f"Found in the {state_name} counselling allotments for {programme_code} "
-        f"({cohort_start}), round {round_no}"
+    return _row(
+        "NAME_MISMATCH",
+        f"Name on upload differs from the APAAR registry (similarity {name_score} of 100).",
+        APAAR_LINE,
+        "name differs",
+        name_score=name_score,
+        dob_match=True,
+        apaar_last4=apaar_last4,
+        case_type=FlagType.NAME_MISMATCH.value,
     )
-    summary = (
-        f"{head}, as {allotment_ref}; the upload says {counselling_ref}."
-        if mismatch
-        else f"{head}."
+
+
+def identity_dob_mismatch(name_score: int, apaar_last4: str | None) -> dict[str, Any]:
+    return _row(
+        "DOB_MISMATCH",
+        "Date of birth on upload does not match the APAAR registry.",
+        APAAR_LINE,
+        "date of birth differs",
+        name_score=name_score,
+        dob_match=False,
+        apaar_last4=apaar_last4,
+        case_type=FlagType.NAME_MISMATCH.value,
     )
-    return {
-        "summary": summary,
-        "round": round_no,
-        "allotment_ref": allotment_ref,
-        "ref_mismatch": mismatch,
-    }
 
 
-def admission_counselling_not_found(
-    *, state_name: str, programme_code: str, cohort_start: int
-) -> dict[str, Any]:
-    return {
-        "summary": (
-            f"Not found in the {state_name} counselling allotments for {programme_code} "
-            f"({cohort_start})."
-        )
-    }
+def identity_no_apaar() -> dict[str, Any]:
+    return _row(
+        "NO_APAAR",
+        "APAAR not linked, and the student has not claimed the record through DigiLocker yet. "
+        "Admission is not blocked.",
+        "APAAR not linked; alternative route not used yet",
+    )
 
 
-def admission_seat_rules_pass(
-    route: AdmissionRoute, programme_code: str, seat_type: SeatType
-) -> dict[str, Any]:
-    return {
-        "summary": (
-            f"{ROUTE_WORDS[route]} admission is allowed for {programme_code} and holds a "
-            f"{SEAT_TYPE_WORDS[seat_type]} seat."
-        ),
-        "seat_type": seat_type.value,
-    }
+def identity_digilocker_claim() -> dict[str, Any]:
+    return _row(
+        "DIGILOCKER_CLAIM",
+        f"The student signed in with DigiLocker on {DATE} and claimed this record with its "
+        "provisional ID; name and date of birth match.",
+        DIGILOCKER_LINE,
+    )
 
 
-def admission_seat_rules_no_pool(
-    route: AdmissionRoute, programme_code: str, cohort_year: str, seat_type: SeatType
-) -> dict[str, Any]:
-    return {
-        "summary": (
-            f"{ROUTE_WORDS[route]} admission is not allowed for {programme_code}: the "
-            f"{cohort_year} approval has no {SEAT_TYPE_WORDS[seat_type]} seats."
-        ),
-        "seat_type": seat_type.value,
-    }
+def identity_sii_confirmed() -> dict[str, Any]:
+    return _row("SII_MATCH", "Study in India confirms the passport holder's identity.", SII_LINE)
 
 
-def admission_seat_rules_no_seat(
-    route: AdmissionRoute, programme_code: str, cohort_year: str, seat_type: SeatType
-) -> dict[str, Any]:
-    return {
-        "summary": (
-            f"{ROUTE_WORDS[route]} admission has no {SEAT_TYPE_WORDS[seat_type]} seat in "
-            f"{programme_code} ({cohort_year})."
-        ),
-        "seat_type": seat_type.value,
-    }
-
-
-def admission_sii_confirms(programme_code: str, cohort_year: str) -> dict[str, Any]:
-    return {
-        "summary": f"Study in India confirms this admission to {programme_code} ({cohort_year})."
-    }
-
-
-def admission_sii_no_match() -> dict[str, Any]:
-    return {
-        "summary": (
-            "Study in India has no matching admission for this passport at this institution."
-        )
-    }
+def identity_sii_none() -> dict[str, Any]:
+    return _row(
+        "SII_NONE",
+        "Study in India has no admission on record for this passport; see the Joining record row.",
+        SII_LINE,
+    )
 
 
 # -------------------------------------------------------------------------- SEAT
 
 
-def seat_holds(seat_code: str, seat_type: SeatType, cohort_year: str) -> dict[str, Any]:
+def approval_line(version: int, cohort_year: str) -> str:
+    """The Seat row's source: `AICTE approval v2, 2026-27 (Seat Ledger, derived)`."""
+    return f"AICTE approval v{version}, {cohort_year} (Seat Ledger, derived)"
+
+
+def _seat_keys(
+    approval_id: uuid.UUID | None, version: int, seat_code: str | None, seat_type: SeatType
+) -> dict[str, Any]:
     return {
-        "summary": (
-            f"Holds seat {seat_code} ({SEAT_TYPE_WORDS[seat_type]}, {cohort_year} approval)."
-        ),
+        "approval_id": str(approval_id) if approval_id else None,
+        "approval_version": version,
         "seat_code": seat_code,
         "seat_type": seat_type.value,
     }
+
+
+def seat_confirmed(
+    seat_code: str,
+    seat_type: SeatType,
+    *,
+    approval_id: uuid.UUID | None,
+    version: int,
+    cohort_year: str,
+) -> dict[str, Any]:
+    return _row(
+        "FITS",
+        f"Holds seat {seat_code} ({SEAT_TYPE_WORDS[seat_type]}, AICTE approval v{version}, "
+        f"{cohort_year}).",
+        approval_line(version, cohort_year),
+        "fits approved intake",
+        **_seat_keys(approval_id, version, seat_code, seat_type),
+    )
 
 
 def seat_missing(
@@ -322,20 +327,213 @@ def seat_missing(
     cohort_year: str,
     flag_type: FlagType,
     flag_dedupe_key: str,
+    *,
+    approval_id: uuid.UUID | None = None,
+    version: int = 1,
 ) -> dict[str, Any]:
-    return {
-        "summary": (
-            f"No {SEAT_TYPE_WORDS[seat_type]} seat is free in {programme_code} ({cohort_year}); "
-            f"see the {FLAG_NAMES[flag_type]} flag."
-        ),
-        "seat_code": None,
-        "seat_type": seat_type.value,
-        "flag_type": flag_type.value,
-        "flag_dedupe_key": flag_dedupe_key,
-    }
+    return _row(
+        "NO_SEAT",
+        f"No {SEAT_TYPE_WORDS[seat_type]} seat is free in {programme_code} ({cohort_year}); "
+        f"see the {FLAG_NAMES[flag_type]} case.",
+        approval_line(version, cohort_year),
+        "beyond approved intake",
+        **_seat_keys(approval_id, version, None, seat_type),
+        flag_type=flag_type.value,
+        flag_dedupe_key=flag_dedupe_key,
+        case_type=flag_type.value,
+    )
 
 
-# ---------------------------------------------------------------------- STUDYING
+def seat_no_pool(
+    route: AdmissionRoute,
+    seat_type: SeatType,
+    programme_code: str,
+    cohort_year: str,
+    flag_type: FlagType,
+    flag_dedupe_key: str,
+    *,
+    approval_id: uuid.UUID | None = None,
+    version: int = 1,
+) -> dict[str, Any]:
+    word = SEAT_TYPE_WORDS[seat_type]
+    return _row(
+        "NO_POOL",
+        f"{ROUTE_WORDS[route]} admission is not allowed for {programme_code}: approval "
+        f"v{version} for {cohort_year} has no {word} seats.",
+        approval_line(version, cohort_year),
+        f"no {word} seats approved",
+        **_seat_keys(approval_id, version, None, seat_type),
+        flag_type=flag_type.value,
+        flag_dedupe_key=flag_dedupe_key,
+        case_type=flag_type.value,
+    )
+
+
+def seat_not_eligible(
+    seat_code: str,
+    seat_type: SeatType,
+    *,
+    rule: str,
+    reported_word: str,
+    clause: str,
+    reported: dict[str, bool | None],
+    approval_id: uuid.UUID | None,
+    version: int,
+    cohort_year: str,
+) -> dict[str, Any]:
+    return _row(
+        "NOT_ELIGIBLE",
+        f"{SEAT_TYPE_WORDS[seat_type]} seat held by a student reported as {reported_word}; "
+        f"{clause} does not allow it.",
+        approval_line(version, cohort_year),
+        "not eligible for this seat",
+        **_seat_keys(approval_id, version, seat_code, seat_type),
+        eligibility_rule=rule,
+        reported=reported,
+        case_type=FlagType.ELIGIBILITY_BREACH.value,
+    )
+
+
+def seat_tfw_not_reported(
+    seat_code: str,
+    seat_type: SeatType,
+    *,
+    reported: dict[str, bool | None],
+    approval_id: uuid.UUID | None,
+    version: int,
+    cohort_year: str,
+) -> dict[str, Any]:
+    return _row(
+        "TFW_NOT_REPORTED",
+        "TFW income certificate not reported; the seat is held until the college reports it.",
+        approval_line(version, cohort_year),
+        "TFW income certificate not reported",
+        **_seat_keys(approval_id, version, seat_code, seat_type),
+        eligibility_rule="TFW_INCOME",
+        reported=reported,
+    )
+
+
+# ---------------------------------------------------------------- Joining record
+
+AUTHORITY_LINE = f"State admission authority · {DATE}"
+
+
+def round_words(round_no: int | None, route: str | None) -> str:
+    """`round 1` for a counselling joining, else `Management admission approved by the state`."""
+    if round_no is not None:
+        return f"round {round_no}"
+    try:
+        word = ROUTE_WORDS[AdmissionRoute(route or "")]
+    except ValueError:
+        word = (route or "State").title()
+    return f"{word} admission approved by the state"
+
+
+def _joining_keys(joining_year: str, deadline: date, published: bool) -> dict[str, Any]:
+    return {"joining_year": joining_year, "deadline": deadline.isoformat(), "published": published}
+
+
+def admission_joined(
+    *,
+    state_name: str,
+    programme_code: str,
+    joining_year: str,
+    deadline: date,
+    joined_on: date,
+    round_no: int | None,
+    route: str | None,
+    uploaded_route: AdmissionRoute,
+    today: date,
+) -> dict[str, Any]:
+    joined = short_date(joined_on, today)
+    return _row(
+        "JOINED",
+        f"The {state_name} admission authority records that the student joined "
+        f"{programme_code} at this college on {joined} ({round_words(round_no, route)}).",
+        AUTHORITY_LINE,
+        f"joined {joined}",
+        **_joining_keys(joining_year, deadline, True),
+        joined_on=joined_on.isoformat(),
+        round=round_no,
+        route=route,
+        route_mismatch=route is not None and route != uploaded_route.value,
+    )
+
+
+def admission_pending(
+    *, state_name: str, joining_year: str, deadline: date, today: date
+) -> dict[str, Any]:
+    return _row(
+        "NOT_YET_IN_RECORD",
+        f"Not in the {state_name} admission authority's joining record yet; the reporting "
+        f"deadline is {short_date(deadline, today)}.",
+        AUTHORITY_LINE,
+        "not in the joining record yet",
+        **_joining_keys(joining_year, deadline, True),
+    )
+
+
+def admission_not_yet_due(
+    *, state_name: str, joining_year: str, deadline: date, today: date
+) -> dict[str, Any]:
+    due = short_date(deadline, today)
+    return _row(
+        "NOT_PUBLISHED",
+        f"The {state_name} admission authority publishes joining records by {due}.",
+        f"Published by {due}",
+        **_joining_keys(joining_year, deadline, False),
+    )
+
+
+def admission_unpublished_late(
+    *, state_name: str, joining_year: str, deadline: date, today: date
+) -> dict[str, Any]:
+    due = short_date(deadline, today)
+    return _row(
+        "NOT_PUBLISHED_LATE",
+        f"The {state_name} admission authority has not published its joining record for "
+        f"{joining_year}; it was due by {due}.",
+        f"Published by {due}",
+        "not published yet",
+        **_joining_keys(joining_year, deadline, False),
+    )
+
+
+def admission_not_found(
+    *, state_name: str, programme_code: str, joining_year: str, deadline: date, today: date
+) -> dict[str, Any]:
+    return _row(
+        "NOT_IN_JOINING_RECORD",
+        f"Not found in the {state_name} admission authority's joining record for "
+        f"{programme_code} ({joining_year}) after the reporting deadline of "
+        f"{short_date(deadline, today)}.",
+        AUTHORITY_LINE,
+        "not found",
+        **_joining_keys(joining_year, deadline, True),
+        case_type=FlagType.NOT_IN_JOINING_RECORD.value,
+    )
+
+
+def admission_sii_confirmed(programme_code: str, cohort_year: str) -> dict[str, Any]:
+    return _row(
+        "SII_ADMITTED",
+        f"Study in India confirms this admission to {programme_code} ({cohort_year}).",
+        SII_LINE,
+    )
+
+
+def admission_sii_not_admitted() -> dict[str, Any]:
+    return _row(
+        "SII_NOT_ADMITTED",
+        "Study in India has no matching admission for this passport at this institution.",
+        SII_LINE,
+        "not found",
+        case_type=FlagType.NOT_IN_JOINING_RECORD.value,
+    )
+
+
+# ----------------------------------------------------------------------- Credits
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,58 +541,153 @@ class SemesterCredits:
     academic_year: str
     sem: int
     credits: int
+    issuer: str | None = None
+    issuer_name: str | None = None
 
     def wire(self) -> dict[str, Any]:
-        return {"academic_year": self.academic_year, "sem": self.sem, "credits": self.credits}
+        out: dict[str, Any] = {
+            "academic_year": self.academic_year,
+            "sem": self.sem,
+            "credits": self.credits,
+        }
+        if self.issuer:
+            out["issuer"] = self.issuer
+        return out
 
 
-def studying_first_year() -> dict[str, Any]:
-    return {"summary": "First year, no result yet."}
+@dataclass(frozen=True, slots=True)
+class CreditIssuers:
+    """Who issued the credits read for one record (D38)."""
+
+    self_issued: bool  # any semester read was issued by the claiming institution
+    issuer: str | None  # the issuing body's code (several joined with ", ")
+    issuer_name: str | None  # its name (several joined with "and")
+    institution_name: str
+
+    @property
+    def supplied_by(self) -> str:
+        if self.self_issued:
+            return f"ABC, issued by {self.institution_name} (the college itself)"
+        if self.issuer_name:
+            return f"ABC, issued by {self.issuer_name}"
+        return SOURCE_NAMES["ABC"]
+
+    @property
+    def source_line(self) -> str:
+        if self.self_issued:
+            return f"ABC, issued by {self.institution_name} itself · {DATE}"
+        if self.issuer_name:
+            return f"ABC, issued by {self.issuer_name} · {DATE}"
+        return f"{SOURCE_NAMES['ABC']} · {DATE}"
 
 
-def studying_lateral_entry() -> dict[str, Any]:
-    return {"summary": "Joined in year 2 as a lateral entrant; no completed year to check yet."}
+def credit_issuers(
+    semesters: Sequence[SemesterCredits], institution_code: str, institution_name: str
+) -> CreditIssuers:
+    """The issuers of the semesters that carry credits, in the order they first appear."""
+    issuers: dict[str, str] = {}
+    for s in semesters:
+        if s.credits > 0 and s.issuer:
+            issuers.setdefault(s.issuer, s.issuer_name or s.issuer)
+    self_issued = institution_code in issuers
+    return CreditIssuers(
+        self_issued=self_issued,
+        issuer=", ".join(issuers) or None,
+        issuer_name=institution_name
+        if self_issued
+        else (_join_words(list(issuers.values())) or None),
+        institution_name=institution_name,
+    )
+
+
+def studying_not_yet_due(expected_issuer: str | None) -> dict[str, Any]:
+    return _row(
+        "FIRST_YEAR",
+        "First year; no semester result is due yet.",
+        "First semester not complete",
+        issuer_name=expected_issuer,
+    )
+
+
+def studying_not_yet_due_lateral(expected_issuer: str | None) -> dict[str, Any]:
+    return _row(
+        "LATERAL_FIRST_YEAR",
+        "Lateral entry into year 2; no semester result here is due yet.",
+        "Lateral entry; first semester here not complete",
+        issuer_name=expected_issuer,
+    )
 
 
 def studying_no_apaar() -> dict[str, Any]:
-    return {"summary": "APAAR not linked; ABC credits cannot be checked."}
+    return _row(
+        "NO_APAAR",
+        "APAAR not linked; ABC credits cannot be checked.",
+        "APAAR not linked; ABC cannot be checked",
+    )
 
 
 def studying_unknown_apaar() -> dict[str, Any]:
-    return {"summary": "ABC has no record of this APAAR; see the Identity check."}
+    return _row(
+        "ABC_UNKNOWN",
+        "ABC has no record of this APAAR; see the Identity row.",
+        "ABC has no record of this APAAR",
+    )
 
 
-def studying_detail(semesters: Sequence[SemesterCredits]) -> dict[str, Any]:
-    """PASS, PENDING (one semester missing) or FAIL (two or more), by the missing count."""
+def studying_detail(
+    semesters: Sequence[SemesterCredits], issuers: CreditIssuers | None = None
+) -> dict[str, Any]:
+    """CONFIRMED, PENDING (one semester missing) or CONTRADICTED (two or more), by `missing`."""
+    issuers = issuers or credit_issuers(semesters, "", "")
     expected = len(semesters)
     missing = [s for s in semesters if s.credits <= 0]
-    detail: dict[str, Any] = {
+    keys: dict[str, Any] = {
         "expected": expected,
         "missing": len(missing),
         "semesters": [s.wire() for s in semesters],
+        "issuer": issuers.issuer,
+        "issuer_name": issuers.issuer_name,
+        "self_issued": issuers.self_issued,
     }
+    line = issuers.source_line
     if not missing:
-        summary = f"Credits recorded in ABC for all {expected} semesters since admission."
-    elif len(missing) == 1:
+        finding = f"credits for {expected} semesters"
+        if issuers.self_issued:
+            return _row(
+                "CREDITS_SELF_ISSUED",
+                f"Credits recorded in ABC for all {expected} semesters, issued by the college "
+                "itself. They do not count as evidence independent of the college.",
+                line,
+                finding,
+                **keys,
+            )
+        by = f", issued by {issuers.issuer_name}" if issuers.issuer_name else ""
+        return _row(
+            "CREDITS",
+            f"Credits recorded in ABC for all {expected} semesters since admission{by}.",
+            line,
+            finding,
+            **keys,
+        )
+    if len(missing) == 1:
         gap = missing[0]
-        summary = (
-            f"No credits recorded in ABC for semester {gap.sem} ({gap.academic_year}); "
-            "waiting for the next upload."
+        return _row(
+            "ONE_SEMESTER_MISSING",
+            f"No credits recorded in ABC for semester {gap.sem} ({gap.academic_year}); waiting "
+            "for the next results.",
+            line,
+            f"waiting for semester {gap.sem}",
+            **keys,
+            awaiting_semester=gap.sem,
         )
-        detail["awaiting_semester"] = gap.sem
-    else:
-        summary = (
-            f"No credits recorded in ABC for {len(missing)} of {expected} semesters "
-            "since admission."
-        )
-    return {"summary": summary, **detail}
-
-
-# ----------------------------------------------------------------------- STUDENT
-
-
-def student_notice_not_sent() -> dict[str, Any]:
-    return {"summary": "Notice not sent yet."}
+    return _row(
+        "NO_ACADEMIC_ACTIVITY",
+        f"No credits recorded in ABC for {len(missing)} of {expected} semesters since admission.",
+        line,
+        f"no credits for {len(missing)} semesters",
+        **keys,
+        case_type=FlagType.NO_ACADEMIC_ACTIVITY.value,
+    )
 
 
 # ================================================================== flag evidence
@@ -477,6 +770,76 @@ def no_academic_activity(
         ],
         related,
         "ABC credit record",
+    )
+
+
+def not_in_joining_record(
+    *,
+    state_name: str,
+    programme_code: str,
+    joining_year: str,
+    deadline: date,
+    checked_on: date,
+    related: Iterable[uuid.UUID | str],
+) -> dict[str, Any]:
+    """The Joining record row is Contradicted after the reporting deadline (D39)."""
+    return _evidence(
+        f"Not found in the {state_name} admission authority's joining record for "
+        f"{programme_code} ({joining_year}) after the reporting deadline of {fmt_date(deadline)}.",
+        [
+            fact("Programme and year", f"{programme_code} ({joining_year})", "College upload"),
+            fact("Joining record", "Not found", SOURCE_NAMES["ADMISSION_AUTHORITY"]),
+            fact("Checked on", fmt_date(checked_on), SOURCE_NAMES["ADMISSION_AUTHORITY"]),
+            fact("Reporting deadline", fmt_date(deadline), "AICTE reporting schedule"),
+        ],
+        related,
+        "State admission authority joining record",
+    )
+
+
+def not_in_study_in_india(
+    *,
+    programme_code: str,
+    cohort_year: str,
+    checked_on: date,
+    related: Iterable[uuid.UUID | str],
+) -> dict[str, Any]:
+    """An international admission Study in India does not hold (API_CONTRACT §A4.11)."""
+    return _evidence(
+        "Study in India has no matching admission for this passport at this institution.",
+        [
+            fact("Programme and year", f"{programme_code} ({cohort_year})", "College upload"),
+            fact("Study in India", "Not found", "Study in India"),
+            fact("Checked on", fmt_date(checked_on), "Study in India"),
+        ],
+        related,
+        "Study in India",
+    )
+
+
+def eligibility_breach(
+    *,
+    seat_code: str,
+    seat_type: SeatType,
+    programme_code: str,
+    cohort_year: str,
+    reported_word: str,
+    allowed_words: str,
+    clause: str,
+    related: Iterable[uuid.UUID | str],
+) -> dict[str, Any]:
+    """A seat's category does not allow the student as reported (D41)."""
+    word = SEAT_TYPE_WORDS[seat_type]
+    return _evidence(
+        f"{word} seat in {programme_code} ({cohort_year}) held by a student reported as "
+        f"{reported_word}.",
+        [
+            fact("Seat", f"{seat_code} ({word})", "Seat Ledger"),
+            fact("Reported as", reported_word, "College upload"),
+            fact("Allowed for this seat", allowed_words, APPROVAL_RULES),
+        ],
+        related,
+        clause,
     )
 
 

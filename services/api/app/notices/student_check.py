@@ -1,9 +1,11 @@
-"""The STUDENT check, derived from the enrolment's notices (D24, API_CONTRACT §A3.8).
+"""The STUDENT row, derived from the enrolment's notices (D24, D37; API_CONTRACT §A3.8, §A4.4).
 
-The check never calls an adapter. `derive` is pure: it reads the notice facts and the
-student's contact details on the subject and returns the check outcome, with one
-STUDENT_DENIED flag intent whenever a notice says No or once said No. The student's
-comment travels only in memory and into the officers-only fact of that flag.
+The row never calls an adapter. `derive` is pure: it reads the notice facts and the
+student's contact details on the subject and returns the row, with one STUDENT_DENIED case
+intent (shown as "Student dispute") whenever a notice says No or once said No. Every answer
+comes from a student signed in through DigiLocker, so an answered row is supplied by the
+student and independent of the college. The student's comment travels only in memory and
+into the officers-only fact of that case.
 """
 
 from __future__ import annotations
@@ -37,18 +39,24 @@ if TYPE_CHECKING:
     from app.engine.checks.base import CheckSubject
 
 SOURCE = "STUDENT_NOTICE"
-RULE_SOURCE = "Student reply"
-FACT_SOURCE = "Student reply"
+SUPPLIED_BY = "Student via DigiLocker sign-in"
+RULE_SOURCE = "Student's answer after DigiLocker sign-in"
+FACT_SOURCE = "Student sign-in via DigiLocker"
 # Dates inside sentences are the Indian calendar date (A3.1).
 IST = timezone(timedelta(hours=5, minutes=30), "IST")
 
 CHANNEL_WORDS = {NoticeChannel.EMAIL: "email", NoticeChannel.DIGILOCKER: "DigiLocker"}
 CHANNEL_NAMES = {NoticeChannel.EMAIL: "Email", NoticeChannel.DIGILOCKER: "DigiLocker"}
 
+# copy deck §6 `case.system_note.reply_changed`
 REPLY_CHANGED_NOTE = (
-    "The student changed the reply from No to Yes on {changed_date}. "
-    "The flag keeps its status until an officer decides."
+    "The student changed the answer from No to Yes on {changed_date}. "
+    "The case keeps its status until an officer decides."
 )
+# copy deck §15 Student findings; the quotation marks are part of the text
+SAID_NO = '"I never joined"'
+SAID_YES = '"I joined"'
+DIGILOCKER_LINE = "Student sign-in via DigiLocker · {date}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,11 +164,24 @@ def _latest(notices: Sequence[NoticeFact]) -> NoticeFact:
     return max(notices, key=lambda n: (n.sent_at or n.expires_at, n.expires_at))
 
 
-def _decided(
-    status: CheckStatus, state: str, summary: str, notice: NoticeFact
+def _day(at: datetime, now: datetime) -> str:
+    """`12 Aug` in the current calendar year, `12 Aug 2025` otherwise (API_CONTRACT §A4.1)."""
+    return ev.short_date(ist_date(at), ist_date(now))
+
+
+def _answered(
+    status: CheckStatus,
+    basis: str,
+    state: str,
+    finding: str,
+    summary: str,
+    notice: NoticeFact,
 ) -> tuple[CheckStatus, dict[str, Any]]:
     return status, {
         "summary": summary,
+        "finding": finding,
+        "source_line": DIGILOCKER_LINE,
+        "basis": basis,
         "notice_state": state,
         "channel": notice.channel.value,
         "sent_at": wire_time(notice.sent_at),
@@ -169,59 +190,102 @@ def _decided(
     }
 
 
+def _waiting(basis: str, finding: str, source_line: str, summary: str, **extra: Any):
+    return CheckStatus.PENDING, {
+        "summary": summary,
+        "finding": finding,
+        "source_line": source_line,
+        "basis": basis,
+        **extra,
+    }
+
+
 def _status_and_detail(subject: CheckSubject, now: datetime) -> tuple[CheckStatus, dict[str, Any]]:
     notices = subject.notices
     no = [n for n in notices if n.response is NoticeResponse.NO]
     if no:
         notice = min(no, key=_answered_at)
-        when = fmt_day(_answered_at(notice))
-        summary = f"Denied by the student on {when} ({CHANNEL_WORDS[notice.channel]})."
-        return _decided(CheckStatus.CONTRADICTED, "DENIED", summary, notice)
+        when = _day(_answered_at(notice), now)
+        return _answered(
+            CheckStatus.CONTRADICTED,
+            "DENIED",
+            "DENIED",
+            SAID_NO,
+            f"The student signed in with DigiLocker on {when} and said they never joined.",
+            notice,
+        )
     yes = [n for n in notices if n.response is NoticeResponse.YES]
     if yes:
         notice = min(yes, key=_answered_at)
-        when = fmt_day(_answered_at(notice))
-        summary = f"Confirmed by the student on {when} ({CHANNEL_WORDS[notice.channel]})."
-        return _decided(CheckStatus.CONFIRMED, "CONFIRMED", summary, notice)
+        if notice.previous_response is NoticeResponse.NO and notice.changed_at is not None:
+            assert notice.responded_at is not None
+            summary = (
+                f"The student said they never joined on {_day(notice.responded_at, now)}, "
+                f"then changed the answer to Yes on {_day(notice.changed_at, now)}."
+            )
+            return _answered(
+                CheckStatus.CONFIRMED, "CONFIRMED_CHANGED", "CONFIRMED", SAID_YES, summary, notice
+            )
+        when = _day(_answered_at(notice), now)
+        return _answered(
+            CheckStatus.CONFIRMED,
+            "CONFIRMED",
+            "CONFIRMED",
+            SAID_YES,
+            f"The student signed in with DigiLocker on {when} and said they joined.",
+            notice,
+        )
 
     delivered = [n for n in notices if n.delivery_status is NoticeDelivery.SENT]
     if not delivered:
-        if not reachable(subject):
-            return CheckStatus.PENDING, {
-                "summary": "No email or APAAR on record, so no notice can be sent.",
-                "notice_state": "UNREACHABLE",
-            }
-        detail: dict[str, Any] = {
-            "summary": "Notice not sent yet.",
-            "notice_state": "NOT_SENT",
-        }
+        extra: dict[str, Any] = {}
         if any(n.delivery_status is NoticeDelivery.FAILED for n in notices):
-            detail["delivery_failed"] = True
+            extra["delivery_failed"] = True
         if subject.notice_consent_withdrawn:
-            detail["consent_withdrawn"] = True
-        return CheckStatus.PENDING, detail
+            extra["consent_withdrawn"] = True
+        # no email and no linked APAAR: no notice can be sent, but the student can still
+        # sign in and answer
+        state = "NOT_SENT" if reachable(subject) else "UNREACHABLE"
+        return _waiting(
+            state,
+            "notice not sent yet",
+            "No notice sent yet",
+            "Notice not sent yet.",
+            notice_state=state,
+            **extra,
+        )
 
     live = [n for n in delivered if n.expires_at > now]
     if live:
         notice = _latest(live)
         assert notice.sent_at is not None
-        return CheckStatus.PENDING, {
-            "summary": f"Notice sent on {fmt_day(notice.sent_at)}; no reply yet.",
-            "notice_state": "SENT",
-            "channel": notice.channel.value,
-            "sent_at": wire_time(notice.sent_at),
-        }
+        sent = _day(notice.sent_at, now)
+        return _waiting(
+            "SENT",
+            "no answer yet",
+            f"Notice sent {sent}",
+            f"Notice sent on {sent}; no answer yet.",
+            notice_state="SENT",
+            channel=notice.channel.value,
+            sent_at=wire_time(notice.sent_at),
+        )
     notice = _latest(delivered)
-    return CheckStatus.PENDING, {
-        "summary": "No reply (expired).",
-        "notice_state": "EXPIRED",
-        "channel": notice.channel.value,
-        "sent_at": wire_time(notice.sent_at),
-    }
+    expired = _day(notice.expires_at, now)
+    return _waiting(
+        "EXPIRED",
+        "no answer",
+        f"Notice expired {expired}",
+        f"No answer before the notice expired on {expired}. Silence never counts against "
+        "the record.",
+        notice_state="EXPIRED",
+        channel=notice.channel.value,
+        sent_at=wire_time(notice.sent_at),
+    )
 
 
 def student_denied_evidence(notice: NoticeFact, *, enrolment_id: uuid.UUID) -> dict[str, Any]:
-    """The STUDENT_DENIED evidence for the notice that carried (or carried, then dropped) a No."""
+    """The Student dispute evidence for the notice that carried (or carried, then dropped) a
+    No (copy deck §5)."""
     sent_date = fmt_day(_sent_or_created(notice))
     changed_to_yes = (
         notice.response is NoticeResponse.YES
@@ -230,23 +294,24 @@ def student_denied_evidence(notice: NoticeFact, *, enrolment_id: uuid.UUID) -> d
     )
     if changed_to_yes:
         assert notice.changed_at is not None and notice.responded_at is not None
-        changed_date = fmt_day(notice.changed_at)
-        summary = (
-            f'Student replied "not me" to the notice sent on {sent_date}, '
-            f"then changed the reply to Yes on {changed_date}."
-        )
         replied_on = fmt_day(notice.responded_at)
+        summary = (
+            f"The student said they never joined on {replied_on}, "
+            f"then changed the answer to Yes on {fmt_day(notice.changed_at)}."
+        )
     else:
-        summary = f'Student replied "not me" to the notice sent on {sent_date}.'
         replied_on = fmt_day(_answered_at(notice))
+        summary = (
+            f"The student said they never joined, after signing in with DigiLocker on {replied_on}."
+        )
     facts = [
-        ev.fact("Channel", CHANNEL_NAMES[notice.channel], FACT_SOURCE),
-        ev.fact("Notice sent", sent_date, FACT_SOURCE),
-        ev.fact("Replied on", replied_on, FACT_SOURCE),
+        ev.fact("Signed in with", "DigiLocker", FACT_SOURCE),
+        ev.fact("Notice sent", sent_date, "Countersign"),
+        ev.fact("Answered on", replied_on, FACT_SOURCE),
     ]
     if changed_to_yes:
         assert notice.changed_at is not None
-        facts.append(ev.fact("Reply changed", f"Yes on {fmt_day(notice.changed_at)}", FACT_SOURCE))
+        facts.append(ev.fact("Answer changed", f"Yes on {fmt_day(notice.changed_at)}", FACT_SOURCE))
     facts.append(
         ev.fact(
             "Comment from the student",
@@ -309,6 +374,8 @@ def derive(subject: CheckSubject, *, now: datetime | None = None) -> CheckOutcom
                 enrolment_id=subject.enrolment_id,
             ),
         )
+    if status is CheckStatus.CONTRADICTED:
+        detail["case_type"] = FlagType.STUDENT_DENIED.value
     if deciding is None:
         return CheckOutcome(
             type=CheckType.STUDENT, status=status, source=SOURCE, detail=detail, flags=flags
@@ -319,7 +386,7 @@ def derive(subject: CheckSubject, *, now: datetime | None = None) -> CheckOutcom
         source=SOURCE,
         detail=detail,
         flags=flags,
-        supplied_by=ev.SOURCE_NAMES[SOURCE],
+        supplied_by=SUPPLIED_BY,
         observed_at=_answered_at(deciding),
         independent=True,
     )

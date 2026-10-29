@@ -1,21 +1,21 @@
-apaar_id,name,dob,gender,mobile,email,address,nationality,passport_no,programme_code,academic_year,year_of_study,admission_route,counselling_ref,category,consent_status,status,status_date,admission_date
-123456784417,Ravi Kumar Sharma,2007-03-21,M,9876504521,ravi.sharma@example.demo,"12 Shivaji Nagar, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004512,GENERAL,LINKED,,,2026-07-08
-202600000102,Priya Deshmukh,2007-06-11,F,9876500102,priya.deshmukh@example.demo,"4 FC Road, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004520,OBC,LINKED,,,2026-07-15
-202600000103,Aniket Joshi,2006-12-02,M,9876500103,aniket.joshi@example.demo,"88 Kothrud, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004531,GENERAL,LINKED,,,2026-07-22
-202600000104,Sneha Patil,2007-01-19,F,9876500104,sneha.patil@example.demo,"3 Baner Road, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004544,EWS,LINKED,,,2026-07-29
-202600000105,Rohan Kulkarni,2007-08-30,M,9876500105,rohan.kulkarni@example.demo,"19 Aundh, Pune",IN,,CSE,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-08-05
-202600000106,Mohammed Irfan Shaikh,2006-11-14,M,9876500106,irfan.shaikh@example.demo,"7 Camp, Pune",IN,,CSE,2026-27,1,MANAGEMENT,,OTHER,LINKED,,,2026-08-12
-202600000107,Kavya Nair,2007-04-04,F,9876500107,kavya.nair@example.demo,"21 Hadapsar, Pune",IN,,CSE,2026-27,1,NRI,,GENERAL,LINKED,,,2026-08-19
-202600000108,Arjun Mehta,2007-02-27,M,9876500108,arjun.mehta@example.demo,"55 Wakad, Pune",IN,,CSE,2026-27,1,TFW,MHCET-2026-R1-004590,SC,LINKED,,,2026-08-26
-202600000109,Divya Iyer,2005-09-09,F,9876500109,divya.iyer@example.demo,"9 Hinjewadi, Pune",IN,,CSE,2026-27,2,LATERAL,MHCET-2025-LAT-000311,GENERAL,LINKED,,,2025-09-02
-,Suresh Pawar,2007-05-15,M,9876500110,suresh.pawar@example.demo,"66 Katraj, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004601,ST,REFUSED,,,2026-09-09
-,Meera Chavan,2007-10-23,F,9876500111,meera.chavan@example.demo,"2 Warje, Pune",IN,,CSE,2026-27,1,MANAGEMENT,,GENERAL,PENDING,,,2026-07-01
-,Aisha Rahman,2006-07-07,F,,aisha.rahman@example.demo,"Road 11, Dhanmondi, Dhaka",BD,N1234567,CSE,2026-27,1,INTERNATIONAL,,OTHER,INTERNATIONAL,,,2026-07-08
-202600000113,Tanvi Bhosale,2007-03-03,F,9876500113,tanvi.bhosale@example.demo,"14 Sinhagad Road, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004612,OBC,LINKED,,,2026-07-15
-202600000114,Nikhil Jadhav,2007-07-21,M,9876500114,nikhil.jadhav@example.demo,"31 Viman Nagar, Pune",IN,,CSE,2026-27,1,SPOT,,GENERAL,LINKED,,,2026-07-22
-202600000115,Harsh Verma,2006-10-10,M,9876500115,harsh.verma@example.demo,"5 Sector 4, Noida",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004630,GENERAL,LINKED,,,2026-07-29
-202600000116,Pooja Gaikwad,2004-01-30,F,9876500116,pooja.gaikwad@example.demo,"8 Pimpri, Pune",IN,,MBA,2026-27,1,COUNSELLING,MHCET-MBA-2026-000210,GENERAL,LINKED,,,2026-08-05
-202600000117,Siddharth Rao,2003-11-12,M,9876500117,siddharth.rao@example.demo,"42 Jubilee Hills, Hyderabad",IN,,MBA,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-08-12
-202600000118,Neha Agarwal,2004-05-05,F,9876500118,neha.agarwal@example.demo,"17 Malad, Mumbai",IN,,MBA,2026-27,1,COUNSELLING,MHCET-MBA-2026-000244,EWS,LINKED,,,2026-08-19
-202600000119,Vikram Singh,2003-02-18,M,9876500119,vikram.singh@example.demo,"3 Civil Lines, Nagpur",IN,,MBA,2026-27,1,NRI,,GENERAL,LINKED,,,2026-08-26
-202600000120,Ananya Krishnan,2007-09-01,F,9876500120,ananya.krishnan@example.demo,"12 Anna Nagar, Chennai",IN,,CSE,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-09-02
+apaar_id,name,dob,gender,mobile,email,address,nationality,passport_no,programme_code,academic_year,year_of_study,admission_route,counselling_ref,category,consent_status,status,status_date,admission_date,tfw_income_certified,nri_sponsored,ciwg
+123456784417,Ravi Kumar Sharma,2007-03-21,M,9876504521,ravi.sharma@example.demo,"12 Shivaji Nagar, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004512,GENERAL,LINKED,,,2026-07-08,,,
+202600000102,Priya Deshmukh,2007-06-11,F,9876500102,priya.deshmukh@example.demo,"4 FC Road, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004520,OBC,LINKED,,,2026-07-15,,,
+202600000103,Aniket Joshi,2006-12-02,M,9876500103,aniket.joshi@example.demo,"88 Kothrud, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004531,GENERAL,LINKED,,,2026-07-22,,,
+202600000104,Sneha Patil,2007-01-19,F,9876500104,sneha.patil@example.demo,"3 Baner Road, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004544,EWS,LINKED,,,2026-07-29,,,
+202600000105,Rohan Kulkarni,2007-08-30,M,9876500105,rohan.kulkarni@example.demo,"19 Aundh, Pune",IN,,CSE,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-08-05,,,
+202600000106,Mohammed Irfan Shaikh,2006-11-14,M,9876500106,irfan.shaikh@example.demo,"7 Camp, Pune",IN,,CSE,2026-27,1,MANAGEMENT,,OTHER,LINKED,,,2026-08-12,,,
+202600000107,Kavya Nair,2007-04-04,F,9876500107,kavya.nair@example.demo,"21 Hadapsar, Pune",IN,,CSE,2026-27,1,NRI,,GENERAL,LINKED,,,2026-08-19,,yes,
+202600000108,Arjun Mehta,2007-02-27,M,9876500108,arjun.mehta@example.demo,"55 Wakad, Pune",IN,,CSE,2026-27,1,TFW,MHCET-2026-R1-004590,SC,LINKED,,,2026-08-26,yes,,
+202600000109,Divya Iyer,2005-09-09,F,9876500109,divya.iyer@example.demo,"9 Hinjewadi, Pune",IN,,CSE,2026-27,2,LATERAL,MHCET-2025-LAT-000311,GENERAL,LINKED,,,2025-09-02,,,
+,Suresh Pawar,2007-05-15,M,9876500110,suresh.pawar@example.demo,"66 Katraj, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004601,ST,REFUSED,,,2026-09-09,,,
+,Meera Chavan,2007-10-23,F,9876500111,meera.chavan@example.demo,"2 Warje, Pune",IN,,CSE,2026-27,1,MANAGEMENT,,GENERAL,PENDING,,,2026-07-01,,,
+,Aisha Rahman,2006-07-07,F,,aisha.rahman@example.demo,"Road 11, Dhanmondi, Dhaka",BD,N1234567,CSE,2026-27,1,INTERNATIONAL,,OTHER,INTERNATIONAL,,,2026-07-08,,,
+202600000113,Tanvi Bhosale,2007-03-03,F,9876500113,tanvi.bhosale@example.demo,"14 Sinhagad Road, Pune",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004612,OBC,LINKED,,,2026-07-15,,,
+202600000114,Nikhil Jadhav,2007-07-21,M,9876500114,nikhil.jadhav@example.demo,"31 Viman Nagar, Pune",IN,,CSE,2026-27,1,SPOT,,GENERAL,LINKED,,,2026-07-22,,,
+202600000115,Harsh Verma,2006-10-10,M,9876500115,harsh.verma@example.demo,"5 Sector 4, Noida",IN,,CSE,2026-27,1,COUNSELLING,MHCET-2026-R1-004630,GENERAL,LINKED,,,2026-07-29,,,
+202600000116,Pooja Gaikwad,2004-01-30,F,9876500116,pooja.gaikwad@example.demo,"8 Pimpri, Pune",IN,,MBA,2026-27,1,COUNSELLING,MHCET-MBA-2026-000210,GENERAL,LINKED,,,2026-08-05,,,
+202600000117,Siddharth Rao,2003-11-12,M,9876500117,siddharth.rao@example.demo,"42 Jubilee Hills, Hyderabad",IN,,MBA,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-08-12,,,
+202600000118,Neha Agarwal,2004-05-05,F,9876500118,neha.agarwal@example.demo,"17 Malad, Mumbai",IN,,MBA,2026-27,1,COUNSELLING,MHCET-MBA-2026-000244,EWS,LINKED,,,2026-08-19,,,
+202600000119,Vikram Singh,2003-02-18,M,9876500119,vikram.singh@example.demo,"3 Civil Lines, Nagpur",IN,,MBA,2026-27,1,NRI,,GENERAL,LINKED,,,2026-08-26,,yes,
+202600000120,Ananya Krishnan,2007-09-01,F,9876500120,ananya.krishnan@example.demo,"12 Anna Nagar, Chennai",IN,,CSE,2026-27,1,MANAGEMENT,,GENERAL,LINKED,,,2026-09-02,,,

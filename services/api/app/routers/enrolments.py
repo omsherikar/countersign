@@ -1,9 +1,10 @@
-"""GET /enrolments/{id} and POST /enrolments/{id}/recheck (API_CONTRACT A2.11, A2.12, §A3.7)."""
+"""GET /enrolments/{id} (the record card), GET /enrolments/{id}/history and
+POST /enrolments/{id}/recheck (API_CONTRACT A2.11, A2.12, §A3.7, §A4.6, §A4.7)."""
 
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
@@ -16,29 +17,51 @@ from app.core.deps import Adapters, RequestId, SessionDep, require_roles, scope_
 from app.core.errors import not_found
 from app.core.ratelimit import limiter
 from app.credentials import holder
+from app.engine import status
 from app.engine.checks import RECHECKABLE, recheck_pending
-from app.engine.contracts import CHECK_ORDER, RECHECK_STATES
-from app.engine.score import countersign
-from app.models.enums import SeatEventKind, UserRole
+from app.engine.contracts import RECHECK_ROW_STATES
+from app.models.enums import (
+    CheckType,
+    ConsentStatus,
+    EnrolmentStatus,
+    SeatEventKind,
+    UserRole,
+)
 from app.models.geo import Region, State
-from app.models.institution import Approval, Institution, Programme
+from app.models.institution import Approval, ApprovalVersion, Institution, Programme
 from app.models.seat import Seat, SeatEvent, SeatPool
-from app.models.student import Enrolment, Student
+from app.models.student import Enrolment, EnrolmentVersion, Student
 from app.models.upload import UploadBatch
 from app.models.user import User
-from app.models.verification import Check
+from app.models.verification import CaseAction, Check, Flag
 from app.notices.service import notices_for_enrolment, resend_state
-from app.routers._enrolment_rows import flags_for, iso, visible_summary
+from app.routers._enrolment_rows import (
+    brief,
+    eligibility_of,
+    flags_for,
+    full_rows,
+    iso,
+    ordered,
+    record_fields,
+    visible_summary,
+)
 from app.routers.institutions import user_key
-from app.schemas.common import CheckOut, Countersign, FlagSummary, InstitutionRef
+from app.schemas.common import FlagSummary, InstitutionRef, PageParams, page_params
 from app.schemas.enrolments import (
+    ApprovalRef,
     CheckTransition,
+    ClaimRef,
     EnrolmentDetail,
+    EnrolmentHistory,
     EnrolmentRecheck,
+    FieldChange,
     ProgrammeDetailRef,
     SeatRef,
     StudentDetail,
     UploadRef,
+)
+from app.schemas.enrolments import (
+    EnrolmentVersion as EnrolmentVersionOut,
 )
 
 router = APIRouter(prefix="/enrolments", tags=["enrolments"])
@@ -55,8 +78,27 @@ RecheckUser = Annotated[
     User,
     Depends(require_roles(UserRole.AICTE_ADMIN, UserRole.RO_OFFICER, UserRole.INSTITUTION)),
 ]
+Paging = Annotated[PageParams, Depends(page_params)]
 ENROLMENT_RECHECK_LIMIT = "30/minute"
-_ORDER = {t: i for i, t in enumerate(CHECK_ORDER)}
+CARD_VERSIONS = 20
+# the versioned fields, in the order the history lists them (API_CONTRACT §A4.7)
+VERSIONED_FIELDS = (
+    "name",
+    "dob",
+    "apaar_masked",
+    "consent_status",
+    "year_of_study",
+    "admission_route",
+    "counselling_ref",
+    "category",
+    "admission_date",
+    "status",
+    "status_date",
+    "tfw_income_certified",
+    "nri_sponsored",
+    "ciwg",
+)
+_FIELD_ORDER = {name: n for n, name in enumerate(VERSIONED_FIELDS)}
 
 
 async def _scoped(session, user: User, enrolment_id: uuid.UUID):
@@ -77,12 +119,169 @@ async def _scoped(session, user: User, enrolment_id: uuid.UUID):
 
 
 async def _checks(session, enrolment_id: uuid.UUID) -> list[Check]:
-    rows = (
+    return ordered(
         (await session.execute(select(Check).where(Check.enrolment_id == enrolment_id)))
         .scalars()
         .all()
     )
-    return sorted(rows, key=lambda c: _ORDER[c.type])
+
+
+async def _seat(session, enrolment: Enrolment) -> SeatRef | None:
+    if enrolment.seat_id is None:
+        return None
+    held = (
+        await session.execute(
+            select(Seat, SeatPool.seat_type, Approval.academic_year)
+            .join(SeatPool, SeatPool.id == Seat.pool_id)
+            .join(Approval, Approval.id == SeatPool.approval_id)
+            .where(Seat.id == enrolment.seat_id)
+        )
+    ).first()
+    if held is None:
+        return None
+    held_seat, seat_type, seat_year = held
+    assigned_at = (
+        await session.execute(
+            select(func.max(SeatEvent.at)).where(
+                SeatEvent.seat_id == held_seat.id,
+                SeatEvent.enrolment_id == enrolment.id,
+                SeatEvent.kind == SeatEventKind.ASSIGN,
+            )
+        )
+    ).scalar_one_or_none()
+    return SeatRef(
+        id=str(held_seat.id),
+        seat_code=held_seat.seat_code,
+        seat_type=seat_type.value,
+        academic_year=seat_year,
+        assigned_at=iso(assigned_at),
+    )
+
+
+async def _approval(session, enrolment: Enrolment) -> ApprovalRef | None:
+    """The cohort approval the Seat row was checked against, at its current version."""
+    row = (
+        await session.execute(
+            select(Approval, ApprovalVersion)
+            .outerjoin(
+                ApprovalVersion,
+                (ApprovalVersion.approval_id == Approval.id)
+                & (ApprovalVersion.version == Approval.current_version),
+            )
+            .where(
+                Approval.programme_id == enrolment.programme_id,
+                Approval.academic_year == enrolment.cohort_year,
+            )
+        )
+    ).first()
+    if row is None:
+        return None
+    approval, version = row
+    return ApprovalRef(
+        id=str(approval.id),
+        academic_year=approval.academic_year,
+        version=approval.current_version,
+        approved_intake=approval.approved_intake,
+        effective_from=iso(version.effective_from) if version else None,
+        source=version.source if version else None,
+    )
+
+
+async def _claim(session, student: Student, checks: list[Check]) -> ClaimRef | None:
+    """A record without a linked APAAR: whether the student claimed it through DigiLocker
+    (D36). None for a linked APAAR or an international student."""
+    if student.consent_status in (ConsentStatus.LINKED, ConsentStatus.INTERNATIONAL):
+        return None
+    user = (
+        await session.execute(
+            select(User).where(
+                User.student_id == student.id,
+                User.role == UserRole.STUDENT,
+                User.digilocker_sub.is_not(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        return ClaimRef(claimed=False, claimed_at=None)
+    identity = next((c for c in checks if c.type is CheckType.IDENTITY), None)
+    claimed_at = (
+        identity.observed_at
+        if identity is not None and (identity.detail or {}).get("basis") == "DIGILOCKER_CLAIM"
+        else user.updated_at
+    )
+    return ClaimRef(claimed=True, claimed_at=iso(claimed_at))
+
+
+def _changes(stored: dict[str, Any]) -> list[FieldChange]:
+    """`{field: [before, after]}` as the history lists it, in the versioned-field order."""
+    out = []
+    for name in sorted(stored, key=lambda k: (_FIELD_ORDER.get(k, len(_FIELD_ORDER)), k)):
+        value = stored[name]
+        before, after = (value[0], value[1]) if isinstance(value, list | tuple) else (None, value)
+        out.append(FieldChange(field=name, before=before, after=after))
+    return out
+
+
+async def _versions(
+    session, enrolment: Enrolment, *, offset: int = 0, limit: int = CARD_VERSIONS
+) -> tuple[list[EnrolmentVersionOut], int]:
+    """The record's versions, newest first, and how many there are (API_CONTRACT §A4.7).
+    A version keeps no row number, so a batch shows the file's row only for the batch that
+    last wrote the record."""
+    enrolment_id = enrolment.id
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(EnrolmentVersion)
+            .where(EnrolmentVersion.enrolment_id == enrolment_id)
+        )
+    ).scalar_one()
+    rows = (
+        await session.execute(
+            select(EnrolmentVersion, User, UploadBatch, CaseAction, Flag)
+            .outerjoin(User, User.id == EnrolmentVersion.actor_id)
+            .outerjoin(UploadBatch, UploadBatch.id == EnrolmentVersion.batch_id)
+            .outerjoin(CaseAction, CaseAction.seq == EnrolmentVersion.case_action_seq)
+            .outerjoin(Flag, Flag.id == CaseAction.flag_id)
+            .where(EnrolmentVersion.enrolment_id == enrolment_id)
+            .order_by(EnrolmentVersion.version.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+    ).all()
+    items = []
+    for version, actor, batch, action, flag in rows:
+        changes = version.changes or {}
+        items.append(
+            EnrolmentVersionOut(
+                version=version.version,
+                at=iso(version.at) or "",
+                source=version.source,
+                actor=None
+                if actor is None or version.source == "SEED"
+                else {"id": str(actor.id), "name": actor.name, "role": actor.role.value},
+                batch=None
+                if batch is None
+                else {
+                    "id": str(batch.id),
+                    "filename": batch.filename,
+                    "row_no": enrolment.source_row_no
+                    if batch.id == enrolment.upload_batch_id
+                    else None,
+                },
+                case=None
+                if action is None or flag is None
+                else {
+                    "id": str(flag.id),
+                    "type": flag.type.value,
+                    "action": action.action.value,
+                    "case_action_seq": action.seq,
+                    "reason_code": action.reason_code,
+                },
+                changes=_changes(changes),
+            )
+        )
+    return items, total
 
 
 @router.get("/{enrolment_id}", response_model=EnrolmentDetail)
@@ -92,34 +291,6 @@ async def enrolment_detail(
     enrolment, student, institution, state, region, programme = await _scoped(
         session, user, enrolment_id
     )
-    seat = None
-    if enrolment.seat_id is not None:
-        held = (
-            await session.execute(
-                select(Seat, SeatPool.seat_type, Approval.academic_year)
-                .join(SeatPool, SeatPool.id == Seat.pool_id)
-                .join(Approval, Approval.id == SeatPool.approval_id)
-                .where(Seat.id == enrolment.seat_id)
-            )
-        ).first()
-        if held is not None:
-            held_seat, seat_type, seat_year = held
-            assigned_at = (
-                await session.execute(
-                    select(func.max(SeatEvent.at)).where(
-                        SeatEvent.seat_id == held_seat.id,
-                        SeatEvent.enrolment_id == enrolment.id,
-                        SeatEvent.kind == SeatEventKind.ASSIGN,
-                    )
-                )
-            ).scalar_one_or_none()
-            seat = SeatRef(
-                id=str(held_seat.id),
-                seat_code=held_seat.seat_code,
-                seat_type=seat_type.value,
-                academic_year=seat_year,
-                assigned_at=iso(assigned_at),
-            )
     upload = None
     if enrolment.upload_batch_id is not None:
         batch = await session.get(UploadBatch, enrolment.upload_batch_id)
@@ -133,7 +304,8 @@ async def enrolment_detail(
     ).get(enrolment.id, [])
     notices = await notices_for_enrolment(session, enrolment.id)
     resend = await resend_state(session, enrolment, user)
-    proofs = await holder.credential_refs(session, enrolment.id)
+    attestations = await holder.credential_refs(session, enrolment.id)
+    versions, history_count = await _versions(session, enrolment)
     await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
     return EnrolmentDetail(
         id=str(enrolment.id),
@@ -170,34 +342,16 @@ async def enrolment_detail(
         admission_route=enrolment.admission_route.value,
         counselling_ref=enrolment.counselling_ref,
         category=enrolment.category.value,
+        eligibility=eligibility_of(enrolment),
         status=enrolment.status.value,
         status_date=iso(enrolment.status_date) or "",
         admission_date=iso(enrolment.admission_date) or "",
         uploaded_at=iso(enrolment.uploaded_at) or "",
-        record_status=enrolment.record_status.value,
-        status_reason=enrolment.status_reason,
-        next_step=enrolment.next_step,
-        record_status_at=iso(enrolment.record_status_at),
         upload=upload,
-        seat=seat,
-        countersign=Countersign.model_validate(countersign(checks)),
-        checks=[
-            CheckOut(
-                type=c.type.value,
-                status=c.status.value,
-                source=c.source,
-                checked_at=iso(c.checked_at),
-                attempts=c.attempts,
-                detail=c.detail,
-                supplied_by=c.supplied_by,
-                observed_at=iso(c.observed_at),
-                independent=c.independent,
-                resolved={k: v for k, v in c.resolved.items() if k != "by_id"}
-                if c.resolved
-                else None,
-            )
-            for c in checks
-        ],
+        seat=await _seat(session, enrolment),
+        approval=await _approval(session, enrolment),
+        claim=await _claim(session, student, checks),
+        checks=await full_rows(session, enrolment.id),
         flags=[
             FlagSummary(
                 id=str(f.id),
@@ -211,8 +365,26 @@ async def enrolment_detail(
         ],
         notices=notices,
         resend=resend,
-        credentials=proofs,
+        credentials=attestations,
+        versions=versions,
+        history_count=history_count,
+        **record_fields(enrolment),
     )
+
+
+@router.get("/{enrolment_id}/history", response_model=EnrolmentHistory)
+async def enrolment_history(
+    enrolment_id: uuid.UUID,
+    session: SessionDep,
+    user: ReadUser,
+    request_id: RequestId,
+    paging: Paging,
+) -> EnrolmentHistory:
+    """Every version of the record, newest first (API_CONTRACT §A4.7)."""
+    enrolment, student, *_ = await _scoped(session, user, enrolment_id)
+    items, total = await _versions(session, enrolment, offset=paging.offset, limit=paging.page_size)
+    await audit.record_read(session, user.id, "student", [student.id], request_id=request_id)
+    return EnrolmentHistory(items=items, total=total, page=paging.page, page_size=paging.page_size)
 
 
 @router.post("/{enrolment_id}/recheck", response_model=EnrolmentRecheck)
@@ -224,13 +396,13 @@ async def enrolment_recheck(
     user: RecheckUser,
     adapters: Adapters,
 ) -> EnrolmentRecheck:
-    """Re-run this enrolment's PENDING and SOURCE_UNAVAILABLE checks except STUDENT,
-    synchronously."""
+    """Re-run this record's IDENTITY, SEAT, ADMISSION and STUDYING rows that are PENDING,
+    NOT_YET_DUE or SOURCE_UNAVAILABLE, synchronously; then its status, then issuance."""
     enrolment, *_ = await _scoped(session, user, enrolment_id)
     before = {
         c.type: c.status
         for c in await _checks(session, enrolment.id)
-        if c.status in RECHECK_STATES and c.type in RECHECKABLE
+        if c.status in RECHECK_ROW_STATES and c.type in RECHECKABLE
     }
     result = await recheck_pending(
         session,
@@ -239,9 +411,11 @@ async def enrolment_recheck(
         concurrency=get_settings().checks_concurrency,
         actor_id=user.id,
     )
-    # a recheck can clear the last pending source after the student said Yes
+    # the status follows the rows, then the attestation is asked for (API_CONTRACT §A4.6)
+    await status.settle(session, issue=False)
     await credentials.issue_if_eligible(session, enrolment.id)
     after = await _checks(session, enrolment.id)
+    await session.refresh(enrolment)
     return EnrolmentRecheck(
         enrolment_id=str(enrolment.id),
         rechecked=result.rechecked,
@@ -251,5 +425,8 @@ async def enrolment_recheck(
             if c.type in before
         ],
         flags_raised=result.flags.created,
-        countersign=Countersign.model_validate(countersign(after)),
+        record_status=enrolment.record_status.value
+        if enrolment.status is EnrolmentStatus.ACTIVE
+        else None,
+        checks=[brief(c) for c in after],
     )

@@ -62,7 +62,7 @@ from app.models.enums import (
 from app.models.institution import Institution
 from app.models.student import Enrolment
 from app.models.upload import UploadBatch, UploadRowError
-from app.models.verification import Check, Flag
+from app.models.verification import Check
 
 log = logging.getLogger("countersign.pipeline")
 
@@ -97,7 +97,7 @@ STAGE_WORDS: dict[UploadStage, str] = {
     UploadStage.FLAGS: "raising flags",
 }
 VALIDATING_STAGES = (UploadStage.PARSE, UploadStage.VALIDATE, UploadStage.FILE_DUPLICATES)
-SOURCE_ORDER = ("APAAR", "COUNSELLING", "ABC", "SII")
+SOURCE_ORDER = ("APAAR", "ADMISSION_AUTHORITY", "ABC", "SII")
 ISSUE_INSERT_BATCH = 1000
 
 
@@ -171,8 +171,6 @@ class _BatchRun:
         self.seated: list[uuid.UUID] = []
         self.pools: set[PoolRef] = set()
         self.checks = ChecksResult()
-        # every flag the batch raised or refreshed: the records they name need a new status
-        self.flag_ids: set[uuid.UUID] = set()
 
     # -- batch row helpers
 
@@ -210,6 +208,9 @@ class _BatchRun:
     async def _chunk(self, work: Callable[[AsyncSession], Awaitable[None]], processed: int) -> None:
         async with self.factory() as session:
             await work(session)
+            # the chunk's records get their status before it commits; an upload never
+            # signs attestations (ENGINES §17.2, §17.13)
+            await status.settle(session, issue=False)
             await self._set(session, processed_rows=processed)
             await session.commit()
 
@@ -236,7 +237,6 @@ class _BatchRun:
     def _tally(self, tally: FlagTally) -> None:
         self.counts["flags_raised"] += tally.created
         self.counts["flags_updated"] += tally.updated
-        self.flag_ids.update(tally.flag_ids)
 
     # -- the run
 
@@ -566,22 +566,6 @@ class _BatchRun:
                 self._tally(tally)
 
             await self._chunk(work, len(pools))
-        await self._record_statuses()
-
-    async def _record_statuses(self) -> None:
-        """The records of the batch, and every record a flag of the batch names, get their
-        status from their final rows and cases (D35): duplicates and seat flags are raised
-        after the checks stage."""
-        targets = [o.enrolment_id for o in self.outcomes] + list(self.seated)
-        async with self.factory() as session:
-            for part in chunks(sorted(self.flag_ids, key=str)):
-                named = await session.execute(
-                    select(Flag.enrolment_id, Flag.related_enrolment_ids).where(Flag.id.in_(part))
-                )
-                for enrolment_id, related in named.all():
-                    targets.extend(i for i in (enrolment_id, *related) if i is not None)
-            await status.refresh(session, targets, actor_id=self.actor_id, issue=False)
-            await session.commit()
 
 
 async def run_batch(

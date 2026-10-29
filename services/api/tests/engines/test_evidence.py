@@ -21,147 +21,272 @@ def test_source_unavailable() -> None:
     assert detail == {
         "summary": (
             "APAAR registry did not respond. "
-            "This check stays pending until a recheck or the next upload."
+            "This row is asked again at the next recheck or the next upload."
         ),
+        "finding": None,
+        "source_line": "APAAR registry did not respond · {date}",
+        "basis": "SOURCE_UNAVAILABLE",
         "source_unavailable": True,
         "source_error": "HTTP 503",
     }
     assert ev.source_unavailable("SII", disabled=True)["source_disabled"] is True
     assert ev.source_unavailable("ABC")["summary"].startswith("ABC credits did not respond.")
-    assert ev.source_unavailable("COUNSELLING")["summary"].startswith("Counselling list ")
+    assert ev.source_unavailable("ADMISSION_AUTHORITY")["summary"].startswith(
+        "State admission authority did not respond."
+    )
+
+
+def _texts(detail: dict) -> tuple:
+    return detail["basis"], detail["finding"], detail["source_line"], detail["summary"]
 
 
 def test_identity_sentences() -> None:
-    assert ev.identity_no_apaar()["summary"] == "APAAR not linked; admission is not blocked."
-    assert ev.identity_international()["summary"] == (
-        "International student; identity is checked through the passport, not APAAR."
+    assert _texts(ev.identity_no_apaar()) == (
+        "NO_APAAR",
+        None,
+        "APAAR not linked; alternative route not used yet",
+        "APAAR not linked, and the student has not claimed the record through DigiLocker yet. "
+        "Admission is not blocked.",
     )
-    assert ev.identity_malformed("has 11 digits, expected 12")["summary"] == (
-        "APAAR as uploaded has 11 digits, expected 12; the enrolment was kept without it."
+    assert _texts(ev.identity_malformed("has 11 digits, expected 12")) == (
+        "APAAR_MALFORMED",
+        "APAAR not valid",
+        "College upload · {date}",
+        "APAAR as uploaded has 11 digits, expected 12; the record was kept without it.",
     )
-    assert ev.identity_not_found("4417") == {
-        "summary": "APAAR ending 4417 is not in the APAAR registry.",
-        "apaar_last4": "4417",
-    }
-    assert ev.identity_dob_mismatch(100, "4417")["summary"] == (
-        "Date of birth on upload does not match the APAAR registry."
+    assert _texts(ev.identity_not_found("4417")) == (
+        "APAAR_UNKNOWN",
+        "APAAR not found",
+        "APAAR verification · {date}",
+        "APAAR ending 4417 is not in the APAAR registry.",
     )
-    assert ev.identity_name_differs(62, "4417")["summary"] == (
-        "Name on upload differs from the APAAR registry (similarity 62 of 100)."
+    assert _texts(ev.identity_dob_mismatch(100, "4417"))[1:] == (
+        "date of birth differs",
+        "APAAR verification · {date}",
+        "Date of birth on upload does not match the APAAR registry.",
+    )
+    assert _texts(ev.identity_name_differs(62, "4417"))[1:] == (
+        "name differs",
+        "APAAR verification · {date}",
+        "Name on upload differs from the APAAR registry (similarity 62 of 100).",
     )
     review = ev.identity_review(81, "4417")
-    assert review["summary"] == (
+    assert _texts(review)[1:] == (
+        "needs review",
+        "APAAR verification · {date}",
         "Name on upload is close to the APAAR registry but not a clear match "
-        "(similarity 81 of 100); an officer should review."
+        "(similarity 81 of 100); an officer should review. Name matching supports a decision; "
+        "it never makes one.",
     )
-    assert review["needs_review"] is True
-    assert ev.identity_pass(100, "4417") == {
-        "summary": "Name and date of birth match the APAAR registry (similarity 100 of 100).",
-        "name_score": 100,
-        "dob_match": True,
-        "apaar_last4": "4417",
-    }
+    assert (review["needs_review"], review["case_type"]) == (True, "NAME_MISMATCH")
+    assert _texts(ev.identity_confirmed(100, "4417")) == (
+        "APAAR_MATCH",
+        None,
+        "APAAR verification · {date}",
+        "Name and date of birth match the APAAR registry (similarity 100 of 100).",
+    )
+    assert _texts(ev.identity_digilocker_claim())[2:] == (
+        "Student sign-in via DigiLocker · {date}",
+        "The student signed in with DigiLocker on {date} and claimed this record with its "
+        "provisional ID; name and date of birth match.",
+    )
+    assert _texts(ev.identity_sii_confirmed())[2:] == (
+        "Study in India · {date}",
+        "Study in India confirms the passport holder's identity.",
+    )
+    assert ev.identity_sii_none()["summary"] == (
+        "Study in India has no admission on record for this passport; see the Joining record row."
+    )
 
 
-def test_admission_sentences() -> None:
-    found = ev.admission_counselling_found(
-        state_name="Maharashtra",
+def test_joining_record_sentences() -> None:
+    today = date(2026, 10, 29)
+    words = {"state_name": "Maharashtra", "joining_year": "2026-27", "deadline": date(2026, 9, 30)}
+    joined = ev.admission_joined(
         programme_code="CSE",
-        cohort_start=2026,
+        joined_on=date(2026, 8, 2),
         round_no=1,
-        allotment_ref="MHCET-2026-R1-004512",
-        counselling_ref="MHCET-2026-R1-004512",
+        route="COUNSELLING",
+        uploaded_route=AdmissionRoute.COUNSELLING,
+        today=today,
+        **words,
     )
-    assert found == {
-        "summary": "Found in the Maharashtra counselling allotments for CSE (2026), round 1.",
-        "round": 1,
-        "allotment_ref": "MHCET-2026-R1-004512",
-        "ref_mismatch": False,
-    }
-    differs = ev.admission_counselling_found(
-        state_name="Maharashtra",
-        programme_code="CSE",
-        cohort_start=2026,
-        round_no=2,
-        allotment_ref="MHCET-2026-R2-000101",
-        counselling_ref="MHCET-2026-R1-004512",
+    assert _texts(joined) == (
+        "JOINED",
+        "joined 2 Aug",
+        "State admission authority · {date}",
+        "The Maharashtra admission authority records that the student joined CSE at this "
+        "college on 2 Aug (round 1).",
     )
-    assert differs["summary"] == (
-        "Found in the Maharashtra counselling allotments for CSE (2026), round 2, as "
-        "MHCET-2026-R2-000101; the upload says MHCET-2026-R1-004512."
+    assert joined["route_mismatch"] is False
+    assert ev.round_words(None, "NRI") == "NRI admission approved by the state"
+    assert _texts(ev.admission_pending(today=date(2026, 9, 1), **words))[1:] == (
+        "not in the joining record yet",
+        "State admission authority · {date}",
+        "Not in the Maharashtra admission authority's joining record yet; the reporting "
+        "deadline is 30 Sep.",
     )
-    assert differs["ref_mismatch"] is True
-    assert (
-        ev.admission_counselling_not_found(
-            state_name="Maharashtra", programme_code="CSE", cohort_start=2026
-        )["summary"]
-        == "Not found in the Maharashtra counselling allotments for CSE (2026)."
+    assert _texts(ev.admission_not_yet_due(today=date(2026, 9, 1), **words))[1:] == (
+        None,
+        "Published by 30 Sep",
+        "The Maharashtra admission authority publishes joining records by 30 Sep.",
     )
-    assert (
-        ev.admission_seat_rules_pass(AdmissionRoute.MANAGEMENT, "CSE", SeatType.REGULAR)["summary"]
-        == "Management admission is allowed for CSE and holds a Regular seat."
+    assert _texts(ev.admission_unpublished_late(today=today, **words))[1:] == (
+        "not published yet",
+        "Published by 30 Sep",
+        "The Maharashtra admission authority has not published its joining record for "
+        "2026-27; it was due by 30 Sep.",
     )
-    assert (
-        ev.admission_seat_rules_no_pool(AdmissionRoute.NRI, "CSE", "2026-27", SeatType.NRI)[
-            "summary"
-        ]
-        == "NRI admission is not allowed for CSE: the 2026-27 approval has no NRI seats."
+    missing = ev.admission_not_found(programme_code="CSE", today=today, **words)
+    assert _texts(missing)[1:] == (
+        "not found",
+        "State admission authority · {date}",
+        "Not found in the Maharashtra admission authority's joining record for CSE (2026-27) "
+        "after the reporting deadline of 30 Sep.",
     )
-    assert (
-        ev.admission_seat_rules_no_seat(AdmissionRoute.SPOT, "CSE", "2026-27", SeatType.REGULAR)[
-            "summary"
-        ]
-        == "Spot admission has no Regular seat in CSE (2026-27)."
-    )
-    assert ev.admission_sii_confirms("CSE", "2026-27")["summary"] == (
+    assert missing["case_type"] == "NOT_IN_JOINING_RECORD"
+    assert ev.admission_sii_confirmed("CSE", "2026-27")["summary"] == (
         "Study in India confirms this admission to CSE (2026-27)."
     )
-    assert ev.admission_sii_no_match()["summary"] == (
+    assert ev.admission_sii_not_admitted()["summary"] == (
         "Study in India has no matching admission for this passport at this institution."
     )
+    # a date in another year carries the year
+    assert ev.short_date(date(2025, 8, 12), today) == "12 Aug 2025"
 
 
 def test_seat_sentences() -> None:
-    assert ev.seat_holds("CSE-R-001", SeatType.REGULAR, "2026-27")["summary"] == (
-        "Holds seat CSE-R-001 (Regular, 2026-27 approval)."
+    holds = ev.seat_confirmed(
+        "CSE-R-001", SeatType.REGULAR, approval_id=None, version=2, cohort_year="2026-27"
+    )
+    assert _texts(holds) == (
+        "FITS",
+        "fits approved intake",
+        "AICTE approval v2, 2026-27 (Seat Ledger, derived)",
+        "Holds seat CSE-R-001 (Regular, AICTE approval v2, 2026-27).",
     )
     missing = ev.seat_missing(
         SeatType.REGULAR, "CSE", "2026-27", FlagType.EXCESS_ADMISSION, "EXCESS_ADMISSION:x"
     )
-    assert missing["summary"] == (
-        "No Regular seat is free in CSE (2026-27); see the Excess admission flag."
+    assert _texts(missing)[1:] == (
+        "beyond approved intake",
+        "AICTE approval v1, 2026-27 (Seat Ledger, derived)",
+        "No Regular seat is free in CSE (2026-27); see the Excess admission case.",
     )
-    assert missing["flag_type"] == "EXCESS_ADMISSION"
+    assert missing["flag_type"] == missing["case_type"] == "EXCESS_ADMISSION"
     assert missing["flag_dedupe_key"] == "EXCESS_ADMISSION:x"
-    nri = ev.seat_missing(SeatType.NRI, "CSE", "2026-27", FlagType.QUOTA_BREACH, "k")
-    assert nri["summary"] == "No NRI seat is free in CSE (2026-27); see the Quota breach flag."
+    no_pool = ev.seat_no_pool(
+        AdmissionRoute.NRI, SeatType.NRI, "CSE", "2026-27", FlagType.QUOTA_BREACH, "k"
+    )
+    assert _texts(no_pool)[1:] == (
+        "no NRI seats approved",
+        "AICTE approval v1, 2026-27 (Seat Ledger, derived)",
+        "NRI admission is not allowed for CSE: approval v1 for 2026-27 has no NRI seats.",
+    )
 
 
-def test_studying_sentences() -> None:
+def test_credits_sentences() -> None:
     S = ev.SemesterCredits
-    assert ev.studying_first_year()["summary"] == "First year, no result yet."
-    assert ev.studying_lateral_entry()["summary"] == (
-        "Joined in year 2 as a lateral entrant; no completed year to check yet."
+    assert _texts(ev.studying_not_yet_due("Maharashtra State Technical University"))[1:] == (
+        None,
+        "First semester not complete",
+        "First year; no semester result is due yet.",
     )
-    assert ev.studying_no_apaar()["summary"] == "APAAR not linked; ABC credits cannot be checked."
-    assert ev.studying_unknown_apaar()["summary"] == (
-        "ABC has no record of this APAAR; see the Identity check."
+    assert _texts(ev.studying_not_yet_due_lateral(None))[2:] == (
+        "Lateral entry; first semester here not complete",
+        "Lateral entry into year 2; no semester result here is due yet.",
     )
-    ok = ev.studying_detail([S("2025-26", 1, 22), S("2025-26", 2, 24)])
-    assert ok["summary"] == "Credits recorded in ABC for all 2 semesters since admission."
-    assert ok["missing"] == 0
-    one = ev.studying_detail([S("2025-26", 1, 22), S("2025-26", 2, 0)])
-    assert one["summary"] == (
-        "No credits recorded in ABC for semester 2 (2025-26); waiting for the next upload."
+    assert _texts(ev.studying_no_apaar())[2:] == (
+        "APAAR not linked; ABC cannot be checked",
+        "APAAR not linked; ABC credits cannot be checked.",
+    )
+    assert _texts(ev.studying_unknown_apaar())[2:] == (
+        "ABC has no record of this APAAR",
+        "ABC has no record of this APAAR; see the Identity row.",
+    )
+    mstu = ("MSTU", "Maharashtra State Technical University")
+    sems = [S("2025-26", 1, 22, *mstu), S("2025-26", 2, 24, *mstu)]
+    issuers = ev.credit_issuers(sems, "1-ABC-0001", "ABC College of Engineering")
+    assert (issuers.supplied_by, issuers.self_issued) == (
+        "ABC, issued by Maharashtra State Technical University",
+        False,
+    )
+    assert _texts(ev.studying_detail(sems, issuers)) == (
+        "CREDITS",
+        "credits for 2 semesters",
+        "ABC, issued by Maharashtra State Technical University · {date}",
+        "Credits recorded in ABC for all 2 semesters since admission, issued by Maharashtra "
+        "State Technical University.",
+    )
+    own = [S("2025-26", 1, 22, "1-ABC-0001", "ABC"), S("2025-26", 2, 24, "1-ABC-0001", "ABC")]
+    self_issued = ev.credit_issuers(own, "1-ABC-0001", "ABC College of Engineering")
+    assert (
+        self_issued.supplied_by == "ABC, issued by ABC College of Engineering (the college itself)"
+    )
+    assert _texts(ev.studying_detail(own, self_issued)) == (
+        "CREDITS_SELF_ISSUED",
+        "credits for 2 semesters",
+        "ABC, issued by ABC College of Engineering itself · {date}",
+        "Credits recorded in ABC for all 2 semesters, issued by the college itself. They do "
+        "not count as evidence independent of the college.",
+    )
+    one = ev.studying_detail([S("2025-26", 1, 22, *mstu), S("2025-26", 2, 0)], issuers)
+    assert _texts(one)[1:] == (
+        "waiting for semester 2",
+        "ABC, issued by Maharashtra State Technical University · {date}",
+        "No credits recorded in ABC for semester 2 (2025-26); waiting for the next results.",
     )
     assert one["awaiting_semester"] == 2
     two = ev.studying_detail([S("2025-26", 1, 0), S("2025-26", 2, 0)])
-    assert two["summary"] == "No credits recorded in ABC for 2 of 2 semesters since admission."
+    assert _texts(two)[1:] == (
+        "no credits for 2 semesters",
+        "ABC credits · {date}",
+        "No credits recorded in ABC for 2 of 2 semesters since admission.",
+    )
     assert two["semesters"] == [
         {"academic_year": "2025-26", "sem": 1, "credits": 0},
         {"academic_year": "2025-26", "sem": 2, "credits": 0},
     ]
-    assert ev.student_notice_not_sent() == {"summary": "Notice not sent yet."}
+
+
+def test_new_case_evidence() -> None:
+    joining = ev.not_in_joining_record(
+        state_name="Maharashtra",
+        programme_code="CSE",
+        joining_year="2026-27",
+        deadline=date(2026, 9, 30),
+        checked_on=date(2026, 10, 29),
+        related=[E1],
+    )
+    assert joining["summary"] == (
+        "Not found in the Maharashtra admission authority's joining record for CSE (2026-27) "
+        "after the reporting deadline of 30 Sep 2026."
+    )
+    assert _facts(joining) == {
+        "Programme and year": "CSE (2026-27)",
+        "Joining record": "Not found",
+        "Checked on": "29 Oct 2026",
+        "Reporting deadline": "30 Sep 2026",
+    }
+    breach = ev.eligibility_breach(
+        seat_code="CSE-N-001",
+        seat_type=SeatType.NRI,
+        programme_code="CSE",
+        cohort_year="2026-27",
+        reported_word="not marked for this category",
+        allowed_words="NRI or NRI-sponsored students",
+        clause="APH 2024-27 cl. 2.8(b)",
+        related=[E1],
+    )
+    assert breach["summary"] == (
+        "NRI seat in CSE (2026-27) held by a student reported as not marked for this category."
+    )
+    assert breach["rule_source"] == "APH 2024-27 cl. 2.8(b)"
+    assert _facts(breach) == {
+        "Seat": "CSE-N-001 (NRI)",
+        "Reported as": "not marked for this category",
+        "Allowed for this seat": "NRI or NRI-sponsored students",
+    }
 
 
 def _facts(evidence: dict) -> dict[str, str]:

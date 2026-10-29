@@ -1,9 +1,11 @@
-"""Enrolment rows (API_CONTRACT A2.10), flag references and redaction shared by routers.
+"""Enrolment rows (API_CONTRACT A2.10, §A4.5), evidence rows, flag references and redaction
+shared by routers.
 
 An enrolment's flags are the flags against its own institution that name it as
 `enrolment_id` or in `related_enrolment_ids`; the other side of a cross-institution
 pair has its own flag, reached through flag detail. Everything that names another
 institution is shown only to AICTE_ADMIN and RO_OFFICER (API_CONTRACT A2 errata 5).
+Rows are always in the deck's order: Identity, Seat, Joining record, Credits, Student.
 """
 
 from __future__ import annotations
@@ -11,28 +13,39 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
-from sqlalchemy import Select, and_, exists, literal, or_, select
+from sqlalchemy import Select, exists, literal, or_, select
 from sqlalchemy.dialects.postgresql import ARRAY, UUID, array
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import mask_apaar
-from app.engine.contracts import UNRESOLVED_FLAG_STATUSES
+from app.engine import eligibility
+from app.engine import status_text as text
+from app.engine.contracts import CHECK_ORDER, UNRESOLVED_FLAG_STATUSES
 from app.engine.evidence import AUDIENCE_INSTITUTION, AUDIENCE_OFFICER
-from app.engine.score import countersign_from_pairs
-from app.models.enums import Severity, UserRole
+from app.models.enums import EnrolmentStatus, Severity, UserRole
 from app.models.institution import Institution, Programme
 from app.models.seat import Seat
 from app.models.student import Enrolment, Student
 from app.models.user import User
 from app.models.verification import Check, Flag
-from app.schemas.common import Countersign, FlagRef, IdName
-from app.schemas.institutions import EnrolmentRow, RelatedEnrolmentRow, StudentRef
+from app.schemas.common import FlagRef, IdName
+from app.schemas.enrolments import (
+    Eligibility,
+    EnrolmentRow,
+    EvidenceRow,
+    EvidenceRowBrief,
+    RelatedEnrolmentRow,
+    StudentRef,
+)
 
 OFFICER_ROLES = (UserRole.AICTE_ADMIN, UserRole.RO_OFFICER)
 SEVERITY_ORDER = {Severity.HIGH: 0, Severity.MEDIUM: 1, Severity.LOW: 2}
+ROW_ORDER = {t: i for i, t in enumerate(CHECK_ORDER)}
+# copy deck §21 `evidence.resolved.UPHELD`
+RESOLVED_LINE = {"UPHELD": "Claim upheld by an officer on {date}"}
 
 
 def iso(value: datetime | date | None) -> str | None:
@@ -126,22 +139,128 @@ def flag_ref(flag: Flag) -> FlagRef:
     )
 
 
-# ---------------------------------------------------------------------- countersign
+# ------------------------------------------------------------------ evidence rows
 
 
-async def countersigns(
+def ordered(checks: Iterable[Check]) -> list[Check]:
+    """The rows in the deck's order."""
+    return sorted(checks, key=lambda c: ROW_ORDER[c.type])
+
+
+def brief(check: Check) -> EvidenceRowBrief:
+    return EvidenceRowBrief(
+        type=check.type.value,
+        state=check.status.value,
+        finding=(check.detail or {}).get("finding"),
+        independent=check.independent,
+        resolved=check.resolved is not None,
+    )
+
+
+async def brief_rows(
     session: AsyncSession, enrolment_ids: Sequence[uuid.UUID]
-) -> dict[uuid.UUID, Countersign]:
-    pairs: dict[uuid.UUID, list[tuple[Any, Any]]] = defaultdict(list)
+) -> dict[uuid.UUID, list[EvidenceRowBrief]]:
+    """{enrolment_id: brief rows in row order}, [] before the first evaluation."""
+    out: dict[uuid.UUID, list[Check]] = {i: [] for i in enrolment_ids}
     if enrolment_ids:
         rows = await session.execute(
-            select(Check.enrolment_id, Check.type, Check.status).where(
-                Check.enrolment_id.in_(list(enrolment_ids))
-            )
+            select(Check).where(Check.enrolment_id.in_(list(enrolment_ids)))
         )
-        for enrolment_id, check_type, status in rows.all():
-            pairs[enrolment_id].append((check_type, status))
-    return {i: Countersign.model_validate(countersign_from_pairs(pairs[i])) for i in enrolment_ids}
+        for check in rows.scalars().all():
+            out[check.enrolment_id].append(check)
+    return {i: [brief(c) for c in ordered(checks)] for i, checks in out.items()}
+
+
+async def full_rows(session: AsyncSession, enrolment_id: uuid.UUID) -> list[EvidenceRow]:
+    """The record card's five rows (API_CONTRACT §A4.2), with each resolution's officer."""
+    checks = ordered(
+        (await session.execute(select(Check).where(Check.enrolment_id == enrolment_id)))
+        .scalars()
+        .all()
+    )
+    officer_ids = {
+        uuid.UUID(str(c.resolved["by_id"]))
+        for c in checks
+        if c.resolved and c.resolved.get("by_id")
+    }
+    officers: dict[str, User] = {}
+    if officer_ids:
+        for officer in (
+            await session.execute(select(User).where(User.id.in_(officer_ids)))
+        ).scalars():
+            officers[str(officer.id)] = officer
+    return [
+        EvidenceRow(
+            type=c.type.value,
+            state=c.status.value,
+            finding=(c.detail or {}).get("finding"),
+            source_line=str((c.detail or {}).get("source_line") or ""),
+            summary=str((c.detail or {}).get("summary") or ""),
+            supplied_by=c.supplied_by,
+            observed_at=iso(c.observed_at),
+            independent=c.independent,
+            resolved=resolution(c.resolved, officers),
+            source=c.source,
+            checked_at=iso(c.checked_at),
+            attempts=c.attempts,
+            detail=c.detail or {},
+        )
+        for c in checks
+    ]
+
+
+def resolution(resolved: dict[str, Any] | None, officers: dict[str, User]) -> dict[str, Any] | None:
+    """The stored resolution with the officer and the line the card prints."""
+    if not resolved:
+        return None
+    by_id = str(resolved.get("by_id") or "")
+    officer = officers.get(by_id)
+    at = resolved.get("at")
+    line = None
+    template = RESOLVED_LINE.get(str(resolved.get("outcome")))
+    if template and isinstance(at, str):
+        try:
+            when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+        except ValueError:
+            when = None
+        if when is not None:
+            line = template.format(date=text.day(when, text.ist_date(datetime.now(UTC))))
+    return {
+        "outcome": resolved.get("outcome"),
+        "case_id": resolved.get("case_id"),
+        "case_action_seq": resolved.get("case_action_seq"),
+        "reason_code": resolved.get("reason_code"),
+        "at": at,
+        "by": {
+            "id": by_id or None,
+            "name": officer.name if officer else None,
+            "role": officer.role.value if officer else None,
+        },
+        "line": line,
+    }
+
+
+def record_fields(enrolment: Enrolment) -> dict[str, Any]:
+    """record_status, status_reason, next_step, record_status_at as the wire carries them:
+    a record that is not ACTIVE has no status, only the next step a withdrawal leaves
+    (API_CONTRACT §A4.3)."""
+    if enrolment.status is not EnrolmentStatus.ACTIVE:
+        return {
+            "record_status": None,
+            "status_reason": None,
+            "next_step": enrolment.next_step,
+            "record_status_at": None,
+        }
+    return {
+        "record_status": enrolment.record_status.value,
+        "status_reason": enrolment.status_reason,
+        "next_step": enrolment.next_step,
+        "record_status_at": iso(enrolment.record_status_at),
+    }
+
+
+def eligibility_of(enrolment: Enrolment) -> Eligibility:
+    return Eligibility(**eligibility.markers(enrolment.eligibility))
 
 
 # ---------------------------------------------------------------------------- rows
@@ -158,19 +277,11 @@ def row_stmt() -> Select:
     )
 
 
-def check_filter(check_status: Any, check_type: Any) -> Any:
-    """Enrolments with at least one check in the status (that check, with a type)."""
-    conditions = [Check.enrolment_id == Enrolment.id, Check.status == check_status]
-    if check_type is not None:
-        conditions.append(Check.type == check_type)
-    return exists(select(Check.id).where(and_(*conditions)))
-
-
 async def build_rows(session: AsyncSession, rows: Iterable[Any]) -> list[RelatedEnrolmentRow]:
     """EnrolmentRows (with their institution) for rows of `row_stmt()`, in order."""
     rows = list(rows)
     ids = [r[0].id for r in rows]
-    signs = await countersigns(session, ids)
+    rows_by_id = await brief_rows(session, ids)
     flags = await flags_for(
         session, {r[0].id: r[0].institution_id for r in rows}, unresolved_only=True
     )
@@ -195,6 +306,7 @@ async def build_rows(session: AsyncSession, rows: Iterable[Any]) -> list[Related
                 admission_route=enrolment.admission_route.value,
                 counselling_ref=enrolment.counselling_ref,
                 category=enrolment.category.value,
+                eligibility=eligibility_of(enrolment),
                 seat_code=seat_code,
                 status=enrolment.status.value,
                 admission_date=iso(enrolment.admission_date) or "",
@@ -204,11 +316,10 @@ async def build_rows(session: AsyncSession, rows: Iterable[Any]) -> list[Related
                 if enrolment.upload_batch_id
                 else None,
                 source_row_no=enrolment.source_row_no,
-                countersign=signs[enrolment.id],
+                checks=rows_by_id[enrolment.id],
                 flags=[flag_ref(f) for f in flags.get(enrolment.id, [])],
-                record_status=enrolment.record_status.value,
-                status_reason=enrolment.status_reason,
                 institution=IdName(id=str(institution_id), name=institution_name),
+                **record_fields(enrolment),
             )
         )
     return out

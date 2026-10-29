@@ -41,7 +41,14 @@ async def dispose_engine() -> None:
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency: one session per request, committed when the handler succeeds."""
+    """FastAPI dependency: one session per request, committed when the handler succeeds.
+
+    Every record whose rows, cases or enrolment the request changed gets its status before
+    the commit (D35, ENGINES §17.2); a record that becomes Countersigned gets its
+    attestation in the same transaction."""
+    from app.engine import status
+
     async with session_factory()() as session:
         yield session
+        await status.settle(session)
         await session.commit()

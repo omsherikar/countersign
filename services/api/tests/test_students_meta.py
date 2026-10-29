@@ -14,16 +14,15 @@ async def test_students_me(student, admin, registrar_abc):
     assert enrolment["programme_name"] == "B.Tech Computer Science and Engineering"
     assert enrolment["academic_year"] == "2026-27" and enrolment["year_of_study"] == 1
     assert enrolment["status"] == "ACTIVE"
-    assert enrolment["countersign"] == {
-        "score": {"passes": 3, "applicable": 4},
-        "checks": [
-            {"type": "IDENTITY", "status": "CONFIRMED"},
-            {"type": "ADMISSION", "status": "CONFIRMED"},
-            {"type": "SEAT", "status": "CONFIRMED"},
-            {"type": "STUDYING", "status": "NOT_YET_DUE"},
-            {"type": "STUDENT", "status": "PENDING"},
-        ],
-    }
+    brief = {"finding": None, "independent": False, "resolved": False}
+    assert enrolment["checks"] == [
+        {**brief, "type": "IDENTITY", "state": "CONFIRMED", "independent": True},
+        {**brief, "type": "SEAT", "state": "CONFIRMED", "finding": "fits approved intake"},
+        {**brief, "type": "ADMISSION", "state": "PENDING", "finding": "not published yet"},
+        {**brief, "type": "STUDYING", "state": "NOT_YET_DUE"},
+        {**brief, "type": "STUDENT", "state": "PENDING", "finding": "notice not sent yet"},
+    ]
+    assert "countersign" not in enrolment
     assert "apaar_id" not in body and "mobile" not in body
 
     for other in (admin, registrar_abc):
