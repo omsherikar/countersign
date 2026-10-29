@@ -445,4 +445,20 @@ export const casesCopy = {
   "case.history.approval_version": "Under approval v{version}",
   "err.DECISION_NOT_AVAILABLE": "This decision does not apply to a {case_name} case.",
   "err.NOT_FOUND_report": "Report not found.",
+
+  /* ---- Web-only strings for the signal pages, not in the deck yet ---- */
+  "signal.found_on": "found {date}",
+  "signal.drawing_alt": "Drawing of the ring: {members} members linked through {contacts} shared contacts. The table beside it lists the same facts.",
+  "signal.fact.mobile_one": "Shared mobile number",
+  "signal.fact.email_one": "Shared email address",
+  "signal.fact.address_one": "Shared address",
+  "signal.shared_by": "shared by {n} students",
+  "signal.shared_source": "College uploads, contact hashes",
+  "signal.stands_out": "Stands out",
+  "signal.members_heading": "Members ({n})",
+  "signal.members_hidden": "{n} records in other regions",
+  "signal.cases_heading": "Cases opened from this signal",
+  "signal.open_case_change_none": "The case names no record, so no record's status changes. Nothing else changes.",
+  "signal.open_case_pick_required": "Choose at least one college.",
+  "signal.panel_none": "No new signals for {academic_year}.",
 } as const;

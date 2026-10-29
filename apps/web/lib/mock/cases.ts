@@ -20,6 +20,7 @@ import { COVERS, allFlags, flagById, type StoredFact, type StoredFlag } from "@/
 import { recordFor, withRecord } from "@/lib/mock/records";
 import { CHECKED_AT, LATER_VERSIONS, entryById, entryByName, evaluate, programmesFor, rollFor, seatsFor, setRows, versionsOf, type RollEntry } from "@/lib/mock/roll";
 import { readBrowserToken, userFromToken } from "@/lib/mock/session";
+import { allSignals, dismissSignal, featureFacts, listSignals, membersOf, ruleOf, signalDetail, signalInScope, REGION_OF, type StoredSignal } from "@/lib/mock/signals";
 import type {
   ActorRef,
   AdmissionRoute,
@@ -57,6 +58,9 @@ import type {
   ReasonCode,
   RecordStatus,
   Region,
+  Severity,
+  SignalDetail,
+  SignalOpenCaseResult,
   ResendState,
   Role,
   RowResolution,
@@ -1155,6 +1159,101 @@ async function act(user: User, id: string, body: unknown, next: Next): Promise<C
   return { ...detail, effects };
 }
 
+/* ---- Cases opened from signals (A4.19) ----------------------------------- */
+
+const SIGNAL_SEVERITY: Record<StoredSignal["type"], Severity> = { GHOST_RING: "HIGH", ANOMALY: "MEDIUM" };
+
+/** One case per college, citing the signal; a case that already exists for that signal and college is returned as it is. */
+function caseFromSignal(user: User | null, sig: StoredSignal, institutionId: string, note: string, severity: Severity, at: string): StoredFlag {
+  const id = uuid(`signal-case:${sig.id}:${institutionId}`);
+  const existing = flagById(id);
+  if (existing) return existing;
+  const members = sig.type === "GHOST_RING" ? membersOf(sig, institutionId) : [];
+  const ringFacts: StoredFact[] = [
+    { label: "Students at this college", value: String(members.length), source: "Countersign signals" },
+    ...sig.shared.map((x) => ({ label: x.kind === "MOBILE" ? "Shared mobile number" : x.kind === "EMAIL" ? "Shared email address" : "Shared address", value: `${x.masked} (${x.students} students)`, source: "College uploads, contact hashes" })),
+    { label: "Signal", value: `Shared contact ring found on ${formatDate(sig.created_at)}`, source: "Countersign signals", audience: "OFFICER" as const },
+  ];
+  const f: StoredFlag = {
+    id,
+    type: sig.type,
+    severity,
+    status: "OPEN",
+    institutionId,
+    programmeId: null,
+    enrolmentId: null,
+    academic_year: sig.academic_year,
+    summary:
+      sig.type === "GHOST_RING"
+        ? `${sig.memberIds.length} students across ${sig.institutionIds.length} institutions share ${sig.shared.length} contact details.`
+        : `${institutionName(institutionId)} stands out from similar colleges on ${sig.features.filter((x) => x.stands_out).length === 1 ? "one measure" : "several measures"} (${sig.academic_year}).`,
+    facts: sig.type === "GHOST_RING" ? ringFacts : featureFacts(sig),
+    related: members,
+    rule_source: ruleOf(sig).replace(/^(Rule|Model): /, ""),
+    created_at: at,
+    updated_at: at,
+    progress: { docs: null, escalated_at: null },
+  };
+  allFlags().push(f);
+  SIGNAL_OF.set(f.id, sig.id);
+  const c = caseOf(f.id);
+  c.history.push({ ...EXTRA(), seq: ++SEQ, at, action: "NOTE", from_status: "OPEN", to_status: "OPEN", actor: user ? actorOf(user) : null, note, due_date: null, assignee: null, attachments: [] });
+  c.lastActionAt = at;
+  sig.caseIds.push({ id: f.id, institution_id: institutionId });
+  if (user) appendAudit(user, "CREATE", "flag", f.id);
+  return f;
+}
+
+async function openSignalCase(user: User, id: string, body: unknown, next: Next): Promise<SignalOpenCaseResult> {
+  const sig = signalInScope(user, id);
+  const req = (body ?? {}) as { institution_ids?: string[]; note?: string; severity?: Severity };
+  const note = (req.note ?? "").trim();
+  if (!note) throw invalid("note", "Add a note before you continue.");
+  if (note.length > 2000) throw invalid("note", "Keep the note to 2,000 characters.");
+  if (sig.status === "DISMISSED") throw new ApiError(409, "SIGNAL_ALREADY_HANDLED", "This signal already has a case or was dismissed.", { status: sig.status });
+  const inScope = sig.institutionIds.filter((i) => user.role === A || REGION_OF(i) === user.scope.region);
+  const chosen = req.institution_ids && req.institution_ids.length > 0 ? req.institution_ids : sig.institutionIds.length === 1 ? sig.institutionIds : [];
+  if (chosen.length === 0) throw invalid("institution_ids", "Choose at least one college.");
+  if (chosen.some((i) => !inScope.includes(i))) throw invalid("institution_ids", "Choose colleges this signal names in your region.");
+  const severity = req.severity ?? SIGNAL_SEVERITY[sig.type];
+  const at = nowIso();
+  const flags = chosen.map((i) => caseFromSignal(user, sig, i, note, severity, at));
+  if (sig.status === "NEW") {
+    sig.status = "CASE_OPENED";
+    sig.note = note;
+    sig.decidedBy = { id: user.id, name: user.name };
+    sig.decidedAt = at;
+  }
+  sig.updated_at = at;
+  appendAudit(user, "UPDATE", "signal", sig.id);
+  const cases = await Promise.all(flags.map(async (f) => decorateRow(user, (await next("GET", `/flags/${f.id}`)) as FlagDetail)));
+  return { cases, signal: signalDetail(user, sig) };
+}
+
+function dismiss(user: User, id: string, body: unknown): SignalDetail {
+  const sig = signalInScope(user, id);
+  const note = String((body as { note?: string } | undefined)?.note ?? "").trim();
+  if (!note) throw invalid("note", "Say why you are dismissing this signal.");
+  if (note.length > 2000) throw invalid("note", "Keep the note to 2,000 characters.");
+  dismissSignal(user, sig, note, nowIso());
+  appendAudit(user, "UPDATE", "signal", sig.id);
+  return signalDetail(user, sig);
+}
+
+/** The anomaly at Lucknow already has its case, so every state of the signal pages can be seen. */
+function seedSignalCases() {
+  const sig = allSignals().find((x) => x.id === "5a000004-0004-4a00-8a00-000000000004");
+  if (!sig || sig.caseIds.length > 0) return;
+  const admin = USERS.find((u) => u.email === "admin@aicte.demo")!;
+  const at = "2026-10-28T07:05:00Z";
+  caseFromSignal(admin, sig, sig.institutionIds[0], "Admissions grew by nearly half while contradictions rose. Ask the college for its admission register.", "MEDIUM", at);
+  sig.status = "CASE_OPENED";
+  sig.note = "Admissions grew by nearly half while contradictions rose. Ask the college for its admission register.";
+  sig.decidedBy = { id: admin.id, name: admin.name };
+  sig.decidedAt = at;
+  sig.updated_at = at;
+}
+
 /* ---- Attachments ---------------------------------------------------------- */
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -1680,6 +1779,7 @@ function ensureSeeded() {
   seedSampleCard();
   seedCases();
   seedRequests();
+  seedSignalCases();
   for (const s of SEEDS) syncInstitution(s.id);
 }
 
@@ -1720,6 +1820,27 @@ export async function withCases(method: string, path: string, query: Query | und
     const result = await next(method, path, query, body);
     syncInstitution(parts[1]);
     return result;
+  }
+
+  if (pathname === "/dashboard/summary" && method === "GET") {
+    // Officers see how many signals are new (A4.20); everyone else gets null.
+    const summary = (await next(method, path, query, body)) as { kpis: { signals_new: number | null } };
+    const user = signedIn();
+    if (OFFICERS.includes(user.role)) summary.kpis.signals_new = listSignals(user, { status: "NEW", page_size: 200 }).total;
+    return summary;
+  }
+
+  if (parts[0] === "signals") {
+    await latency();
+    if (parts.length === 1 && method === "GET") return listSignals(signedIn(), query);
+    if (parts.length === 2 && method === "GET") {
+      const user = signedIn();
+      const detail = signalDetail(user, signalInScope(user, parts[1]));
+      for (const m of detail.members) appendAudit(user, "READ", "student", m.student.id);
+      return detail;
+    }
+    if (parts.length === 3 && parts[2] === "open-case" && method === "POST") return openSignalCase(signedIn(), parts[1], body, next);
+    if (parts.length === 3 && parts[2] === "dismiss" && method === "POST") return dismiss(signedIn(), parts[1], body);
   }
 
   if (pathname === "/users" && method === "GET") {
