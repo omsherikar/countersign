@@ -3368,8 +3368,8 @@ Signals never change rows, record statuses or cases; only `open-case` makes a ca
 | `completeness` | institution | `academic_year`, `aicte_permanent_id`, `institution_name`, `state_code`, `joined`, `uploaded_and_joined`, `missing`, `uploaded_not_joined`, `completeness_pct`, `deadline`, `first_upload_on`, `deadline_state`, `case_status` | csv, xlsx, pdf |
 | `summary` | | one page: the KPIs, records by status (a bar chart with its table), cases by type, the ten colleges with most unresolved cases, late and overdue colleges | pdf |
 
-- CSV: `text/csv; charset=utf-8` with a BOM, the column names above as the header, numbers unformatted, percentages to one decimal, dates `YYYY-MM-DD`.
-- XLSX: sheet one named after the report with the same header and rows; sheet two `About` with the title, the scope ("All India", "Western Region", "Maharashtra"), the academic year, the time generated and the line "Synthetic demo data. Every number comes from the Countersign demo dataset.".
+- CSV: `text/csv; charset=utf-8` with a BOM; the first line is the synthetic-data line (copy deck `report.synthetic`), the second the column names above, then the rows; numbers unformatted, percentages to one decimal, dates `YYYY-MM-DD`.
+- XLSX: sheet one named after the report: the synthetic-data line, then the same header and rows; sheet two `About` with the title, the scope ("All India", "Western Region", "Maharashtra"), the academic year, the time generated and the line "Synthetic demo data. Every number comes from the Countersign demo dataset.".
 - PDF: one A4 landscape page (reportlab): title, scope, academic year, the table's first 25 rows in the report's order and a totals row, "and {n} more rows in the CSV or XLSX" when cut, and the synthetic-data footer.
 - `Content-Disposition: attachment; filename="countersign_{name}_{academic_year}_{scope_slug}.{format}"` (`scope_slug` `national`, the region code or the state code). Rows are sorted by state name, type, case type or institution name; `completeness` by `completeness_pct` ascending.
 
@@ -3528,7 +3528,7 @@ export interface EvidenceRow {
   supplied_by: string; observed_at: string | null; independent: boolean; resolved: RowResolution | null;
   source: CheckSource; checked_at: string | null; attempts: number; detail: CheckDetail;
 }
-export interface EvidenceRowBrief { type: CheckType; state: EvidenceState; finding: string | null; independent: boolean; resolved: boolean }
+export interface EvidenceRowBrief { type: CheckType; state: EvidenceState; finding: string | null; independent: boolean; resolved: boolean; /** GET /students/me only */ source_line?: string | null }
 export interface RecordFields {
   record_status: RecordStatus | null; status_reason: string | null; next_step: string | null; record_status_at: string | null;
 }
@@ -4043,3 +4043,8 @@ export interface PsiResult {
   method: string;
 }
 ```
+
+## Addendum 4 errata (2026-10-29): corrections from the built api and web
+
+1. §A4.21: every CSV, and the first sheet of every XLSX, opens with the synthetic-data line and then the column header (copy deck `report.synthetic`, review checklist). A downloaded file says it is synthetic before anything else; the PDF carries the same line in its header and footer.
+2. §A4.5 `GET /students/me`: each row in an enrolment's `checks` also carries `source_line` (who supplied the evidence and when, as on the officer's card), so the student's own record card names the source and date of each row. Lists of other people's records keep the short row without it.
