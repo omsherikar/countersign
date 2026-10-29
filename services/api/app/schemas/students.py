@@ -13,6 +13,9 @@ class EvidenceRowBrief(BaseModel):
     type: str
     state: str
     finding: str | None = None
+    # who supplied the evidence and when ("State admission authority · 20 Aug"), as on the
+    # officer's card; no student data
+    source_line: str | None = None
     independent: bool = False
     resolved: bool = False
 

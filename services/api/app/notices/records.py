@@ -47,6 +47,7 @@ def brief_rows(checks: Sequence[Check]) -> list[dict[str, Any]]:
             "type": t.value,
             "state": by_type[t].status.value,
             "finding": (by_type[t].detail or {}).get("finding"),
+            "source_line": (by_type[t].detail or {}).get("source_line") or None,
             "independent": bool(by_type[t].independent),
             "resolved": by_type[t].resolved is not None,
         }

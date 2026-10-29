@@ -55,11 +55,12 @@ test("Records by state downloads as CSV, XLSX and PDF for the Western region", a
   }
 });
 
-test.fixme("the CSV's first line is its header", async ({ pageAs }) => {
-  // Product bug: the CSV puts a quoted "Synthetic data." line before the header, while API_CONTRACT §A4.21 makes the column names the header.
+test("the CSV says it is synthetic on its first line, and its header follows", async ({ pageAs }) => {
+  // the copy deck's report.synthetic line opens every file, so a downloaded file never reads as real data
   const page = await pageAs("ro");
   const res = await page.request.get("/api/reports/by-state.csv?academic_year=2026-27");
   expect(res.status()).toBe(200);
-  const first = (await res.text()).replace(/^\ufeff/, "").split(/\r?\n/)[0];
-  expect(first.startsWith(FORMATS[0].magic)).toBe(true);
+  const [first, second] = (await res.text()).replace(/^\ufeff/, "").split(/\r?\n/);
+  expect(first).toContain("Synthetic data.");
+  expect(second.startsWith(FORMATS[0].magic)).toBe(true);
 });

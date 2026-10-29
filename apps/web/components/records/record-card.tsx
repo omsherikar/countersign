@@ -141,7 +141,11 @@ function RecordRow({ row, institutionName, showDetails }: { row: AnyRow; institu
         )}
       </td>
       <td aria-hidden="true" className="px-3 py-2.5 text-ink-muted max-md:block max-md:px-0 max-md:pt-1 max-md:pb-0 md:pr-5">
-        {full ? <span className="block text-ink [overflow-wrap:anywhere]">{full.source_line || (full.checked_at ? "" : t("check.never"))}</span> : null}
+        {full ? (
+          <span className="block text-ink [overflow-wrap:anywhere]">{full.source_line || (full.checked_at ? "" : t("check.never"))}</span>
+        ) : "source_line" in row && row.source_line ? (
+          <span className="block text-ink [overflow-wrap:anywhere]">{row.source_line}</span>
+        ) : null}
         {showsIndependence(row) && (
           <span className="mt-1 block">
             <IndependenceMarker row={row} institutionName={institutionName} />

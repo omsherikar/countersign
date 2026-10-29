@@ -83,8 +83,7 @@ test("the colleges that first uploaded after the reporting deadline read Late", 
   await expect(page.getByRole("tabpanel", { name: "Completeness" }).getByText(/^Late\s*First upload on \d{1,2} [A-Z][a-z]{2}, after the deadline of 30 Sep\.$/)).toBeVisible();
 });
 
-test.fixme("the college that never uploaded reads Overdue, and the overview counts it", async ({ pageAs }) => {
-  // Product bug: the seed loads the planted overdue college's file too, so it reads Late (first upload at seed time) and the overview counts 0 overdue.
+test("the college that never uploaded reads Overdue, and the overview counts it", async ({ pageAs }) => {
   const page = await pageAs("admin");
   const list = await apiJson<Paged<CompletenessRow>>(page, "GET", "/completeness?academic_year=2026-27&page_size=100");
   for (const id of DEADLINES.overdue) expect(list.items.find((i) => i.institution.aicte_permanent_id === id)?.deadline_state, `${id} is planted overdue`).toBe("OVERDUE");

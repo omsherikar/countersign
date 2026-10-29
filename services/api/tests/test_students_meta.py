@@ -30,7 +30,18 @@ async def test_students_me(student, admin, registrar_abc):
         "STUDYING",
         "STUDENT",
     }
-    assert set(enrolment["checks"][0]) == {"type", "state", "finding", "independent", "resolved"}
+    assert set(enrolment["checks"][0]) == {
+        "type",
+        "state",
+        "finding",
+        "source_line",
+        "independent",
+        "resolved",
+    }
+    # the student's own card names who supplied each row and when, as the officer's does
+    assert all(
+        isinstance(row["source_line"], str) and row["source_line"] for row in enrolment["checks"]
+    )
     assert (enrolment["response"], enrolment["can_respond"]) == (None, True)
     assert (enrolment["claimed"], enrolment["decision"]) == (False, None)
     assert "apaar_id" not in body and "mobile" not in body

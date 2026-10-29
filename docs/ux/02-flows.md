@@ -31,7 +31,7 @@ The full panel demo (about 10 minutes):
 | 6:20 | AICTE_ADMIN | `/aicte/institutions/[xyz]/completeness` | "92% of joined students uploaded, 14 missing", deadline Late, the Missing from upload case. |
 | 6:50 | AICTE_ADMIN | `/aicte/signals/[ring]` | 40 students across 3 colleges, the rule line, members masked. Open case for one college; the dialog says its records read Under review until decided. No record changed before that. |
 | 7:30 | RO_OFFICER | `/ro/reports` | Region-scoped reports, the synthetic data line; one CSV and the one-page PDF download. |
-| 8:00 | STUDENT, VERIFIER | `/student/wallet`, then `/verify/[code]` | Ravi shares 3 fields of his enrolment attestation; the phone reads "Valid attestation" with only those fields. |
+| 8:00 | STUDENT, VERIFIER | `/student/wallet`, then `/verify/[code]` | A student whose record is Countersigned (the 5:00 clean record's student) shares 3 fields of their enrolment attestation; the phone reads "Valid attestation" with only those fields. Ravi has no attestation to share: ABC College also listed him as "R. K. Sharma", and that open duplicate case keeps his record Under review after his Yes, which is the rule working. |
 | 8:30 | UNIVERSITY | `/university/certificates` | "Countersign does not issue degrees." Issue a completion attestation, print the certificate block; its QR verifies. |
 | 9:00 | AICTE_ADMIN | `/admin/system`, a record | Chaos APAAR down; a new upload's Identity rows read Source unavailable, never Contradicted; reset and Recheck evidence: Confirmed. |
 | 9:30 | AICTE_ADMIN | `/admin/evaluation` or `eval_report.md` | Synthetic numbers with targets; close on the tagline. |

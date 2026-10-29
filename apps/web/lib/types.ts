@@ -470,7 +470,7 @@ export interface EvidenceRow {
   supplied_by: string; observed_at: string | null; independent: boolean; resolved: RowResolution | null;
   source: CheckSource; checked_at: string | null; attempts: number; detail: CheckDetail;
 }
-export interface EvidenceRowBrief { type: CheckType; state: EvidenceState; finding: string | null; independent: boolean; resolved: boolean }
+export interface EvidenceRowBrief { type: CheckType; state: EvidenceState; finding: string | null; independent: boolean; resolved: boolean; /** the student's own records only (GET /students/me) */ source_line?: string | null }
 export interface RecordFields {
   record_status: RecordStatus | null; status_reason: string | null; next_step: string | null; record_status_at: string | null;
 }
