@@ -12,6 +12,13 @@ x-api-env: &api-env
     # opens a new one for every request beyond them
     CHECKS_CONCURRENCY: "5"
 
+# Private set intersection demo (D48). openmined.psi has no linux arm64 wheel, so the image is
+# linux/amd64 (emulated on Apple Silicon). One image, two parties that each keep their own set.
+x-psi-image: &psi-image
+  build: ./services/psi
+  image: countersign-psi
+  platform: linux/amd64
+
 services:
   postgres:
     image: postgres:17
@@ -164,6 +171,36 @@ services:
       - ./rules.yaml:/app/rules.yaml:ro
       - generated:/data/generated
     entrypoint: ["datagen"]
+
+  # the partner regulator (a mock UGC): its set is drawn from datagen's APAAR registry and
+  # never leaves this container; it gets only the HMAC key, no database or other secrets
+  psi:
+    <<: *psi-image
+    environment:
+      PSI_ROLE: partner
+      PII_HMAC_KEY: ${PII_HMAC_KEY:?PII_HMAC_KEY must be set in .env}
+    volumes:
+      - generated:/data/generated:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8002/healthz')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+
+  # Countersign's PSI client: the api hands it Countersign's set for one run; it sends the
+  # partner only the encrypted request and returns three counts
+  psi-client:
+    <<: *psi-image
+    environment:
+      PSI_ROLE: client
+      PSI_PARTNER_URL: http://psi:8002
+    depends_on:
+      psi: { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8002/healthz')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 12
 
   web:
     build:

@@ -24,7 +24,10 @@ Tagline: **Every enrolment is a claim. We show the evidence behind it.** A colle
             services/api worker (celery, same image, `celery -A app.worker worker`)  <── redis
             tools/datagen  (one-off compose service, writes /data/generated)
             tools/eval     (Week 4: make eval, runs in the api image)
-            services/psi   (Week 4 stretch, platform linux/amd64, only if disk allows; D48)
+            services/psi   (Week 4 stretch, D48; one linux/amd64 image, two containers, no host port)
+                      psi         the partner regulator (a mock UGC); holds its own set
+                      psi-client  Countersign's PSI client; the api hands it Countersign's set
+                      api ──> psi-client:8002 ──> psi:8002   (only encrypted messages reach psi)
 ```
 
 Ports (host): web 3000, api 8000, mockgov 8001, mailpit 8025 (web UI) and 1025 (SMTP), postgres 5432, redis 6379.
@@ -59,6 +62,7 @@ countersign/
     components/brand/**           UI agent (logo, wordmark, countersign mark)
   services/api/                 backend
   services/mockgov/             backend
+  services/psi/                 backend (Week 4 stretch: private set intersection, D48)
   tools/datagen/                backend
   tools/eval/                   backend (Week 4)
   .github/workflows/ci.yml      backend
@@ -369,7 +373,7 @@ Added in Week 4 (API_CONTRACT Addendum 4; these replace the check status, the sc
 | `/signals`, `/signals/{id}`, `/open-case`, `/dismiss`, `POST /signals/run` | absent | absent | absent | real (officers only) |
 | `/reports`, `/reports/{name}.{csv,xlsx,pdf}` | absent | absent | absent | real (AICTE and regional officers) |
 | `/scores/*` | absent | | | dropped with the Integrity Index (D40) |
-| `/psi/*`, web `/admin/psi` | absent | | | stretch, only if disk allows (D48) |
+| `/psi/*`, web `/admin/psi` | absent | | | `POST /psi/compute` real (AICTE_ADMIN, §A4.26); services `psi` and `psi-client` (D48) |
 
 The frontend may build pages against the contract once it is written, but must not ship navigation to routes whose endpoints are absent; show a "coming in Week N" placeholder behind the nav item instead.
 

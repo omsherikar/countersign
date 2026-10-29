@@ -89,6 +89,14 @@ export interface AuditVerify {
   first_broken_seq: number | null;
   checked_at: string;
 }
+/** POST /psi/compute (API_CONTRACT §A4.26, D48): counts only, never members. */
+export interface PsiResult {
+  countersign_count: number;
+  partner_count: number;
+  overlap: number;
+  computed_at: string;
+  method: string;
+}
 
 export interface RegionMeta {
   code: Region;

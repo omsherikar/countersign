@@ -445,6 +445,24 @@ export const casesCopy = {
   "signal.open_case_pick_required": "Choose at least one college.",
   "signal.panel_none": "No new signals for {academic_year}.",
 
+  /* ---- Web-only strings for /admin/psi (W4-14), not in the deck yet; psi.heading,
+     psi.compute, psi.result and psi.explain are the deck's, in copy.ts ---- */
+  "psi.lead": "Countersign and a partner regulator learn how many APAAR-linked students they both hold, and nothing about which ones.",
+  "psi.demo_tag": "Mock partner",
+  "psi.ours": "Countersign holds",
+  "psi.ours_hint": "APAAR-linked students",
+  "psi.theirs": "Partner registry holds",
+  "psi.theirs_hint": "Students in a mock UGC registry, synthetic data",
+  "psi.counts_note": "Each side shows only its own count. The lists stay with their owner.",
+  "psi.idle": "Not computed yet. A run takes about ten seconds.",
+  "psi.computing": "Computing the overlap. This takes about ten seconds.",
+  "psi.computed_at": "Computed {time} by {method}. The run is in the audit log with these three counts.",
+  "psi.show_how": "Show how",
+  "psi.step.1": "Countersign hashes each linked student's APAAR, encrypts each hash with a key only it holds and sends the encrypted list.",
+  "psi.step.2": "The partner encrypts that list again with its own key, shuffles it and sends it back, with its own list encrypted under its key.",
+  "psi.step.3": "Countersign removes its own key from the shuffled list and counts the items that also appear in the partner's list. The shuffle hides which ones matched.",
+  "psi.step.4": "Both keys are thrown away after the run. The partner learns only how many students Countersign sent; Countersign learns only the partner's count and the overlap.",
+
   /* ---- Web-only strings for the report filters, not in the deck yet ---- */
   "report.filter.region": "Region",
   "report.filter.state": "State",

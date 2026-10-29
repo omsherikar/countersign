@@ -3994,3 +3994,52 @@ The id token is a JWT signed HS256 with the client secret (`DIGILOCKER_CLIENT_SE
 - `perf/` (only with `--perf 50000`, used by `make eval`): `perf/institutions.json` (one synthetic college "Countersign Throughput Test College", AICTE id `9-PERF-0001`, in an existing state, with programmes and approvals large enough to seat every row), `perf/9-PERF-0001_2026-27.csv` (exactly N rows, every row legitimate) and `perf/mockgov/*.jsonl` (its registry, joining, credits and DigiLocker lines). Nothing in `perf/` is loaded by `make seed`.
 
 **Seed order** (`make seed`, `make demo-reset`): mockgov seed (`--reset` drops and recreates its tables, then loads the new files); `python -m app.seed.cli --from /data/generated` (institutions with approval versions, users, graduates, column mappings, every upload through `run_batch` with its `submitted_at`, then `send_notices_for_batch` per batch); `python -m app.seed.replies --from /data/generated`; then `python -m app.seed.derived --from /data/generated` (completeness for every institution, then signals for the year, ENGINES §17.15).
+
+### A4.26 Private set intersection (D48)
+
+Countersign and a partner regulator learn how many APAAR-linked students they both hold, and nothing about which ones. The partner in the demo is a mock UGC (compose service `psi`); the protocol is OpenMined's ECDH PSI in its cardinality mode (`openmined.psi` 2.0.6, `reveal_intersection` false), so the client learns the size of the intersection and never its members.
+
+**`POST /psi/compute`** (AICTE_ADMIN; 4 per minute per user; no body, or `{}`).
+
+```json
+200 { "countersign_count": 9867, "partner_count": 8430, "overlap": 429, "computed_at": "2026-10-29T10:41:07Z", "method": "ECDH PSI cardinality (OpenMined)" }
+503 { "error": { "code": "PSI_UNAVAILABLE", "message": "The partner registry did not answer, so no overlap was computed. Try again in a minute.", "details": { "source": "psi", "detail": "PARTNER_UNAVAILABLE" } } }
+```
+
+- `countersign_count`: students with consent LINKED and an APAAR HMAC. `partner_count`: the size of the partner's set. `overlap`: how many of the two sets match. A run takes about 10 seconds for the small dataset (amd64 emulation on Apple Silicon).
+- Each run writes one audit entry: action `CREATE`, entity type `psi_run`, a new entity id, `after` = the response plus `"partner": "UGC (mock)"`. Counts only, never an item.
+- `details.detail` on 503 names what failed: the PSI client's error code (`PARTNER_UNAVAILABLE`), an exception name when the PSI client cannot be reached, or `BAD_ANSWER` when the counts do not add up. Nothing is audited then.
+- Scoping: AICTE_ADMIN only; RO_OFFICER, INSTITUTION, STUDENT and UNIVERSITY get 403; no session gets 401.
+
+**Who holds which set.** The api cannot load `openmined.psi` (no linux arm64 wheel), so the protocol runs in one linux/amd64 image as two containers:
+
+| side | where | holds | receives |
+|---|---|---|---|
+| Countersign | api, then `psi-client` (`PSI_ROLE=client`, `PSI_CLIENT_URL`) | the hex HMAC-SHA256 of each linked student's APAAR, read from `students.apaar_hmac` for one run | the partner's setup message and response, both under the partner's key |
+| partner (mock UGC) | `psi` (`PSI_ROLE=partner`) | its own set, built at first use from datagen's `mockgov/apaar_registry.jsonl` | the client's request: Countersign's items under a key only `psi-client` holds |
+
+`psi-client` is on Countersign's side: only the api calls it, it calls only `psi`, and it keeps Countersign's set in memory for one run. Neither container publishes a host port or logs an item. Both keys are new for every run.
+
+The partner's set (synthetic): the registry APAARs chosen by a seeded hash (`PSI_PARTNER_SHARE`, default 4%, seed `PSI_PARTNER_SEED`, default `ugc-mock-2026`), standing for students the partner also counts, plus `PSI_PARTNER_EXTRAS` (default 8,000) seeded 12-digit numbers outside the registry, standing for students only the partner holds. Each is HMAC-SHA256 of the APAAR's digits under `PII_HMAC_KEY`, the api's `hmac_id(apaar, "apaar")`, so the two sets are comparable; in the demo the partner gets that key (and no other secret) from compose. Real regulators would agree a key, or run the protocol on the APAAR numbers themselves, which it hides just the same.
+
+Internal calls (compose network only):
+
+```json
+POST http://psi-client:8002/psi/compute   req { "items": ["<64 lower-case hex>", ...] }
+                                         200 { "countersign_count": 9867, "partner_count": 8430, "overlap": 429 }
+POST http://psi:8002/psi/setup           req { "request": "<base64 psi_proto.Request>" }
+                                         200 { "setup": "<base64 psi_proto.ServerSetup>", "response": "<base64 psi_proto.Response>", "partner_count": 8430 }
+```
+
+Errors on both are `{ "error": { "code", "message" } }`, never echoing an item: `PSI_BAD_REQUEST` (422), `PSI_TOO_LARGE` (413), `PARTNER_NOT_SEEDED` (503, no registry file yet), `PARTNER_UNAVAILABLE` (502 or 503 from `psi-client`). The partner refuses a request that asks to see the members (`reveal_intersection` true).
+
+```ts
+/** POST /psi/compute: counts only, never members. */
+export interface PsiResult {
+  countersign_count: number;
+  partner_count: number;
+  overlap: number;
+  computed_at: string;
+  method: string;
+}
+```

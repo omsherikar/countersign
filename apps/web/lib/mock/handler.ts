@@ -660,6 +660,12 @@ async function baseRequest(method: string, path: string, query?: Query, body?: u
     return studentMe();
   }
 
+  if (pathname === "/psi/compute" && method === "POST") {
+    requireRole(user, ["AICTE_ADMIN"]);
+    await wait(1200);
+    return { countersign_count: 9867, partner_count: 8430, overlap: 429, computed_at: new Date().toISOString(), method: "ECDH PSI cardinality (OpenMined)" };
+  }
+
   if (parts[0] === "admin") {
     requireRole(user, ["AICTE_ADMIN"]);
     if (pathname === "/admin/adapters/ping") {

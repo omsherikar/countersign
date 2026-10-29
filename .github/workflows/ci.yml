@@ -22,7 +22,8 @@ jobs:
         ports: ["6379:6379"]
     strategy:
       matrix:
-        project: [services/api, services/mockgov, tools/datagen]
+        # services/psi needs openmined.psi, which has wheels for linux x86_64 (this runner)
+        project: [services/api, services/mockgov, services/psi, tools/datagen]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

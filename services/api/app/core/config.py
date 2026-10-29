@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     # the `iss` the id token must carry
     digilocker_issuer: str = "http://localhost:8001/digilocker"
 
+    # Private set intersection (D48): Countersign's PSI client, which runs the protocol with
+    # the partner regulator (the api image cannot load openmined.psi)
+    psi_client_url: str = "http://psi-client:8002"
+    psi_timeout_seconds: float = 120.0
+
     @field_validator("cors_origins", "smtp_allowed_hosts", mode="before")
     @classmethod
     def _split_list(cls, value: object) -> object:

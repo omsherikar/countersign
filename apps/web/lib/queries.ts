@@ -27,6 +27,7 @@ import type {
   ItemsEnvelope,
   LoginRequest,
   Page,
+  PsiResult,
   RegionMeta,
   SeatListParams,
   SeatRow,
@@ -294,6 +295,11 @@ export function useAdapterPing(enabled = true) {
 /** Walks the whole chain, so it runs on a button press, not on load. */
 export function useAuditVerify() {
   return useMutation({ mutationFn: () => api.get<AuditVerify>("/admin/audit/verify") });
+}
+
+/** One private set intersection run with the partner registry; about ten seconds, so on a button press. */
+export function useComputePsi() {
+  return useMutation({ mutationFn: () => api.post<PsiResult>("/psi/compute") });
 }
 
 export function useHealth() {
