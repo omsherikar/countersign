@@ -5,7 +5,7 @@ import { FileText, ImageIcon, Loader2, Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 import { FlagStatusBadge } from "@/components/brand/FlagStatusBadge";
 import { ApiError } from "@/lib/api";
-import { t } from "@/lib/copy";
+import { t, tk } from "@/lib/copy";
 import { formatBytes, formatDate } from "@/lib/format";
 import { useCollegeResponse } from "@/lib/queries-cases";
 import type { FlagDetail } from "@/lib/types";
@@ -139,6 +139,7 @@ export function CollegeRespond({ flag }: { flag: FlagDetail }) {
               requested_date: formatDate(request.at),
             })}
           </p>
+          {request.docs_kind && <p className="mt-1 font-medium">{t("college.request_kind_line", { docs_kind_word: tk(`docs_kind.${request.docs_kind}`) })}</p>}
           {request.note && <p className="mt-1 max-w-[68ch] text-md [overflow-wrap:anywhere]">&ldquo;{request.note}&rdquo;</p>}
         </div>
       )}
