@@ -387,9 +387,7 @@ export function DecisionSheet({
         )}
 
         {action === "UPHOLD" && seatCase && (
-          versionMissing ? (
-            <p className="border-l-2 border-check-pending bg-paper px-3 py-2 text-sm">{t("case.uphold_version_none")}</p>
-          ) : flag.approval ? (
+          versionMissing ? null : flag.approval ? (
             <FieldSelect
               id={`${ids}-version`}
               label={t("case.uphold_version_label")}
