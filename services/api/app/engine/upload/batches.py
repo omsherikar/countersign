@@ -30,11 +30,12 @@ COUNT_KEYS: tuple[str, ...] = (
     "unseated",
     "flags_raised",
     "flags_updated",
+    "versions",
 )
 
 
 def empty_counts() -> dict[str, Any]:
-    return {**dict.fromkeys(COUNT_KEYS, 0), "sources": {}, "timings_ms": {}}
+    return {**dict.fromkeys(COUNT_KEYS, 0), "sources": {}, "timings_ms": {}, "column_mapping": []}
 
 
 async def upload_kind(

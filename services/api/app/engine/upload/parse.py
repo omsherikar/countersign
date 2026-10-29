@@ -1,23 +1,27 @@
-"""PARSE: read a CSV, XLSX or JSON rows into raw rows and check the header (API_CONTRACT §A2.2).
+"""PARSE: read a CSV, XLSX or JSON rows into raw rows and check the header (API_CONTRACT §A2.2,
+§A4.16).
 
 Headers are matched after trimming, lower-casing and turning spaces and hyphens into
-underscores. Unknown headers are reported in `ignored_columns`. A missing required header
-or a header that appears twice rejects the file. Blank rows are skipped and not counted;
-`row_no` is the spreadsheet row number (header row 1), or the 1-based position for rows.
+underscores, through the college's saved column mapping first (`mapping.apply`). Unknown
+headers are reported in `ignored_columns`. A header that appears twice, or a missing
+required header, rejects the file: UPLOAD_HEADER_UNMAPPED when unknown headers could be
+mapped to the missing columns, else UPLOAD_HEADER_INVALID. Blank rows are skipped and not
+counted; `row_no` is the spreadsheet row number (header row 1), or the 1-based position for
+rows.
 """
 
 from __future__ import annotations
 
 import csv
 import io
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
+from app.engine.upload import mapping as column_mapping
 from app.engine.upload.types import (
-    REQUIRED_COLUMNS,
     UPLOAD_COLUMNS,
     FileKind,
     ParsedUpload,
@@ -32,8 +36,7 @@ NOT_UTF8 = "The file is not UTF-8 text. Save it as CSV UTF-8 and upload it again
 EMPTY = "The file has a header but no rows."
 
 
-def normalise_header(text: str) -> str:
-    return text.strip().lower().replace(" ", "_").replace("-", "_")
+normalise_header = column_mapping.normalise_header
 
 
 def file_kind(filename: str) -> FileKind | None:
@@ -66,27 +69,19 @@ def cell_text(value: Any) -> str:
     return str(value).strip()
 
 
-def _check_header(cells: list[Any]) -> tuple[list[tuple[int, str]], list[str]]:
-    """(column index, known column) pairs and the ignored header texts; raises on a bad header."""
-    known: list[tuple[int, str]] = []
-    ignored: list[str] = []
-    seen: dict[str, int] = {}
-    duplicates: list[str] = []
-    for index, cell in enumerate(cells):
-        text = cell_text(cell)
-        if not text:
-            continue
-        key = normalise_header(text)
-        seen[key] = seen.get(key, 0) + 1
-        if seen[key] == 2:
-            duplicates.append(key)
-        if key in _KNOWN:
-            if seen[key] == 1:
-                known.append((index, key))
-        elif seen[key] == 1:
-            ignored.append(text)
-    present = {key for _, key in known}
-    missing = [column for column in REQUIRED_COLUMNS if column not in present]
+def _check_header(
+    cells: list[Any], saved: Mapping[str, str] | None
+) -> tuple[list[tuple[int, str]], list[str], list[tuple[str, str]]]:
+    """(column index, known column) pairs, the ignored header texts and the (header, column)
+    pairs read through the saved mapping; raises on a bad header."""
+    header_map = column_mapping.apply([cell_text(c) for c in cells], saved)
+    missing, duplicates = header_map.missing, header_map.duplicates
+    if missing and header_map.unknown and not duplicates:
+        raise UploadFileError(
+            "UPLOAD_HEADER_UNMAPPED",
+            column_mapping.UNMAPPED,
+            column_mapping.unmapped_details(header_map),
+        )
     if missing or duplicates:
         if missing:
             message = f"The file is missing required columns: {', '.join(missing)}."
@@ -97,7 +92,7 @@ def _check_header(cells: list[Any]) -> tuple[list[tuple[int, str]], list[str]]:
             message,
             {"missing_columns": missing, "duplicate_columns": duplicates},
         )
-    return known, ignored
+    return sorted(header_map.columns.items()), header_map.unknown, header_map.mapped
 
 
 def _rows(
@@ -121,11 +116,19 @@ def _rows(
 
 
 def _from_records(
-    records: Iterator[tuple[int, list[Any]]], kind: FileKind, max_rows: int
+    records: Iterator[tuple[int, list[Any]]],
+    kind: FileKind,
+    max_rows: int,
+    saved: Mapping[str, str] | None,
 ) -> ParsedUpload:
     first = next(records, None)
-    columns, ignored = _check_header(first[1] if first else [])
-    return ParsedUpload(rows=_rows(records, columns, max_rows), ignored_columns=ignored, kind=kind)
+    columns, ignored, mapped = _check_header(first[1] if first else [], saved)
+    return ParsedUpload(
+        rows=_rows(records, columns, max_rows),
+        ignored_columns=ignored,
+        kind=kind,
+        column_mapping=[{"header": h, "column": c} for h, c in mapped],
+    )
 
 
 def _csv_records(data: bytes) -> Iterator[tuple[int, list[Any]]]:
@@ -166,38 +169,56 @@ def _xlsx_records(data: bytes) -> Iterator[tuple[int, list[Any]]]:
     return iter(records)
 
 
-def parse_upload(data: bytes | Path, filename: str, *, max_rows: int | None = None) -> ParsedUpload:
-    """Read a CSV (UTF-8, BOM allowed) or XLSX (first sheet). Raises UploadFileError."""
+def parse_upload(
+    data: bytes | Path,
+    filename: str,
+    *,
+    max_rows: int | None = None,
+    mapping: Mapping[str, str] | None = None,
+) -> ParsedUpload:
+    """Read a CSV (UTF-8, BOM allowed) or XLSX (first sheet), reading the header through the
+    college's saved column mapping. Raises UploadFileError."""
     limit = max_rows if max_rows is not None else get_settings().upload_max_rows
     if isinstance(data, Path):
         data = data.read_bytes()
     kind = file_kind(filename)
     if kind == "csv":
-        return _from_records(_csv_records(data), "csv", limit)
+        return _from_records(_csv_records(data), "csv", limit, mapping)
     if kind == "xlsx":
-        return _from_records(_xlsx_records(data), "xlsx", limit)
+        return _from_records(_xlsx_records(data), "xlsx", limit, mapping)
     raise UploadFileError("UNSUPPORTED_FILE_TYPE", UNREADABLE)
 
 
-def parse_rows(rows: list[dict[str, Any]], *, max_rows: int | None = None) -> ParsedUpload:
-    """JSON rows from POST /uploads/rows: same columns as keys, `null` means blank."""
+def parse_rows(
+    rows: list[dict[str, Any]],
+    *,
+    max_rows: int | None = None,
+    mapping: Mapping[str, str] | None = None,
+) -> ParsedUpload:
+    """JSON rows from POST /uploads/rows: the template columns as keys, `null` means blank;
+    keys are read through the college's saved column mapping as file headers are."""
     limit = max_rows if max_rows is not None else get_settings().upload_max_rows
+    saved = {normalise_header(k): v for k, v in (mapping or {}).items()}
     ignored: dict[str, None] = {}
+    used: dict[str, str] = {}
     parsed: list[RawRow] = []
     for position, row in enumerate(rows, start=1):
         values = dict.fromkeys(UPLOAD_COLUMNS, "")
         seen: set[str] = set()
         for raw_key, raw_value in row.items():
             key = normalise_header(str(raw_key))
-            if key in seen:
+            column = saved.get(key, key)
+            if column in seen:
                 raise UploadFileError(
                     "UPLOAD_HEADER_INVALID",
-                    f"The column {key} appears more than once.",
-                    {"missing_columns": [], "duplicate_columns": [key]},
+                    f"The column {column} appears more than once.",
+                    {"missing_columns": [], "duplicate_columns": [column]},
                 )
-            seen.add(key)
-            if key in _KNOWN:
-                values[key] = cell_text(raw_value)
+            seen.add(column)
+            if column in _KNOWN:
+                values[column] = cell_text(raw_value)
+                if key in saved:
+                    used.setdefault(str(raw_key).strip(), column)
             elif str(raw_key).strip():
                 ignored.setdefault(str(raw_key).strip(), None)
         if not any(values.values()):
@@ -207,4 +228,9 @@ def parse_rows(rows: list[dict[str, Any]], *, max_rows: int | None = None) -> Pa
         parsed.append(RawRow(row_no=position, values=values))
     if not parsed:
         raise UploadFileError("UPLOAD_EMPTY", EMPTY)
-    return ParsedUpload(rows=parsed, ignored_columns=list(ignored), kind="json")
+    return ParsedUpload(
+        rows=parsed,
+        ignored_columns=list(ignored),
+        kind="json",
+        column_mapping=[{"header": h, "column": c} for h, c in used.items()],
+    )

@@ -22,6 +22,13 @@ class UploadCounts(BaseModel):
     unseated: int = 0
     flags_raised: int = 0
     flags_updated: int = 0
+    # enrolment versions the batch wrote (D42)
+    versions: int = 0
+
+
+class MappedColumn(BaseModel):
+    header: str
+    column: str
 
 
 class UploadSourceStat(BaseModel):
@@ -59,6 +66,8 @@ class UploadBatchOut(BaseModel):
     timings_ms: dict[str, int]
     error: str | None
     ignored_columns: list[str]
+    # the headers the batch read through the college's saved column mapping (§A4.16)
+    column_mapping: list[MappedColumn] = Field(default_factory=list)
     same_file_as: SameFile | None
     uploaded_by: Uploader
     uploaded_at: str

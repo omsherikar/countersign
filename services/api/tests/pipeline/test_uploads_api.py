@@ -81,6 +81,7 @@ async def test_multipart_upload_runs_and_reports(clients, spool):
     assert list(batch["counts"]) == [
         "rows", "accepted", "errors", "warnings", "created", "updated", "unchanged", "withdrawn",
         "transferred", "seated", "released", "unseated", "flags_raised", "flags_updated",
+        "versions",
     ]  # fmt: skip
     assert batch["sources"] == [] and batch["same_file_as"] is None
 
