@@ -14,16 +14,25 @@ async def test_students_me(student, admin, registrar_abc):
     assert enrolment["programme_name"] == "B.Tech Computer Science and Engineering"
     assert enrolment["academic_year"] == "2026-27" and enrolment["year_of_study"] == 1
     assert enrolment["status"] == "ACTIVE"
-    assert enrolment["countersign"] == {
-        "score": {"passes": 3, "applicable": 4},
-        "checks": [
-            {"type": "IDENTITY", "status": "CONFIRMED"},
-            {"type": "ADMISSION", "status": "CONFIRMED"},
-            {"type": "SEAT", "status": "CONFIRMED"},
-            {"type": "STUDYING", "status": "NOT_YET_DUE"},
-            {"type": "STUDENT", "status": "PENDING"},
-        ],
+    # the record and its brief rows replace the score (API_CONTRACT §A4.5)
+    assert "countersign" not in enrolment and body["signed_in_with"] == "DIGILOCKER"
+    assert enrolment["record_status"] in (
+        "AWAITING_EVIDENCE",
+        "COUNTERSIGNED",
+        "UNDER_REVIEW",
+        "DISPUTED",
+    )
+    assert enrolment["status_reason"] and enrolment["next_step"] is not None
+    assert {row["type"] for row in enrolment["checks"]} == {
+        "IDENTITY",
+        "SEAT",
+        "ADMISSION",
+        "STUDYING",
+        "STUDENT",
     }
+    assert set(enrolment["checks"][0]) == {"type", "state", "finding", "independent", "resolved"}
+    assert (enrolment["response"], enrolment["can_respond"]) == (None, True)
+    assert (enrolment["claimed"], enrolment["decision"]) == (False, None)
     assert "apaar_id" not in body and "mobile" not in body
 
     for other in (admin, registrar_abc):

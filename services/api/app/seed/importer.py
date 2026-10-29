@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.adapters.base import AdapterSet
 from app.adapters.factory import build_adapters
+from app.auth import UNUSABLE_PREFIX, unusable_password_hash
 from app.core import audit
 from app.core.crypto import hmac_bytes, normalise
 from app.core.rules import Rules, get_rules
@@ -654,10 +655,14 @@ async def import_users(
             )
 
         user = existing.get(row["email"].lower())
+        # a student signs in only through DigiLocker (D37): its account keeps no password
+        student_account = role is UserRole.STUDENT
         if user is None:
             user = User(
                 email=row["email"],
-                password_hash=hash_password(row["password"]),
+                password_hash=unusable_password_hash()
+                if student_account
+                else hash_password(row["password"]),
                 name=row["name"],
                 role=role,
                 is_active=True,
@@ -670,7 +675,10 @@ async def import_users(
             user.name, user.role = row["name"], role
             for key, value in scope.items():
                 setattr(user, key, value)
-            if not verify_password(row["password"], user.password_hash):
+            if student_account:
+                if not user.password_hash.startswith(UNUSABLE_PREFIX):
+                    user.password_hash = unusable_password_hash()
+            elif not verify_password(row["password"], user.password_hash):
                 user.password_hash = hash_password(row["password"])
             summary.bump("users", False)
     await session.flush()
