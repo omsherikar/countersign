@@ -2,8 +2,9 @@
 
 One INSTITUTION user per institution is created for the run (unusable password, signed in by
 a minted session cookie, deactivated at the end). Each asks, for every other institution,
-for the institution, its enrolment list and its completeness, and for one of its enrolments,
-that enrolment's history, one of its cases and one of its uploads when it has them. Refused
+for the institution, its enrolment list, completeness (page and CSV), seats and column
+mapping, and for one of its enrolments, that enrolment's history, one of its cases and one of
+its uploads with the upload's row errors, when it has them. Refused
 means 403 or 404; anything else is a leak (2xx) or an error. Routes the api does not have
 yet are skipped and listed. As a control, each user also asks for its own institution and
 enrolment list, which must answer 200.
@@ -28,10 +29,14 @@ FOREIGN_PATHS: tuple[tuple[str, str], ...] = (
     ("/institutions/{id}", "institution"),
     ("/institutions/{id}/enrolments", "institution"),
     ("/institutions/{id}/completeness", "institution"),
+    ("/institutions/{id}/completeness.csv", "institution"),
+    ("/institutions/{id}/seats", "institution"),
+    ("/institutions/{id}/column-mapping", "institution"),
     ("/enrolments/{id}", "enrolment"),
     ("/enrolments/{id}/history", "enrolment"),
     ("/flags/{id}", "flag"),
     ("/uploads/{id}", "upload"),
+    ("/uploads/{id}/errors", "upload"),
 )
 OWN_PATHS = ("/institutions/{id}", "/institutions/{id}/enrolments")
 
