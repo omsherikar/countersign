@@ -169,7 +169,7 @@ They run from the host against the running stack, one at a time, with Playwright
 ```
 cd apps/web && pnpm install && pnpm exec playwright install --only-shell chromium   # once
 make demo-reset   # a clean run starts from a fresh seed (about 15 minutes)
-make e2e          # about 6 minutes once the web has compiled its pages
+make e2e          # about 14 minutes; each student sign-in goes through the Demo DigiLocker
 ```
 
 A clean run starts from `make demo-reset`, because the tests use one-time state the seed keeps for the live demo: Ravi's and Xavier's unanswered notices, Priyanka's unclaimed record, the ring's first case, one decision of each kind and one completion attestation. A second run without a reset still passes: it answers and disputes other unanswered ABC College notices (their students sign in through the Demo DigiLocker, and their emails are found in Mailpit), checks Priyanka's claimed record instead of claiming it again, opens the ring's case for the next college or checks the cases already opened, decides the next open case and takes the next graduate, printing a `note:` line for each. Tests marked fixme name a product bug in one line. `E2E_BASE_URL`, `E2E_API_URL`, `E2E_MAILPIT_URL` and `E2E_MOCKGOV_URL` move the addresses; a failed test keeps its trace and screenshot under `apps/web/test-results`, which is safe to delete.
