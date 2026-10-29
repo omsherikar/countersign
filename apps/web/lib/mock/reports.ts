@@ -89,12 +89,15 @@ export function listReports(user: User): ItemsEnvelope<ReportInfo> {
   };
 }
 
-function scope(user: User): { rows: InstitutionRow[]; name: string; slug: string } {
-  if (user.role === "RO_OFFICER") {
-    const region = user.scope.region!;
-    return { rows: INSTITUTIONS.filter((i) => i.region === region), name: `${REGION_WORD[region]} Region`, slug: region };
-  }
-  return { rows: INSTITUTIONS, name: "All India", slug: "national" };
+/** AICTE national, narrowed by `region` or `state`; a regional officer its region (`region` ignored), narrowed by `state`. */
+function scope(user: User, q: URLSearchParams): { rows: InstitutionRow[]; name: string; slug: string } {
+  const state = q.get("state");
+  const region = user.role === "RO_OFFICER" ? user.scope.region! : q.get("region");
+  let rows = region ? INSTITUTIONS.filter((i) => i.region === region) : INSTITUTIONS;
+  if (state) rows = rows.filter((i) => i.state_code === state);
+  if (state) return { rows, name: INSTITUTIONS.find((i) => i.state_code === state)?.state_name ?? state, slug: state };
+  if (region) return { rows, name: `${REGION_WORD[region]} Region`, slug: region };
+  return { rows, name: "All India", slug: "national" };
 }
 
 const total = (r: RecordCounts) => r.AWAITING_EVIDENCE + r.COUNTERSIGNED + r.UNDER_REVIEW + r.DISPUTED;
@@ -216,8 +219,9 @@ export function reportFile(user: User, path: string): { blob: Blob; filename: st
   const name = m?.[1] as ReportName | undefined;
   const format = m?.[2] as ReportFormat | undefined;
   if (!name || !format || !(name in TITLES) || (name === "summary" && format !== "pdf")) throw new ApiError(404, "REPORT_NOT_FOUND", "Report not found.");
-  const year = new URLSearchParams(qs ?? "").get("academic_year") || ACADEMIC_YEAR;
-  const { rows, name: scopeName, slug } = scope(user);
+  const params = new URLSearchParams(qs ?? "");
+  const year = params.get("academic_year") || ACADEMIC_YEAR;
+  const { rows, name: scopeName, slug } = scope(user, params);
   const filename = `countersign_${name}_${year}_${slug}.${format}`;
   if (name === "summary") return { blob: pdfBlob(summaryLines(user, rows, year, scopeName)), filename };
   const header = COLUMNS[name];

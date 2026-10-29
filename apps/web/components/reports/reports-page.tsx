@@ -5,9 +5,10 @@ import { Download, FlaskConical, Loader2 } from "lucide-react";
 import { api, API_BASE, ApiError } from "@/lib/api";
 import { t, tk } from "@/lib/copy";
 import { formatDateTime } from "@/lib/format";
+import { useRegions, useStates } from "@/lib/queries";
 import { reportPath, reportQuery, useReportPreview, useReports } from "@/lib/queries-signals";
 import { REGION_NAME } from "@/lib/roles";
-import type { ReportFormat, ReportInfo, ReportName } from "@/lib/types";
+import type { Region, ReportFormat, ReportInfo, ReportName, ReportQuery } from "@/lib/types";
 import { useUrlParams } from "@/lib/use-url-params";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/brand/EmptyState";
@@ -42,9 +43,17 @@ export function ReportsPage({ variant }: { variant: "aicte" | "ro" }) {
   const [params, set] = useUrlParams();
   const year = params.get("r_year") ?? YEARS[0];
   const list = useReports();
+  const regions = useRegions();
+  const states = useStates();
   const [generated] = React.useState(() => new Date().toISOString());
   const region = variant === "ro" ? (user?.scope.region ?? null) : null;
-  const scopeName = region ? `${REGION_NAME[region]} Region` : "All India";
+  // A4.21: AICTE may narrow to a region or a state; a regional officer's files are its region, narrowed to a state at most.
+  const pickedRegion = variant === "aicte" ? ((params.get("r_region") as Region | null) ?? null) : null;
+  const pickedState = params.get("r_state") ?? null;
+  const inScope = (states.data ?? []).filter((st) => (region ? st.region === region : pickedRegion ? st.region === pickedRegion : true));
+  const stateName = pickedState ? states.data?.find((st) => st.code === pickedState)?.name : undefined;
+  const scopeName = stateName ?? (region ? `${REGION_NAME[region]} Region` : pickedRegion ? `${REGION_NAME[pickedRegion]} Region` : "All India");
+  const query: ReportQuery = { academic_year: year, region: pickedRegion ?? undefined, state: pickedState ?? undefined };
 
   return (
     <>
@@ -68,6 +77,26 @@ export function ReportsPage({ variant }: { variant: "aicte" | "ro" }) {
         <FlaskConical className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <span>{t("report.synthetic")}</span>
       </p>
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-xl">
+        {variant === "aicte" && (
+          <FieldSelect
+            id="reports-region"
+            label={t("report.filter.region")}
+            value={pickedRegion ?? ""}
+            onChange={(v) => set({ r_region: v || null, r_state: null })}
+            options={[{ value: "", label: "All India" }, ...(regions.data ?? []).map((r) => ({ value: r.code, label: `${REGION_NAME[r.code]} Region` }))]}
+            required={false}
+          />
+        )}
+        <FieldSelect
+          id="reports-state"
+          label={t("report.filter.state")}
+          value={pickedState ?? ""}
+          onChange={(v) => set({ r_state: v || null })}
+          options={[{ value: "", label: t("flags.filter.all") }, ...inScope.map((st) => ({ value: st.code, label: st.name }))]}
+          required={false}
+        />
+      </div>
       <p className="mb-1 text-sm text-ink-muted">{t("report.scope_line", { scope_name: scopeName, academic_year: year, time: formatDateTime(generated) })}</p>
       {region && <p className="mb-1 text-sm text-ink-muted">{t("report.ro_scope", { region_name: REGION_NAME[region] })}</p>}
 
@@ -84,7 +113,7 @@ export function ReportsPage({ variant }: { variant: "aicte" | "ro" }) {
         ) : (
           <ul className="flex flex-col divide-y divide-rule border-y border-rule">
             {list.data.items.map((r) => (
-              <ReportRow key={r.name} report={r} year={year} />
+              <ReportRow key={r.name} report={r} query={query} />
             ))}
           </ul>
         )}
@@ -93,7 +122,7 @@ export function ReportsPage({ variant }: { variant: "aicte" | "ro" }) {
   );
 }
 
-function ReportRow({ report, year }: { report: ReportInfo; year: string }) {
+function ReportRow({ report, query }: { report: ReportInfo; query: ReportQuery }) {
   const [preview, setPreview] = React.useState(false);
   const name = tk(`report.name.${KEY[report.name]}`);
   const regionId = React.useId();
@@ -108,7 +137,7 @@ function ReportRow({ report, year }: { report: ReportInfo; year: string }) {
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-start">
           {shown.map((f) => (
-            <DownloadLink key={f} report={report.name} reportName={name} format={f} year={year} />
+            <DownloadLink key={f} report={report.name} reportName={name} format={f} query={query} />
           ))}
           {report.name !== "summary" && (
             <button
@@ -123,7 +152,7 @@ function ReportRow({ report, year }: { report: ReportInfo; year: string }) {
           )}
         </div>
       </div>
-      <div id={regionId}>{preview && <Preview name={report.name} year={year} />}</div>
+      <div id={regionId}>{preview && <Preview name={report.name} query={query} />}</div>
     </li>
   );
 }
@@ -133,9 +162,10 @@ function ReportRow({ report, year }: { report: ReportInfo; year: string }) {
  * fetches it instead, to say "Preparing" while the server builds it and to
  * show the error under the report when it cannot.
  */
-function DownloadLink({ report, reportName, format, year }: { report: ReportName; reportName: string; format: ReportFormat; year: string }) {
+function DownloadLink({ report, reportName, format, query }: { report: ReportName; reportName: string; format: ReportFormat; query: ReportQuery }) {
   const [state, setState] = React.useState<"idle" | "busy" | "failed" | "missing">("idle");
-  const path = `${reportPath(report, format)}${reportQuery({ academic_year: year })}`;
+  const path = `${reportPath(report, format)}${reportQuery(query)}`;
+  const year = query.academic_year ?? "";
   const word = FORMAT_WORD[format];
   async function go(e: React.MouseEvent<HTMLAnchorElement>) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
@@ -173,8 +203,9 @@ function DownloadLink({ report, reportName, format, year }: { report: ReportName
   );
 }
 
-function Preview({ name, year }: { name: ReportName; year: string }) {
-  const q = useReportPreview(name, { academic_year: year });
+function Preview({ name, query }: { name: ReportName; query: ReportQuery }) {
+  const q = useReportPreview(name, query);
+  const year = query.academic_year ?? "";
   if (q.isError && !q.data) {
     const missing = q.error instanceof ApiError && q.error.status === 404;
     return (

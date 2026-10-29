@@ -444,4 +444,8 @@ export const casesCopy = {
   "signal.open_case_change_none": "The case names no record, so no record's status changes. Nothing else changes.",
   "signal.open_case_pick_required": "Choose at least one college.",
   "signal.panel_none": "No new signals for {academic_year}.",
+
+  /* ---- Web-only strings for the report filters, not in the deck yet ---- */
+  "report.filter.region": "Region",
+  "report.filter.state": "State",
 } as const;
