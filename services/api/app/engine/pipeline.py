@@ -10,9 +10,11 @@ the file again finishes the job because every stage is idempotent.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import math
+import sys
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Sequence
@@ -65,6 +67,18 @@ from app.models.upload import UploadBatch, UploadRowError
 from app.models.verification import Check, Flag
 
 log = logging.getLogger("countersign.pipeline")
+
+
+def remember_missing_sniffio() -> None:
+    """httpcore 1.0 runs `import sniffio` on every request and falls back to asyncio when it
+    is missing. sniffio is not installed in the api, so each source call searched sys.path
+    again (about 0.15 ms, two of them per row). A None entry in sys.modules makes the failed
+    import immediate; nothing changes where sniffio is installed."""
+    if "sniffio" not in sys.modules and importlib.util.find_spec("sniffio") is None:
+        sys.modules["sniffio"] = None
+
+
+remember_missing_sniffio()
 
 STAGES: tuple[UploadStage, ...] = (
     UploadStage.PARSE,
