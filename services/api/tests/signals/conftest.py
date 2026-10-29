@@ -252,3 +252,12 @@ async def clients(ring_world) -> AsyncIterator[dict[str, httpx.AsyncClient]]:
     yield out
     for c in out.values():
         await c.aclose()
+
+
+@pytest.fixture(autouse=True)
+def model_of_these_worlds(monkeypatch) -> None:
+    """These forty-college worlds plant two outliers, so their model keeps a contamination of
+    5% whatever rules.yaml sets for the demo data (0.1 on the small seed)."""
+    from app.signals import anomaly
+
+    monkeypatch.setattr(anomaly, "settings", lambda path=None: anomaly.AnomalySettings())

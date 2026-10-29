@@ -116,7 +116,10 @@ ghost_ring:
 signals:
   # officer-only signals (D45); never a record's status
   anomaly:
-    contamination: 0.05
+    # the share of colleges the Isolation Forest treats as outliers each year; 0.1 finds
+    # both planted colleges of the small synthetic data, 0.05 misses the admission-growth one
+    contamination: 0.1
     n_estimators: 200
     random_state: 0
-    min_records: 20
+    min_records: 20     # a college with fewer active records in the year is not scored
+    source: "Countersign signal model (D45): Isolation Forest over this year's colleges"

@@ -160,6 +160,7 @@ class AnomalyRules(BaseModel):
     n_estimators: int = Field(gt=0)
     random_state: int = 0
     min_records: int = Field(ge=0)
+    source: str | None = None
 
 
 class SignalRules(BaseModel):

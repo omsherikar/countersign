@@ -50,8 +50,8 @@ def test_eligibility_clauses_and_the_anomaly_model_are_in_rules() -> None:
     assert rules.eligibility.rule("TFW_INCOME").clause == "APH 2024-27 cl. 6.42(d)"
     assert rules.signals is not None
     anomaly = rules.signals.anomaly
-    assert (anomaly.contamination, anomaly.n_estimators, anomaly.random_state) == (0.05, 200, 0)
-    assert anomaly.min_records == 20
+    assert (anomaly.contamination, anomaly.n_estimators, anomaly.random_state) == (0.1, 200, 0)
+    assert anomaly.min_records == 20 and anomaly.source
 
 
 def test_the_integrity_index_is_gone_from_rules() -> None:
