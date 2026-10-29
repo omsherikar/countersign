@@ -174,7 +174,7 @@ export function FlagDetail({ id, variant }: { id: string; variant: FlagDetailVar
               <RelatedEnrolmentsTable rows={d.related_enrolments} caption={t("section.related")} enrolmentHref={enrolmentHref} flagHref={flagHref} />
             )}
             {d.related_hidden > 0 && <p className="mt-2 text-sm text-ink-muted">{d.related_hidden === 1
-                  ? singular(t("flag.related_hidden", { n: 1 })).replace(" are not shown", " is not shown")
+                  ? singular(t("flag.related_hidden", { n: 1 })).replace("1 related records", "1 related record").replace(" are not shown", " is not shown")
                   : t("flag.related_hidden", { n: formatCount(d.related_hidden) })}</p>}
           </section>
 

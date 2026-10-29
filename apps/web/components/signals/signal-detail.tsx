@@ -107,7 +107,24 @@ export function SignalDetailPage({ id, variant }: { id: string; variant: "aicte"
             </div>
           )}
           <div className={d.type === "GHOST_RING" && d.members.length > 0 ? "min-w-0" : "min-w-0 md:col-span-2"}>
-            <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+            <dl className="flex flex-col divide-y divide-rule border-l-2 border-rule-margin bg-paper-raised md:hidden">
+              {d.facts.map((f) => (
+                <div key={f.label} className="px-3 py-2.5">
+                  <dt className="text-sm text-ink-muted">{f.label}</dt>
+                  <dd className="mt-0.5 font-medium [overflow-wrap:anywhere]">{f.value}</dd>
+                  {f.source && <dd className="text-sm text-ink-muted">{f.source}</dd>}
+                </div>
+              ))}
+              {d.shared.map((s, i) => (
+                <div key={`shared-${i}`} className="px-3 py-2.5">
+                  <dt className="text-sm text-ink-muted">{t(s.kind === "MOBILE" ? "signal.fact.mobile_one" : s.kind === "EMAIL" ? "signal.fact.email_one" : "signal.fact.address_one")}</dt>
+                  <dd className="mt-0.5 font-medium">
+                    <span className="code">{s.masked}</span> · {t("signal.shared_by", { n: formatCount(s.students) })}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <div className="relative hidden overflow-x-auto border-l-2 border-rule-margin bg-paper-raised md:block">
               <table className="ledger-table">
                 <caption className="sr-only">{t("section.evidence")}</caption>
                 <thead>

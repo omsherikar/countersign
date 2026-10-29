@@ -18,6 +18,7 @@ import { ReadLoggedNote } from "@/components/common/ledger-bits";
 import { Crumbs, PageHeader } from "@/components/common/page-header";
 import { Pager } from "@/components/common/pager";
 import { ErrorBlock, SkeletonRows, SlowHint, TableMessage } from "@/components/common/query-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SheetDialog, StatusWord, outlineButton, primaryButton } from "@/components/student/bits";
 import { deckError, errorCodeOf } from "@/components/student/errors";
 
@@ -184,18 +185,20 @@ export function IssueDialog({
   );
 }
 
-function RowActions({ g }: { g: GraduateRow }) {
+function RowActions({ g, block = false }: { g: GraduateRow; block?: boolean }) {
   const [issuing, setIssuing] = React.useState(false);
   const active = g.attestation?.status === "ACTIVE";
+  // Only the table row's print link carries the id the issue sheet returns focus to; phones have no print view.
   const printId = `print-${g.enrolment_id}`;
   if (active) {
+    if (block) return <PdfLink enrolmentId={g.enrolment_id} describedBy="cert-pdf-note" className={cn(outlineButton, "no-underline")} />;
     return (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <Link id={printId} href={`/university/certificates/${g.enrolment_id}/print`} className="hidden min-h-8 items-center gap-1.5 md:inline-flex">
+        <Link id={printId} href={`/university/certificates/${g.enrolment_id}/print`} className="inline-flex min-h-8 items-center gap-1.5">
           <Printer className="size-4" aria-hidden="true" />
           {t("cert.print_block")}
         </Link>
-        <PdfLink enrolmentId={g.enrolment_id} describedBy="cert-pdf-note" className="min-h-11 md:min-h-8" />
+        <PdfLink enrolmentId={g.enrolment_id} describedBy="cert-pdf-note" className="min-h-8" />
       </div>
     );
   }
@@ -246,7 +249,42 @@ export function CertificatesPage() {
       <p id="cert-pdf-note" className="sr-only">
         {t("cert.pdf_note")}
       </p>
-      <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
+      {/* Phones: one block per graduate, the attestation word and the actions full width (W4-12). */}
+      <div className="md:hidden">
+        {list.isLoading && (
+          <div className="flex flex-col gap-2" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-28 w-full" />
+            ))}
+          </div>
+        )}
+        {list.isError && !data && <ErrorBlock error={list.error} onRetry={() => list.refetch()} />}
+        {data && rows.length === 0 && (
+          <div className="border-l-2 border-rule-margin bg-paper-raised">
+            <EmptyState title={q ? t("empty.graduates_search", { q }) : t("empty.graduates")} />
+          </div>
+        )}
+        {rows.length > 0 && (
+          <ul className="flex flex-col divide-y divide-rule border-l-2 border-rule-margin bg-paper-raised">
+            {rows.map((g) => (
+              <li key={g.enrolment_id} className="flex flex-col gap-1.5 px-3 py-3 text-md">
+                <p className="font-medium">{g.student.name}</p>
+                <p className="code text-sm text-ink-muted">
+                  <MaskedApaar apaarMasked={g.student.apaar_masked} provisionalId={g.student.provisional_id} />
+                </p>
+                <p className="text-sm text-ink-muted">
+                  {g.institution.name} · {g.programme.code} · {g.year_of_award}
+                </p>
+                <div>
+                  <AttestationStatus attestation={g.attestation} />
+                </div>
+                <RowActions g={g} block />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="relative hidden overflow-x-auto border-l-2 border-rule-margin bg-paper-raised md:block">
         <table className="ledger-table" aria-busy={list.isFetching}>
           <caption className="sr-only">{t("cert.heading")}</caption>
           <thead>
