@@ -1762,7 +1762,20 @@ function seedCases() {
     }
   }
 
-  // GCE Karad, late refill: cleared, then the engines refreshed the evidence.
+  // ABC, a permitted second programme online: upheld by the regional officer, so the registrar reads the decision.
+  const dual = allFlags().find((f) => f.type === "DUAL_ENROLMENT_ALLOWED" && f.institutionId === IDS.abc);
+  if (dual) {
+    dual.status = "UPHELD";
+    const c = caseOf(dual.id);
+    c.history.push(
+      item(53, "2026-10-28T08:20:00Z", "UPHOLD", "OPEN", "UPHELD", west, "The second enrolment is an online programme the UGC guidelines permit alongside a full-time one; both records stand.", {
+        reason_code: "PERMITTED_DUAL_PROGRAMME",
+      }),
+    );
+    c.lastActionAt = "2026-10-28T08:20:00Z";
+  }
+
+  // GCE Karad, late refill: upheld, then the engines refreshed the evidence.
   apply(12, "UPHELD", [
     item(52, "2026-10-28T09:05:00Z", "UPHOLD", "OPEN", "UPHELD", west, "The seat was released on 28 Sep and refilled on 5 Oct with the state counselling authority's written approval, which is on file.", {
       reason_code: "DOCUMENTS_SUPPORT_CLAIM",
