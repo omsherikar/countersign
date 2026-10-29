@@ -12,6 +12,7 @@ import { useStudentMe } from "@/lib/queries";
 import type { StudentCredentialBrief, StudentEnrolment } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorBlock, SlowHint } from "@/components/common/query-state";
+import { DecisionLine } from "@/components/student/decision-line";
 import { RecordStatusBadge } from "@/components/records/record-status-badge";
 import { StatusWord, useNow } from "@/components/student/bits";
 import { groupNotices, homeLine, type NoticeGroup } from "@/components/student/notice-groups";
@@ -34,6 +35,7 @@ function EnrolmentCard({ e, group }: { e: StudentEnrolment; group: NoticeGroup |
           <RecordStatusBadge status={e.record_status} size="md" tip={null} />
         </div>
         {e.record_status && <p className="max-w-[60ch] text-md text-ink-muted">{tk(`record_status.student.${e.record_status}`)}</p>}
+        <DecisionLine enrolment={e} />
         {line && e.status === "ACTIVE" && <p className="max-w-[60ch] text-md text-ink-muted">{line}</p>}
       </div>
     </section>
