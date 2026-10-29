@@ -20,6 +20,7 @@ import { COVERS, allFlags, flagById, type StoredFact, type StoredFlag } from "@/
 import { recordFor, withRecord } from "@/lib/mock/records";
 import { CHECKED_AT, LATER_VERSIONS, entryById, entryByName, evaluate, programmesFor, rollFor, seatsFor, setRows, versionsOf, type RollEntry } from "@/lib/mock/roll";
 import { readBrowserToken, userFromToken } from "@/lib/mock/session";
+import { listReports } from "@/lib/mock/reports";
 import { allSignals, dismissSignal, featureFacts, listSignals, membersOf, ruleOf, signalDetail, signalInScope, REGION_OF, type StoredSignal } from "@/lib/mock/signals";
 import type {
   ActorRef,
@@ -1828,6 +1829,11 @@ export async function withCases(method: string, path: string, query: Query | und
     const user = signedIn();
     if (OFFICERS.includes(user.role)) summary.kpis.signals_new = listSignals(user, { status: "NEW", page_size: 200 }).total;
     return summary;
+  }
+
+  if (pathname === "/reports" && method === "GET") {
+    await latency();
+    return listReports(signedIn());
   }
 
   if (parts[0] === "signals") {

@@ -12,6 +12,7 @@ import { enrolmentDetail, entryById, programmesFor, recheck, rollFor, seatsFor, 
 import { readBrowserToken, tokenFor, userFromToken, writeBrowserToken } from "@/lib/mock/session";
 import { allBatches, createUpload, errorsCsv, errorsOf, templateCsv } from "@/lib/mock/uploads";
 import { UNHANDLED, studentLoopDownload, studentLoopRequest } from "@/lib/mock/student-loop";
+import { reportFile } from "@/lib/mock/reports";
 import type {
   CaseAgeBucket,
   ChaosRequest,
@@ -688,6 +689,7 @@ export async function mockDownload(path: string): Promise<{ blob: Blob; filename
   if (file) return file;
   if (path.startsWith("/flags/")) return casesDownload(path, mockRequest);
   const user = currentUser();
+  if (path.startsWith("/reports/")) return reportFile(user, path);
   if (path === "/uploads/template.csv" || path === "/uploads/template.xlsx") {
     requireRole(user, ["AICTE_ADMIN", "RO_OFFICER", "INSTITUTION"]);
     // No XLSX writer in the browser mock; both buttons save the CSV header row.
