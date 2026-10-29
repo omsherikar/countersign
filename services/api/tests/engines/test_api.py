@@ -453,8 +453,15 @@ async def test_dashboard_kpis(ids, as_role) -> None:
 async def test_student_sees_real_countersign(ids, as_role) -> None:
     body = (await (await as_role("student@demo")).get("/students/me")).json()
     [enrolment] = body["enrolments"]
-    assert enrolment["countersign"]["score"] == {"passes": 2, "applicable": 4}
-    assert len(enrolment["countersign"]["checks"]) == 5
+    # the record and its five brief rows, no score (API_CONTRACT §A4.5)
+    assert "countersign" not in enrolment
+    assert enrolment["record_status"] in (
+        "AWAITING_EVIDENCE",
+        "COUNTERSIGNED",
+        "UNDER_REVIEW",
+        "DISPUTED",
+    )
+    assert len(enrolment["checks"]) == 5
 
 
 # ---------------------------------------------------------------------- rechecks
