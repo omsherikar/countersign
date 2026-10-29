@@ -763,7 +763,7 @@ export const copy = {
   "app.search_enrolments": "Search name or last 4 of APAAR",
   "app.search_seats": "Seat code or holder",
   "app.none": "none",
-  "app.college.heading": "Seat ledger",
+  "app.college.heading": "Seat Ledger",
   "app.college.enrolments": "Enrolments",
   "app.pools.cutoff": "Last admission date {date}.",
   "app.student.dob": "Date of birth",

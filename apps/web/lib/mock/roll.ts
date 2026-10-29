@@ -17,7 +17,7 @@
  * - XYZ "K. Subramanian" (name 68 of 100); "Arjun Iyer" active at XYZ and Kaveri.
  * - Pune ITM CSE: 9 NRI admissions against 6 NRI seats.
  * - GCE Karad MECH-R-031 refilled on 5 Oct, after the 15 Sep cutoff.
- * - ABC CSE "Ananya Deshmukh": the deck's sample card (joining record not
+ * - ABC CSE "Sanika Ghorpade": the deck's sample card (joining record not
  *   found, the student disputes it after DigiLocker sign-in: Disputed).
  * - Five records the joining record does not hold (Not in joining record).
  * - The Telangana authority has published no joining record, and the
@@ -352,7 +352,7 @@ function applyScenarios(aicte: string, entries: RollEntry[]) {
     });
 
     const sample = find(entries, "CSE", 1, 20);
-    patchStudent(sample, { name: "Ananya Deshmukh", apaar_masked: "XXXX XXXX 6021", consent_status: "LINKED", provisional_id: null }, {
+    patchStudent(sample, { name: "Sanika Ghorpade", apaar_masked: "XXXX XXXX 6021", consent_status: "LINKED", provisional_id: null }, {
       gender: "F",
       apaarLast4: "6021",
       dob: "2008-02-11",

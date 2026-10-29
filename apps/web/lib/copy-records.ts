@@ -8,6 +8,16 @@
 export const recordsCopy = {
   /* ---- Web-only: the joining record's source in words (the deck words its source lines, not the enum) ---- */
   "source.ADMISSION_AUTHORITY": "State admission authority",
+  "source.counselling_adapter": "Counselling list (no longer called)",
+  "app.filters": "Filters",
+  "app.filter.enrolment_status": "On roll",
+  "enrolments.sort.name": "Name, A to Z",
+  "cases.age_heading": "Open cases by age",
+  "cases.age.UNDER_7_DAYS": "Under 7 days",
+  "cases.age.DAYS_7_TO_30": "7 to 30 days",
+  "cases.age.OVER_30_DAYS": "Over 30 days",
+  "completeness.panel_heading": "Completeness and deadlines",
+  "completeness.col_college": "College",
   /* ---- The decision line under the student's own record card (deck section 23) ---- */
   "student.decision.UPHELD": "An AICTE officer reviewed your dispute and decided that {institution_name}'s record stands. Their reason: {reason_word}. If you think this is wrong, ask for a correction from your Privacy page.",
   "student.decision.WITHDRAWN": "An AICTE officer agreed with you: {institution_name}'s claim that you joined has been withdrawn.",

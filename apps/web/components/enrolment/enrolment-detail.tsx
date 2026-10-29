@@ -38,7 +38,7 @@ function crumbsFor(variant: EnrolmentVariant, d: Detail | undefined): Crumb[] {
   const root = variant === "university" ? t("nav.affiliated") : t("nav.overview");
   const inst = d ? { label: d.institution.name, href: `${base}/institutions/${d.institution.id}` } : { label: "…" };
   if (variant === "university") return [{ label: root, href: base }, inst, { label: name }];
-  return [{ label: root, href: base }, inst, { label: t("nav.enrolments"), href: d ? `${base}/institutions/${d.institution.id}?tab=enrolments` : undefined }, { label: name }];
+  return [{ label: root, href: base }, inst, { label: t("nav.enrolments"), href: d ? `${base}/institutions/${d.institution.id}#enrolments` : undefined }, { label: name }];
 }
 
 /** Case detail for officers and the registrar; the university reads case names without links. */
