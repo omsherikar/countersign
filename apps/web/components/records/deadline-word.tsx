@@ -17,7 +17,17 @@ export function deadlineTip(state: DeadlineState, deadline: string, firstUploadA
  * marks table). Late and Overdue use the caution hue for the icon only: the
  * word stays ink, never red text.
  */
-export function DeadlineWord({ state, deadline, firstUploadAt, className }: { state: DeadlineState; deadline: string; firstUploadAt?: string | null; className?: string }) {
+export function DeadlineWord({
+  state,
+  deadline,
+  firstUploadAt,
+  className,
+}: {
+  state: DeadlineState;
+  deadline: string;
+  firstUploadAt?: string | null;
+  className?: string;
+}) {
   const Icon = ICON[state];
   const word = state === "NOT_DUE" ? t("deadline.NOT_DUE", { deadline_date: formatCardDate(deadline) }) : tk(`deadline.${state}`);
   // Without the first upload's date (institution rows do not carry it) only the tips that need none are shown.

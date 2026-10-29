@@ -56,7 +56,15 @@ export type HistoryAudience = "officer" | "registrar" | "university" | "student"
  * one sentence per change. Officers see who acted by name and role; the
  * registrar and the university the role only; the student only the sentences.
  */
-export function HistoryBlock({ enrolmentId, audience, caseHref }: { enrolmentId: string; audience: HistoryAudience; caseHref?: (id: string) => string | null }) {
+export function HistoryBlock({
+  enrolmentId,
+  audience,
+  caseHref,
+}: {
+  enrolmentId: string;
+  audience: HistoryAudience;
+  caseHref?: (id: string) => string | null;
+}) {
   const [page, setPage] = React.useState(1);
   const q = useEnrolmentHistory(enrolmentId, page);
   const ids = React.useId();

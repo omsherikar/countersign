@@ -10,6 +10,7 @@ export const recordsCopy = {
   "source.ADMISSION_AUTHORITY": "State admission authority",
   "source.counselling_adapter": "Counselling list (no longer called)",
   "app.filters": "Filters",
+  "mapping.cancel_edit": "Cancel",
   "app.filter.enrolment_status": "On roll",
   "enrolments.sort.name": "Name, A to Z",
   "cases.age_heading": "Open cases by age",

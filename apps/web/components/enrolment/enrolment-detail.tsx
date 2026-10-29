@@ -33,12 +33,18 @@ const BASE: Record<EnrolmentVariant, string> = { aicte: "/aicte", ro: "/ro", col
 
 function crumbsFor(variant: EnrolmentVariant, d: Detail | undefined): Crumb[] {
   const name = d?.student.name ?? "…";
-  if (variant === "college") return [{ label: t("nav.ledger"), href: "/college" }, { label: t("nav.enrolments"), href: "/college/enrolments" }, { label: name }];
+  if (variant === "college")
+    return [{ label: t("nav.ledger"), href: "/college" }, { label: t("nav.enrolments"), href: "/college/enrolments" }, { label: name }];
   const base = BASE[variant];
   const root = variant === "university" ? t("nav.affiliated") : t("nav.overview");
   const inst = d ? { label: d.institution.name, href: `${base}/institutions/${d.institution.id}` } : { label: "…" };
   if (variant === "university") return [{ label: root, href: base }, inst, { label: name }];
-  return [{ label: root, href: base }, inst, { label: t("nav.enrolments"), href: d ? `${base}/institutions/${d.institution.id}#enrolments` : undefined }, { label: name }];
+  return [
+    { label: root, href: base },
+    inst,
+    { label: t("nav.enrolments"), href: d ? `${base}/institutions/${d.institution.id}#enrolments` : undefined },
+    { label: name },
+  ];
 }
 
 /** Case detail for officers and the registrar; the university reads case names without links. */
@@ -221,7 +227,9 @@ export function EnrolmentDetail({ id, variant }: { id: string; variant: Enrolmen
             {d.record_status && (
               <div className="flex flex-col gap-1 max-md:w-full md:items-end">
                 <RecordStatusBadge status={d.record_status} size="lg" priority className="max-md:w-full max-md:justify-center" />
-                {d.record_status_at && <span className="text-xs text-ink-muted md:text-right">{t("record.status_since", { date: formatCardDate(d.record_status_at) })}</span>}
+                {d.record_status_at && (
+                  <span className="text-xs text-ink-muted md:text-right">{t("record.status_since", { date: formatCardDate(d.record_status_at) })}</span>
+                )}
               </div>
             )}
           </header>

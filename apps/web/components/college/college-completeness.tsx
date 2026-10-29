@@ -15,7 +15,9 @@ export function CollegeCompleteness() {
   return (
     <>
       <Crumbs items={[{ label: t("nav.ledger"), href: "/college" }, { label: t("nav.completeness") }]} />
-      {id && <CompletenessView institutionId={id} academicYear={academicYear} audience="college" caseHref={(cid) => `/college/flags/${cid}`} headingLevel="h1" />}
+      {id && (
+        <CompletenessView institutionId={id} academicYear={academicYear} audience="college" caseHref={(cid) => `/college/flags/${cid}`} headingLevel="h1" />
+      )}
     </>
   );
 }

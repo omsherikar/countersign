@@ -25,8 +25,22 @@ export function CompletenessPanel({ summary, basePath, academicYear }: { summary
       <dl className="grid grid-cols-3 border-y border-rule-strong bg-paper-raised">
         <div className="flex min-w-0 flex-col gap-1 px-3 py-2.5" title={t("completeness.tip", { academic_year: academicYear })}>
           <dt className="truncate text-xs font-medium text-ink-muted">{t("kpi.completeness")}</dt>
-          <dd className="font-display text-xl leading-tight font-semibold">{k ? (k.completeness_pct === null ? <span className="text-sm font-normal text-ink-muted italic">{t("kpi.not_computed")}</span> : pctWord(k.completeness_pct)) : <Skeleton className="h-6 w-14" />}</dd>
-          {k && k.completeness_pct !== null && <dd className="text-xs text-ink-muted">{t("completeness.col_missing")} {formatCount(k.missing_from_upload)}</dd>}
+          <dd className="font-display text-xl leading-tight font-semibold">
+            {k ? (
+              k.completeness_pct === null ? (
+                <span className="text-sm font-normal text-ink-muted italic">{t("kpi.not_computed")}</span>
+              ) : (
+                pctWord(k.completeness_pct)
+              )
+            ) : (
+              <Skeleton className="h-6 w-14" />
+            )}
+          </dd>
+          {k && k.completeness_pct !== null && (
+            <dd className="text-xs text-ink-muted">
+              {t("completeness.col_missing")} {formatCount(k.missing_from_upload)}
+            </dd>
+          )}
         </div>
         <div className="flex min-w-0 flex-col gap-1 border-l border-rule px-3 py-2.5">
           <dt className="truncate text-xs font-medium text-ink-muted">{t("deadline.LATE")}</dt>

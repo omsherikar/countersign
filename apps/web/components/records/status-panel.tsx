@@ -19,7 +19,10 @@ export function pctWord(n: number | null): string {
 
 function shares(counts: RecordCounts): Record<RecordStatus, number | null> {
   const total = STATUS_ORDER.reduce((a, s) => a + counts[s], 0);
-  return Object.fromEntries(STATUS_ORDER.map((s) => [s, total === 0 ? null : Math.round((counts[s] / total) * 1000) / 10])) as Record<RecordStatus, number | null>;
+  return Object.fromEntries(STATUS_ORDER.map((s) => [s, total === 0 ? null : Math.round((counts[s] / total) * 1000) / 10])) as Record<
+    RecordStatus,
+    number | null
+  >;
 }
 
 const BAR: Record<RecordStatus, string> = {
@@ -58,7 +61,11 @@ export function StatusPanel({
   const max = counts ? Math.max(1, ...STATUS_ORDER.map((s) => counts[s])) : 1;
   return (
     <div className="flex flex-col gap-3">
-      <ul className="grid grid-cols-2 border-y border-rule-strong bg-paper-raised lg:grid-cols-4" aria-labelledby={headingId} title={t("kpi.status_tip", { academic_year: academicYear })}>
+      <ul
+        className="grid grid-cols-2 border-y border-rule-strong bg-paper-raised lg:grid-cols-4"
+        aria-labelledby={headingId}
+        title={t("kpi.status_tip", { academic_year: academicYear })}
+      >
         {STATUS_ORDER.map((s, i) => {
           const { Icon, ink } = STATUS_MARK[s];
           const href = hrefFor?.(s) ?? null;
@@ -84,7 +91,12 @@ export function StatusPanel({
                   <span className="font-display text-2xl leading-none font-semibold text-ink" style={{ fontVariantNumeric: "lining-nums proportional-nums" }}>
                     {formatCount(counts[s])}
                   </span>
-                  <span className="text-xs text-ink-muted" aria-label={share?.[s] === null ? undefined : t("kpi.status_value", { n: formatCount(counts[s]), pct: pctWord(share![s]).replace("%", "") })}>
+                  <span
+                    className="text-xs text-ink-muted"
+                    aria-label={
+                      share?.[s] === null ? undefined : t("kpi.status_value", { n: formatCount(counts[s]), pct: pctWord(share![s]).replace("%", "") })
+                    }
+                  >
                     {share?.[s] === null ? t("kpi.not_computed") : pctWord(share![s])}
                   </span>
                 </>
@@ -94,7 +106,11 @@ export function StatusPanel({
           return (
             <li key={s} className={cn("min-w-0 border-rule", i % 2 === 1 && "border-l", i >= 2 && "border-t lg:border-t-0", i > 0 && "lg:border-l")}>
               {href && counts ? (
-                <Link href={href} className="block h-full text-ink no-underline outline-offset-[-2px] hover:bg-flag-open-soft/60" title={tk(`record_status.meaning.${s}`)}>
+                <Link
+                  href={href}
+                  className="block h-full text-ink no-underline outline-offset-[-2px] hover:bg-flag-open-soft/60"
+                  title={tk(`record_status.meaning.${s}`)}
+                >
                   {body}
                 </Link>
               ) : (

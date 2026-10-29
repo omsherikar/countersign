@@ -125,9 +125,7 @@ function Summary({ c, caseHref, Heading }: { c: InstitutionCompleteness; caseHre
   return (
     <div className="flex flex-col gap-2">
       <Heading className={Heading === "h1" ? "text-2xl md:text-3xl" : "text-xl"}>{t("completeness.heading")}</Heading>
-      <p className="max-w-none font-display text-lg font-semibold">
-        {line}
-      </p>
+      <p className="max-w-none font-display text-lg font-semibold">{line}</p>
       <p className="flex max-w-none flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         <DeadlineWord state={c.deadline_state} deadline={c.deadline} firstUploadAt={c.first_upload_at} className="font-medium" />
         <span className="text-ink-muted">{deadlineTip(c.deadline_state, c.deadline, c.first_upload_at)}</span>

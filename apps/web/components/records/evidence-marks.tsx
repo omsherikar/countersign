@@ -35,7 +35,9 @@ export function IndependenceMarker({ row, institutionName }: { row: AnyRow; inst
   const independent = row.independent;
   const Icon = independent ? ShieldCheck : Building2;
   const source = isFull(row) ? row.supplied_by : "";
-  const tip = independent ? t("evidence.independent_tip", { source_name: source || tk(`check.${row.type}`) }) : t("evidence.from_college_tip", { institution_name: institutionName });
+  const tip = independent
+    ? t("evidence.independent_tip", { source_name: source || tk(`check.${row.type}`) })
+    : t("evidence.from_college_tip", { institution_name: institutionName });
   return (
     <span className={cn("inline-flex items-center gap-1 text-xs", independent ? "text-ink" : "text-ink-muted")} title={tip}>
       <Icon className="size-3.5 shrink-0" aria-hidden="true" />

@@ -116,7 +116,18 @@ export function EnrolmentsTable({
   const filterCount = [programmeId, route, status !== "ACTIVE" ? status : "", recordStatus, row, rowState, flagged, seated].filter(Boolean).length;
   const filtered = Boolean(filterCount || q);
   const clearAll = () =>
-    set({ e_programme: null, e_enrol: null, e_route: null, e_q: null, e_status: null, e_row: null, e_state: null, e_flagged: null, e_seated: null, e_page: null });
+    set({
+      e_programme: null,
+      e_enrol: null,
+      e_route: null,
+      e_q: null,
+      e_status: null,
+      e_row: null,
+      e_state: null,
+      e_flagged: null,
+      e_seated: null,
+      e_page: null,
+    });
 
   const filters = (
     <>
@@ -227,9 +238,7 @@ export function EnrolmentsTable({
         )}
       </div>
 
-      {data?.status_counts && (
-        <StatusCounts counts={data.status_counts} current={recordStatus} onPick={(s) => set({ e_status: s, e_page: null })} />
-      )}
+      {data?.status_counts && <StatusCounts counts={data.status_counts} current={recordStatus} onPick={(s) => set({ e_status: s, e_page: null })} />}
 
       <div className="relative overflow-x-auto border-l-2 border-rule-margin bg-paper-raised">
         <table className="ledger-table" aria-busy={list.isFetching}>
@@ -307,7 +316,11 @@ export function EnrolmentsTable({
                 <td>{tk(`route.${e.admission_route}`)}</td>
                 <td className="code">{e.seat_code ? <SeatCodePill seatCode={e.seat_code} status="ASSIGNED" /> : <UnseatedChip />}</td>
                 <td>
-                  {e.record_status ? <RecordStatusBadge status={e.record_status} tip={e.status_reason} /> : <span className="text-xs text-ink-muted">{tk(`enrol_status.${e.status}`)}</span>}
+                  {e.record_status ? (
+                    <RecordStatusBadge status={e.record_status} tip={e.status_reason} />
+                  ) : (
+                    <span className="text-xs text-ink-muted">{tk(`enrol_status.${e.status}`)}</span>
+                  )}
                 </td>
                 <td>
                   <FlagChips flags={e.flags} hrefFor={flagHref} />

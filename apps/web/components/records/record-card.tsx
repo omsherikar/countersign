@@ -55,7 +55,18 @@ export interface RecordCardProps {
  * with the status and next step, and the status legend. On a phone the
  * table becomes five stacked blocks in the same order.
  */
-export function RecordCard({ header, programmeShort: short, institutionName, rows, status, statusReason, nextStep, audience, showDetails = false, className }: RecordCardProps) {
+export function RecordCard({
+  header,
+  programmeShort: short,
+  institutionName,
+  rows,
+  status,
+  statusReason,
+  nextStep,
+  audience,
+  showDetails = false,
+  className,
+}: RecordCardProps) {
   const list = ordered(rows);
   const legendId = React.useId();
   return (
@@ -63,7 +74,9 @@ export function RecordCard({ header, programmeShort: short, institutionName, row
       aria-label={t("record.aria_card", { programme_short: short, institution_name: institutionName })}
       className={cn("record-card overflow-hidden rounded-md border border-rule-strong bg-paper-raised shadow-hairline", className)}
     >
-      <p className="max-w-none border-b border-rule bg-paper px-4 py-3 font-display text-md font-semibold leading-snug md:px-5 [overflow-wrap:anywhere]">{header}</p>
+      <p className="max-w-none border-b border-rule bg-paper px-4 py-3 font-display text-md font-semibold leading-snug md:px-5 [overflow-wrap:anywhere]">
+        {header}
+      </p>
       {list.length === 0 ? (
         <p className="px-4 py-6 text-sm text-ink-muted md:px-5">{t("empty.checks")}</p>
       ) : (
@@ -104,9 +117,16 @@ function RecordRow({ row, institutionName, showDetails }: { row: AnyRow; institu
   const contradicted = row.state === "CONTRADICTED";
   return (
     <tr className={cn("border-b border-rule align-top last:border-b-0 max-md:block max-md:px-4 max-md:py-3", contradicted && "bg-check-fail-soft/40")}>
-      <th scope="row" className="px-4 py-2.5 text-left font-medium max-md:block max-md:p-0 max-md:text-xs max-md:tracking-wide max-md:text-ink-muted max-md:uppercase md:px-5">
+      <th
+        scope="row"
+        className="px-4 py-2.5 text-left font-medium max-md:block max-md:p-0 max-md:text-xs max-md:tracking-wide max-md:text-ink-muted max-md:uppercase md:px-5"
+      >
         <span className="sr-only">{rowSentence(row)}</span>
-        <span aria-hidden="true" title={tk(`check.label_tip.${row.type}`)} className="cursor-help underline decoration-rule decoration-dotted underline-offset-4">
+        <span
+          aria-hidden="true"
+          title={tk(`check.label_tip.${row.type}`)}
+          className="cursor-help underline decoration-rule decoration-dotted underline-offset-4"
+        >
           {tk(`check.${row.type}`)}
         </span>
       </th>
@@ -170,7 +190,9 @@ export function Legend({ current, id }: { current: RecordStatus | null; id?: str
         })}
       </p>
       <details id={id} className="group">
-        <summary className="inline-flex min-h-8 cursor-pointer items-center text-ink-blue underline-offset-4 hover:underline">{t("record_status.legend_label")}</summary>
+        <summary className="inline-flex min-h-8 cursor-pointer items-center text-ink-blue underline-offset-4 hover:underline">
+          {t("record_status.legend_label")}
+        </summary>
         <dl className="mt-1.5 grid max-w-[70ch] grid-cols-1 gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr]">
           {STATUS_ORDER.map((s) => {
             const { Icon, ink } = STATUS_MARK[s];
