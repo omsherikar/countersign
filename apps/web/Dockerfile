@@ -16,6 +16,9 @@ CMD ["pnpm", "dev"]
 
 # ---- build: standalone output for the prod image ----
 FROM base AS build
+# the /api rewrite is fixed at build time, so the image is built for the address it will proxy to
+ARG API_INTERNAL_URL=http://api:8000
+ENV API_INTERNAL_URL=${API_INTERNAL_URL}
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .

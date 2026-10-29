@@ -32,6 +32,17 @@ demo-reset: ## wipe both databases and Mailpit, then reseed: mockgov, uploads an
 	$(COMPOSE) run --rm api python -m app.seed.replies --from /data/generated
 	$(COMPOSE) run --rm api python -m app.seed.derived --from /data/generated
 
+demo-snapshot: ## keep a copy of the demo databases for demo-restore (run after demo-reset)
+	$(COMPOSE) stop api worker mockgov
+	$(COMPOSE) exec -T postgres sh -s snapshot < infra/postgres/demo-db.sh
+	$(COMPOSE) start mockgov api worker
+
+demo-restore: ## put the demo databases back to the last demo-snapshot, in seconds
+	$(COMPOSE) stop api worker mockgov
+	$(COMPOSE) exec -T postgres sh -s restore < infra/postgres/demo-db.sh
+	$(COMPOSE) exec -T redis redis-cli FLUSHDB > /dev/null
+	$(COMPOSE) start mockgov api worker
+
 audit-tamper: ## change one audit entry to show the chain break (DEMO_MODE only): make audit-tamper SEQ=n
 	@test -n "$(SEQ)" || { echo "usage: make audit-tamper SEQ=n"; exit 2; }
 	$(COMPOSE) run --rm api python -m app.core.audit_tamper --seq $(SEQ)

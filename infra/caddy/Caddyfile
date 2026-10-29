@@ -1,0 +1,29 @@
+# The one public entry point (docker-compose.prod.yml). Caddy gets and renews the TLS
+# certificate for DOMAIN on its own.
+{$DOMAIN} {
+	encode zstd gzip
+
+	# the api, without the web in between, so visitors' addresses reach its rate limits
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+
+	# the labelled Demo DigiLocker: the two pages a browser opens (sign-in and inbox);
+	# its token exchange and the other simulated sources stay on the internal network
+	@digilocker path /digilocker/oauth/authorize /digilocker/ui
+	handle @digilocker {
+		reverse_proxy mockgov:8001
+	}
+
+	# the demo mailbox, behind a password
+	handle /mailpit* {
+		basic_auth {
+			{$MAILPIT_USER} {$MAILPIT_PASSWORD_HASH}
+		}
+		reverse_proxy mailpit:8025
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

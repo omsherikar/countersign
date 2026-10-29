@@ -1,0 +1,91 @@
+# One public VM: `docker compose -f docker-compose.yml -f docker-compose.prod.yml ...`
+# (the Makefile's COMPOSE variable). Services run from their built images instead of mounted
+# source, without reload; the web runs its production build; only Caddy publishes ports
+# (80 and 443, with automatic HTTPS for DOMAIN); everything restarts after a reboot.
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    <<: *restart
+    ports: !reset []
+
+  redis:
+    <<: *restart
+    ports: !reset []
+
+  mailpit:
+    <<: *restart
+    ports: !reset []
+    environment:
+      # served under /mailpit/ behind a password (infra/caddy/Caddyfile); kept on disk across restarts
+      MP_WEBROOT: /mailpit/
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mailpit:/data
+
+  api:
+    <<: *restart
+    # the client address comes from Caddy's X-Forwarded-For, so per-IP limits apply per visitor
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75 --proxy-headers --forwarded-allow-ips=*
+    volumes: !override
+      - ./rules.yaml:/app/rules.yaml:ro
+      - generated:/data/generated
+      - upload-spool:/data/spool
+      - case-files:/data/case-files
+    ports: !reset []
+
+  worker:
+    <<: *restart
+    volumes: !override
+      - ./rules.yaml:/app/rules.yaml:ro
+      - generated:/data/generated
+      - upload-spool:/data/spool
+      - case-files:/data/case-files
+
+  mockgov:
+    <<: *restart
+    # one process: chaos toggles live in process memory
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
+    volumes: !override
+      - generated:/data/generated
+    ports: !reset []
+
+  psi:
+    <<: *restart
+
+  psi-client:
+    <<: *restart
+
+  web:
+    <<: *restart
+    build:
+      context: ./apps/web
+      target: prod
+      args:
+        API_INTERNAL_URL: http://api:8000
+    command: !reset null
+    volumes: !reset []
+    ports: !reset []
+
+  caddy:
+    <<: *restart
+    image: caddy:2.10-alpine
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN must be set in .env}
+      MAILPIT_USER: ${MAILPIT_USER:?MAILPIT_USER must be set in .env}
+      MAILPIT_PASSWORD_HASH: ${MAILPIT_PASSWORD_HASH:?MAILPIT_PASSWORD_HASH must be set in .env}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web: { condition: service_started }
+      api: { condition: service_started }
+
+volumes:
+  mailpit:
+  caddy-data:
+  caddy-config:
